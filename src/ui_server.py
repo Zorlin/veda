@@ -21,7 +21,7 @@ class UIServer:
     def __init__(
         self,
         host: str = "localhost",
-        port: int = 8765,
+        port: int = 9940, # Default WebSocket port
         receive_stream: Optional[MemoryObjectReceiveStream] = None # Add stream to constructor
     ):
         self.host = host

@@ -21,8 +21,8 @@ from src.ui_server import UIServer # Import UI Server
 # Default configuration values (used if config file is missing or invalid)
 DEFAULT_CONFIG = {
     "websocket_host": "localhost",
-    "websocket_port": 8765,
-    "http_port": 8676, # Default HTTP port
+    "websocket_port": 9940, # Default WebSocket port
+    "http_port": 9950, # Default HTTP port
     "enable_ui": False,
     # Add other essential defaults if needed for early access
 }
@@ -178,10 +178,11 @@ def main():
     ui_enabled = args.enable_ui or config.get("enable_ui", False)
     # WebSocket settings
     ws_host = args.ui_host or config.get("websocket_host", "localhost")
-    ws_port = args.ui_port or config.get("websocket_port", 8765)
+    ws_port = args.ui_port or config.get("websocket_port", 9940) # Use new default
     # HTTP settings
     http_host = args.ui_host or config.get("websocket_host", "localhost") # Usually same host
-    http_port = args.ui_http_port or config.get("http_port", ws_port + 1) # Default to ws_port + 1
+    # Default HTTP port comes from config/defaults, not derived from WS port anymore
+    http_port = args.ui_http_port or config.get("http_port", 9950) # Use new default
 
     # --- Define HTTP Server Function ---
     def start_http_server(host: str, port: int, directory: Path):
