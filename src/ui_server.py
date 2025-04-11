@@ -226,18 +226,8 @@ async def main_test():
     await server_task # Wait for server task to finish cleanly
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    server.send_update({"status": "Running Aider", "iteration": 1})
-    await asyncio.sleep(5)
-    server.send_update({"status": "Running Pytest", "iteration": 1, "log_entry": "Pytest started..."})
-    await asyncio.sleep(5)
-    server.send_update({"status": "Evaluating", "iteration": 1, "log_entry": "Pytest failed."})
-    await asyncio.sleep(10)
-
-    server.stop()
-    await server.server_task # Wait for server task to finish
-
-if __name__ == "__main__":
+    # This block is intended for running the main_test function for standalone testing.
+    # The previous lines were duplicated and incorrect test code.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
     try:
         asyncio.run(main_test())
