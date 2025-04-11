@@ -5,6 +5,8 @@ import re # Import the regex module
 import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
+import threading # Added import for threading objects
+import pexpect # Added import for pexpect exceptions in mocks
 
 import pytest
 import yaml
