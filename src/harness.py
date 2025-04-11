@@ -553,12 +553,12 @@ class Harness:
                     Callback function to send raw Aider output chunks to the UI stream.
 
                     Design Notes:
-                    - Sends raw chunks: Includes ANSI codes and control characters (\r, \b, \\c etc.).
+                    - Sends raw chunks: Includes ANSI codes and control characters (\\r, \\b, \\c etc.).
                     - Frontend Responsibility: The frontend UI (specifically `ansi_up.js` and
                       custom JavaScript in `index.html` like `processOutputBuffer`) is responsible
                       for interpreting ANSI codes for color/formatting and handling control
-                      characters like carriage return (\r) and backspace (\b) to correctly
-                      render the live output, simulating a terminal. Aider's cancel code (\c)
+                      characters like carriage return (\\r) and backspace (\\b) to correctly
+                      render the live output, simulating a terminal. Aider's cancel code (\\c)
                       should also be handled by frontend logic if specific actions are needed.
                     - Backend Duplicate Prevention: This callback prevents sending *identical consecutive raw chunks*
                       to the stream, reducing unnecessary WebSocket traffic. The frontend might perform
