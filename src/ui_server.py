@@ -176,9 +176,9 @@ class UIServer:
                     update = await anyio.to_thread.run_sync(
                         lambda: anyio.run(
                             self.ui_receive_stream.receive,
-                            cancellable=True
+                            abandon_on_cancel=True  # Updated from cancellable=True
                         ),
-                        cancellable=True
+                        abandon_on_cancel=True  # Updated from cancellable=True
                     )
                     # Broadcast the update to all connected clients
                     await self.broadcast(update)

@@ -346,9 +346,10 @@ def test_harness_forced_interrupt_stops_aider_skips_iteration(
         work_dir=temp_work_dir,
         max_retries=3,
         enable_council=False,
-        storage_type="json",
-        enable_ui=True
+        storage_type="json"
     )
+    # Set UI enabled in config instead of as a constructor parameter
+    harness.config["enable_ui"] = True
 
     initial_goal = "Initial Goal"
     interrupt_message = "STOP! Do this instead!"
