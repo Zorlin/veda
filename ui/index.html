@@ -289,13 +289,13 @@
                     // Basic stripping of some other common ANSI escape sequences that ansi_up might miss
                     // This is not exhaustive and might need refinement.
                     // Pattern: ESC [ <optional numbers/semicolons> <letter>
-                    const ansiEscapePattern = /\x1b\[[0-9;]*[a-zA-Z]/g;
-                    this.liveAiderOutput = currentOutput.replace(ansiEscapePattern, '');
+                    // const ansiEscapePattern = /\x1b\[[0-9;]*[a-zA-Z]/g; // Keep commented out
+                    // this.liveAiderOutput = currentOutput.replace(ansiEscapePattern, ''); // Keep commented out
                     
                     // Note: ansi_up will handle color codes later during rendering (x-html)
-                    // Removed redundant ANSI stripping
-                    // this.liveAiderOutput = currentOutput.replace(ansiEscapePattern, '');
-                    this.liveAiderOutput = currentOutput;
+                    
+                    // Assign the fully processed output (after handling \r) back to the reactive property
+                    this.liveAiderOutput = currentOutput; 
                 },
 
                 processOutputBuffer() {

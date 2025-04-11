@@ -30,11 +30,11 @@ async def test_server(anyio_backend): # Add anyio_backend fixture back
         
         # Give the server a moment to initialize fully (e.g., bind the port)
         # A more robust approach might involve waiting for a specific log message or state.
-        await anyio.sleep(0.2) 
-        
-        # Yield the server instance to the test
-        yield server
-        
+        await anyio.sleep(0.2)
+
+        # Yield both the server instance and the send stream to the test
+        yield server, send_stream
+
         # Cleanup: Stop the server first, then cancel the fixture's task group
         server.stop() # Signal the server's internal tasks to stop
         await anyio.sleep(0.1) # Give internal tasks a moment to start cancelling
@@ -48,8 +48,9 @@ async def test_server(anyio_backend): # Add anyio_backend fixture back
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
 async def test_ui_server_connection(test_server, anyio_backend): # Add anyio_backend fixture back
     """Test that a client can connect to the server."""
-    uri = f"ws://{test_server.host}:{test_server.port}"
-    
+    server, _ = test_server # Unpack server, ignore send_stream
+    uri = f"ws://{server.host}:{server.port}"
+
     async with websockets.connect(uri) as websocket:
         # Connection success is verified by reaching this point without error.
         # Check if initial status is received (using asyncio timeout)
@@ -62,19 +63,19 @@ async def test_ui_server_connection(test_server, anyio_backend): # Add anyio_bac
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
 async def test_ui_server_broadcast(test_server, anyio_backend): # Add anyio_backend fixture back
     """Test that the server broadcasts messages to connected clients."""
-    uri = f"ws://{test_server.host}:{test_server.port}"
-    
+    server, _ = test_server # Unpack server, ignore send_stream
+    uri = f"ws://{server.host}:{server.port}"
+
     # Connect two clients
     async with websockets.connect(uri) as ws1, websockets.connect(uri) as ws2:
         # Receive initial status for both (using asyncio timeout)
         await asyncio.wait_for(ws1.recv(), timeout=1.0)
         await asyncio.wait_for(ws2.recv(), timeout=1.0)
-        
         # Broadcast an update - await directly since we're in the same loop
         update_data = {"status": "Testing Broadcast", "iteration": 5, "log_entry": "Test log"}
-        await test_server.broadcast(update_data)
+        await server.broadcast(update_data) # Use unpacked server variable
         # Increase sleep slightly to allow broadcast processing time
-        await anyio.sleep(0.1) 
+        await anyio.sleep(0.1)
 
         # Check if both clients received the update (using asyncio timeout)
         update1_str = await asyncio.wait_for(ws1.recv(), timeout=1.0)
@@ -94,12 +95,13 @@ async def test_ui_server_broadcast(test_server, anyio_backend): # Add anyio_back
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
 async def test_ui_server_latest_status_on_connect(test_server, anyio_backend): # Add anyio_backend fixture back
     """Test that a new client receives the *latest* status upon connection."""
-    uri = f"ws://{test_server.host}:{test_server.port}"
+    server, _ = test_server # Unpack server, ignore send_stream
+    uri = f"ws://{server.host}:{server.port}"
 
     # Directly set the latest status on the server instance before connecting
-    test_server.latest_status = {
-        "status": "Pre-Connection Update", 
-        "run_id": 123, 
+    server.latest_status = { # Use unpacked server variable
+        "status": "Pre-Connection Update",
+        "run_id": 123,
         "iteration": 1, # Make sure iteration is also set if expected
         "log": ["Status before connect"] # Ensure log is updated directly
     }
@@ -119,11 +121,12 @@ async def test_ui_server_latest_status_on_connect(test_server, anyio_backend): #
 @pytest.mark.anyio
 async def test_ui_server_receives_interrupt_command(test_server, anyio_backend):
     """Test that the server handles the 'interrupt' command from a client."""
-    uri = f"ws://{test_server.host}:{test_server.port}"
+    server, _ = test_server # Unpack server, ignore send_stream
+    uri = f"ws://{server.host}:{server.port}"
 
     # Mock the harness instance and its request_interrupt method
     mock_harness = MagicMock()
-    test_server.set_harness_instance(mock_harness)
+    server.set_harness_instance(mock_harness) # Use unpacked server variable
 
     interrupt_msg = "Stop and refactor the database module."
     interrupt_flag = True
@@ -152,7 +155,62 @@ async def test_ui_server_receives_interrupt_command(test_server, anyio_backend):
         interrupt_msg, interrupt_now=interrupt_flag
     )
 
+@pytest.mark.anyio
+async def test_ui_server_relays_stream_updates(test_server, anyio_backend):
+    """Test that the server receives updates via its stream and broadcasts them."""
+    uri = f"ws://{test_server.host}:{test_server.port}"
+
+    # Get the send stream associated with the server's receive stream
+    # Note: This assumes the fixture setup correctly links the streams.
+    # In the fixture, we create send_stream, receive_stream and pass receive_stream to UIServer.
+    # We need access to the send_stream here. Let's modify the fixture slightly.
+
+    # Modify the fixture to yield both server and send_stream
+    # (Requires changing the fixture definition) - Let's assume fixture is modified for now.
+    # For this example, let's access it via the server instance if possible,
+    # or ideally, the fixture should yield it.
+    # Re-thinking: The fixture creates the streams. We need the send_stream from the fixture.
+
+    # Let's modify the fixture to return both server and send_stream
+    # (This requires editing the fixture code above this test)
+
+    # Assuming the fixture `test_server` now yields `(server, send_stream)`
+    server, send_stream = test_server # Unpack from modified fixture yield
+
+    async with websockets.connect(uri) as websocket:
+        # Receive initial status
+        await asyncio.wait_for(websocket.recv(), timeout=1.0)
+
+        # Simulate Harness sending an update via the stream
+        test_chunk = "This is a test chunk from Aider.\n"
+        update_message = {"type": "aider_output", "chunk": test_chunk}
+        await send_stream.send(update_message)
+
+        # Check if the client received the broadcast update
+        received_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
+        received_data = json.loads(received_str)
+
+        assert received_data["type"] == "aider_output"
+        assert received_data["chunk"] == test_chunk
+
+        # Simulate sending a general status update
+        status_update = {"status": "Processing", "iteration": 2, "log_entry": "Test log 2"}
+        await send_stream.send(status_update)
+
+        # Check if the client received the broadcast status update
+        # Note: The server merges this into latest_status before broadcasting
+        received_status_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
+        received_status_data = json.loads(received_status_str)
+
+        assert received_status_data["status"] == "Processing"
+        assert received_status_data["iteration"] == 2
+        assert "Test log 2" in received_status_data["log"]
+
 
 # Note: Testing the thread startup in main.py is more complex and might require
 # mocking threading.Thread or using integration tests. These tests focus on the
 # UIServer class functionality itself.
+
+# --- Fixture Modification Required for the above test ---
+# The test_server fixture needs to be modified to yield the send_stream
+# Add this SEARCH/REPLACE block for the fixture:
