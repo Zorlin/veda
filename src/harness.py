@@ -4,20 +4,24 @@ import subprocess
 import time
 from pathlib import Path
 import json
-from typing import Dict, Any, Optional, List, Tuple # Add Tuple
+from typing import Dict, Any, Optional, List, Tuple
 
 import yaml
 
 from .aider_interaction import run_aider
-from .llm_interaction import get_llm_response # Import the LLM function
-# Persistence is handled directly via JSON state saving/loading
+from .llm_interaction import get_llm_response
 from .pytest_interaction import run_pytest
-import re # Import re for parsing LLM response
+from .ledger import Ledger
+from .vesper_mind import VesperMind
+import re
 
 
 class Harness:
     """
-    Orchestrates the Aider-Ollama-Pytest loop.
+    Orchestrates the Aider-Ollama-Pytest loop with enhanced features:
+    - SQLite/JSON ledger for persistent state
+    - VESPER.MIND council for evaluation
+    - Code review capabilities
     """
 
     def __init__(
@@ -26,21 +30,50 @@ class Harness:
         max_retries: int = 5,
         work_dir: Path = Path("harness_work_dir"),
         reset_state: bool = False,
-        ollama_model: Optional[str] = None, # Add ollama_model parameter
+        ollama_model: Optional[str] = None,
+        storage_type: str = "sqlite",  # "sqlite" or "json"
+        enable_council: bool = True,
+        enable_code_review: bool = False
     ):
         self.config_file = config_file
         self.max_retries = max_retries
-        self.work_dir = work_dir # Initial work_dir path
-        self.config: Dict[str, Any] = self._load_config() # Load config, potentially updating self.work_dir
+        self.work_dir = work_dir
+        self.config: Dict[str, Any] = self._load_config()
+        
         # Override config model if CLI argument is provided
         if ollama_model:
             logging.info(f"Overriding configured Ollama model with command-line argument: {ollama_model}")
             self.config["ollama_model"] = ollama_model
-        # Initialize state *after* config is loaded and work_dir is finalized
-        self.state: Dict[str, Any] = self._initialize_state(reset_state) # Pass flag from __init__
-        # State is saved/loaded via JSON, no separate logger object needed for now.
+        
+        # Initialize ledger for persistent state
+        self.ledger = Ledger(
+            work_dir=self.work_dir,
+            storage_type=storage_type
+        )
+        
+        # Initialize VESPER.MIND council if enabled
+        self.enable_council = enable_council
+        if enable_council:
+            self.council = VesperMind(
+                config=self.config,
+                ledger=self.ledger,
+                work_dir=self.work_dir
+            )
+        else:
+            self.council = None
+        
+        # Initialize state from ledger or create new state
+        self.state = self._initialize_state(reset_state)
+        
+        # Code review settings
+        self.enable_code_review = enable_code_review
+        self.current_run_id = None
+        
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
-        logging.info(f"Working directory used for state: {self.work_dir.resolve()}")
+        logging.info(f"Working directory: {self.work_dir.resolve()}")
+        logging.info(f"Storage type: {storage_type}")
+        logging.info(f"VESPER.MIND council enabled: {enable_council}")
+        logging.info(f"Code review enabled: {enable_code_review}")
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads configuration from the YAML file."""
@@ -122,86 +155,104 @@ class Harness:
     def _initialize_state(self, reset_state: bool) -> Dict[str, Any]:
         """
         Initializes the harness state.
-        Loads from file if it exists and reset_state is False.
+        If reset_state is False, tries to load the latest run from the ledger.
         Otherwise, returns a fresh state.
         """
-        state_file = self.work_dir / "harness_state.json"
-
-        if not reset_state and state_file.is_file(): # Check reset_state flag
-            logging.info(f"Attempting to load state from {state_file}...")
-            try:
-                with open(state_file, 'r') as f:
-                    state = json.load(f)
-                # Basic validation: check if it's a dictionary and has expected keys
-                if isinstance(state, dict) and "current_iteration" in state and "prompt_history" in state:
-                    logging.info(f"Successfully loaded and validated previous state from {state_file}")
-                    # Ensure prompt_history is a list
-                    if not isinstance(state.get("prompt_history"), list):
-                        logging.warning("Loaded state has invalid 'prompt_history'. Resetting history.")
-                        state["prompt_history"] = []
-                    return state
-                else:
-                    logging.warning(f"State file {state_file} has invalid format. Initializing fresh state.")
-            except (json.JSONDecodeError, IOError) as e:
-                logging.warning(f"Could not load or parse state file {state_file}: {e}. Initializing fresh state.")
-            except Exception as e:
-                 logging.error(f"Unexpected error loading state file {state_file}: {e}. Initializing fresh state.")
-        elif reset_state:
-            logging.info(f"Resetting state as requested. Ignoring existing state file {state_file} if present.")
-        else: # File not found and not resetting
-            logging.info(f"State file {state_file} not found. Initializing fresh state.")
-
-        # Default state if no valid state file is found, loading fails, or reset requested
+        if reset_state:
+            logging.info("Resetting state as requested.")
+            return {
+                "current_iteration": 0,
+                "prompt_history": [],
+                "converged": False,
+                "last_error": None,
+                "run_id": None
+            }
+        
+        # Try to get the latest run ID from the ledger
+        latest_run_id = self.ledger.get_latest_run_id()
+        
+        if latest_run_id is not None:
+            # Get run summary
+            run_summary = self.ledger.get_run_summary(latest_run_id)
+            
+            # Check if the run is still in progress (no end_time)
+            if run_summary and not run_summary.get("end_time"):
+                logging.info(f"Resuming run {latest_run_id}")
+                
+                # Get conversation history
+                history = self.ledger.get_conversation_history(latest_run_id)
+                
+                # Determine current iteration
+                current_iteration = run_summary.get("iteration_count", 0)
+                
+                return {
+                    "current_iteration": current_iteration,
+                    "prompt_history": history,
+                    "converged": run_summary.get("converged", False),
+                    "last_error": run_summary.get("final_status"),
+                    "run_id": latest_run_id
+                }
+        
+        # No valid run to resume or reset requested
         logging.info("Initializing fresh state.")
         return {
             "current_iteration": 0,
-            "prompt_history": [], # Stores conversation: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+            "prompt_history": [],
             "converged": False,
             "last_error": None,
-            # TODO: Add fields for logging diffs, outcomes per iteration if needed beyond history
+            "run_id": None
         }
 
     def _save_state(self):
-        """Saves the current harness state to harness_state.json."""
-        state_file = self.work_dir / "harness_state.json"
-        logging.info(f"Saving harness state to {state_file}...")
-        try:
-            # Ensure the directory exists before writing
-            state_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(state_file, 'w') as f:
-                json.dump(self.state, f, indent=4)
-            logging.info(f"Successfully saved state to {state_file}")
-        except IOError as e:
-            logging.error(f"Could not write state file {state_file}: {e}")
-        except TypeError as e:
-            # This can happen if non-serializable objects are in the state
-            logging.error(f"Could not serialize state to JSON: {e}. State: {self.state}")
-        except Exception as e:
-            logging.error(f"Unexpected error saving state: {e}")
+        """
+        Updates the ledger with the current state.
+        This is a compatibility method that delegates to the ledger.
+        """
+        # If we have an active run, update it in the ledger
+        if self.current_run_id is not None:
+            # Update run status
+            self.ledger.end_run(
+                self.current_run_id,
+                self.state["converged"],
+                self.state.get("last_error", "Unknown status")
+            )
+            
+            logging.info(f"Updated run {self.current_run_id} in ledger")
 
 
     def run(self, initial_goal_prompt: str):
-        """Runs the main Aider-Pytest-Ollama loop."""
+        """Runs the main Aider-Pytest-Ollama loop with enhanced features."""
         logging.info("Starting harness run...")
-
+        
+        # Start a new run in the ledger if we don't have an active one
+        if self.state["run_id"] is None:
+            self.current_run_id = self.ledger.start_run(
+                initial_goal_prompt,
+                self.max_retries,
+                self.config
+            )
+            self.state["run_id"] = self.current_run_id
+            logging.info(f"Started new run with ID {self.current_run_id}")
+        else:
+            self.current_run_id = self.state["run_id"]
+            logging.info(f"Continuing run with ID {self.current_run_id}")
+        
         # Initialize prompt history only if starting fresh
         if self.state["current_iteration"] == 0 and not self.state["prompt_history"]:
             logging.info("Initializing prompt history with the initial goal.")
             current_prompt = initial_goal_prompt
             # Ensure history is clean before adding the first prompt
             self.state["prompt_history"] = [{"role": "user", "content": current_prompt}]
+            # Add to ledger
+            self.ledger.add_message(self.current_run_id, None, "user", current_prompt)
         elif self.state["prompt_history"]:
             # If resuming, the last message should be the user prompt for the current iteration
             last_message = self.state["prompt_history"][-1]
             if last_message.get("role") == "user":
                 current_prompt = last_message["content"]
-                # Last run stopped waiting for Aider, resume normally.
-                current_prompt = last_message["content"]
                 logging.info(f"Resuming run from iteration {self.state['current_iteration'] + 1}. Last user prompt retrieved from history.")
-            else: # Last message is from assistant
+            else:  # Last message is from assistant
                 # This means the previous iteration's Aider run completed, but didn't generate a new user prompt.
-                # This happens on SUCCESS, FAILURE, max_retries, or error *after* Aider ran.
-                # Treat this as a completed run and start fresh.
                 logging.info("Previous run concluded (last message was from assistant). Starting a fresh run with the initial goal.")
                 current_prompt = initial_goal_prompt
                 # Reset state for a fresh run
@@ -209,11 +260,22 @@ class Harness:
                 self.state["prompt_history"] = [{"role": "user", "content": current_prompt}]
                 self.state["converged"] = False
                 self.state["last_error"] = None
+                # Start a new run in the ledger
+                self.current_run_id = self.ledger.start_run(
+                    initial_goal_prompt,
+                    self.max_retries,
+                    self.config
+                )
+                self.state["run_id"] = self.current_run_id
+                # Add to ledger
+                self.ledger.add_message(self.current_run_id, None, "user", current_prompt)
         else:
             # Should not happen if initialization is correct, but handle defensively
             logging.warning("State indicates resumption but history is empty. Starting with initial goal.")
             current_prompt = initial_goal_prompt
             self.state["prompt_history"] = [{"role": "user", "content": current_prompt}]
+            # Add to ledger
+            self.ledger.add_message(self.current_run_id, None, "user", current_prompt)
 
 
         while (
@@ -222,121 +284,216 @@ class Harness:
         ):
             iteration = self.state["current_iteration"]
             logging.info(f"--- Starting Iteration {iteration + 1} ---")
+            
+            # Start iteration in ledger
+            iteration_id = self.ledger.start_iteration(
+                self.current_run_id,
+                iteration + 1,
+                current_prompt
+            )
 
             try:
                 # 1. Run Aider
                 logging.info("Running Aider...")
                 aider_diff, aider_error = run_aider(
-                    prompt=current_prompt, # Pass the current prompt for this iteration
+                    prompt=current_prompt,
                     config=self.config,
-                    # Pass history *excluding* the current user prompt (Aider adds it)
                     history=self.state["prompt_history"][:-1],
-                    work_dir=self.config["project_dir"] # Run aider in the target project dir
+                    work_dir=self.config["project_dir"]
                 )
 
                 if aider_error:
                     logging.error(f"Aider failed: {aider_error}")
                     self.state["last_error"] = f"Aider failed: {aider_error}"
-                    # Decide if we should stop or try to recover
-                    break # Stop loop on Aider error for now
+                    # Update ledger with error
+                    self.ledger.complete_iteration(
+                        self.current_run_id,
+                        iteration_id,
+                        None,
+                        f"Error: {aider_error}",
+                        False,
+                        "FAILURE",
+                        f"Aider failed: {aider_error}"
+                    )
+                    break
 
-                if aider_diff is None: # Should not happen if error handling is correct, but check anyway
+                if aider_diff is None:
                     logging.error("Aider returned None for diff without error. Stopping.")
                     self.state["last_error"] = "Aider returned None diff unexpectedly."
+                    # Update ledger with error
+                    self.ledger.complete_iteration(
+                        self.current_run_id,
+                        iteration_id,
+                        None,
+                        "Aider returned None diff unexpectedly.",
+                        False,
+                        "FAILURE",
+                        "Aider returned None diff unexpectedly."
+                    )
                     break
 
                 logging.info(f"Aider finished. Diff:\n{aider_diff if aider_diff else '[No changes detected]'}")
 
-                # Add Aider's response (diff or status message) to history for context
-                # Use the diff as the assistant's message. If no diff, use a status message.
+                # Add Aider's response to history and ledger
                 assistant_message = aider_diff if aider_diff is not None else "[Aider encountered an error or produced no output]"
-                # Ensure assistant message is added even if empty (indicates no changes)
                 if aider_diff == "":
                     assistant_message = "[Aider made no changes]"
                 self.state["prompt_history"].append({"role": "assistant", "content": assistant_message})
-                # Save state immediately after Aider finishes and history is updated
-                self._save_state()
+                self.ledger.add_message(self.current_run_id, iteration_id, "assistant", assistant_message)
 
                 # 2. Run Pytest
                 logging.info("Running pytest...")
                 pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
-                # Log the outcome and truncated output for clarity
-                summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output) # Truncate long output for info log
+                summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
                 logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
 
-                # 3. Check for Convergence (Simple check: tests passed and Aider made changes)
-                # More sophisticated check using LLM evaluation comes next
-                if pytest_passed and aider_diff: # Simple convergence: tests pass AND aider made changes
-                    logging.info("Initial check: Pytest passed and Aider made changes.")
-                    # Proceed to LLM evaluation to confirm convergence against the goal
-                elif pytest_passed and not aider_diff:
-                    logging.info("Pytest passed, but Aider made no changes. Assuming convergence if goal seems met (LLM will verify).")
-                    # Let LLM decide if the goal is met even without changes
-                else: # pytest failed
-                    logging.warning("Pytest failed. Proceeding to LLM evaluation for retry suggestions.")
-                    # LLM evaluation is needed to generate retry prompt
+                # 3. Evaluate with VESPER.MIND council or standard LLM
+                if self.enable_council and self.council:
+                    logging.info("Evaluating with VESPER.MIND council...")
+                    verdict, suggestions, council_results = self.council.evaluate_iteration(
+                        self.current_run_id,
+                        iteration_id,
+                        initial_goal_prompt,
+                        aider_diff if aider_diff is not None else "",
+                        pytest_output,
+                        pytest_passed,
+                        self.state["prompt_history"]
+                    )
+                    logging.info(f"VESPER.MIND council verdict: {verdict}")
+                    
+                    # Generate changelog if successful
+                    if verdict == "SUCCESS":
+                        changelog = self.council.generate_changelog(
+                            self.current_run_id,
+                            iteration_id,
+                            verdict
+                        )
+                        logging.info(f"Generated changelog:\n{changelog}")
+                        
+                        # Save changelog to file
+                        changelog_dir = self.work_dir / "changelogs"
+                        changelog_dir.mkdir(exist_ok=True)
+                        changelog_file = changelog_dir / f"changelog_run{self.current_run_id}_iter{iteration_id}.md"
+                        with open(changelog_file, 'w') as f:
+                            f.write(changelog)
+                else:
+                    # Standard LLM evaluation
+                    logging.info("Evaluating outcome with standard LLM...")
+                    verdict, suggestions = self._evaluate_outcome(
+                        initial_goal_prompt,
+                        aider_diff if aider_diff is not None else "",
+                        pytest_output,
+                        pytest_passed
+                    )
+                    logging.info(f"LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
 
-                # 4. Evaluate Outcome with LLM
-                logging.info("Evaluating outcome with LLM...")
-                verdict, suggestions = self._evaluate_outcome(
-                    initial_goal_prompt,
-                    aider_diff if aider_diff is not None else "", # Pass empty string if None
+                # Update ledger with iteration results
+                self.ledger.complete_iteration(
+                    self.current_run_id,
+                    iteration_id,
+                    aider_diff,
                     pytest_output,
-                    pytest_passed
+                    pytest_passed,
+                    verdict,
+                    suggestions
                 )
-                logging.info(f"LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
 
+                # 4. Run code review if enabled and successful
+                if self.enable_code_review and verdict == "SUCCESS":
+                    logging.info("Running code review...")
+                    review_result = self._run_code_review(
+                        initial_goal_prompt,
+                        aider_diff if aider_diff is not None else "",
+                        pytest_output
+                    )
+                    logging.info(f"Code review result:\n{review_result}")
+                    
+                    # Save review to file
+                    review_dir = self.work_dir / "reviews"
+                    review_dir.mkdir(exist_ok=True)
+                    review_file = review_dir / f"review_run{self.current_run_id}_iter{iteration_id}.md"
+                    with open(review_file, 'w') as f:
+                        f.write(review_result)
 
-                # 5. Decide next step based on LLM Verdict
+                # 5. Decide next step based on verdict
                 if verdict == "SUCCESS":
-                    logging.info("LLM evaluation confirms SUCCESS. Stopping loop.")
+                    logging.info("Evaluation confirms SUCCESS. Stopping loop.")
                     self.state["converged"] = True
-                    # No need to add another user prompt if converged
                 elif verdict == "RETRY":
-                    logging.info("LLM evaluation suggests RETRY.")
+                    logging.info("Evaluation suggests RETRY.")
                     if self.state["current_iteration"] + 1 >= self.max_retries:
-                         logging.warning(f"Retry suggested, but max retries ({self.max_retries}) reached. Stopping.")
-                         self.state["last_error"] = "Max retries reached after RETRY verdict."
-                         break # Stop loop if max retries reached
+                        logging.warning(f"Retry suggested, but max retries ({self.max_retries}) reached. Stopping.")
+                        self.state["last_error"] = "Max retries reached after RETRY verdict."
+                        break
 
                     logging.info("Creating retry prompt...")
                     current_prompt = self._create_retry_prompt(
                         initial_goal_prompt,
-                        # History is already updated with last assistant message
                         aider_diff if aider_diff is not None else "",
                         pytest_output,
-                        suggestions # Pass suggestions from LLM
+                        suggestions
                     )
-                    # Add the *new* user prompt (the retry instructions) to history for the *next* iteration
                     self.state["prompt_history"].append({"role": "user", "content": current_prompt})
+                    self.ledger.add_message(self.current_run_id, None, "user", current_prompt)
                     logging.debug(f"Next prompt for Aider:\n{current_prompt}")
-
-                else: # verdict == "FAILURE"
-                    logging.error(f"Structural failure detected by LLM. Stopping loop. Reason: {suggestions}")
-                    self.state["last_error"] = f"LLM reported FAILURE: {suggestions}"
-                    self.state["converged"] = False # Explicitly set converged to False on failure
-                    break # Exit loop on failure
+                else:  # verdict == "FAILURE"
+                    logging.error(f"Structural failure detected. Stopping loop. Reason: {suggestions}")
+                    self.state["last_error"] = f"Evaluation reported FAILURE: {suggestions}"
+                    self.state["converged"] = False
+                    break
 
             except Exception as e:
                 logging.exception(f"Critical error during iteration {iteration + 1}: {e}")
                 self.state["last_error"] = str(e)
-                # Decide if we should retry on internal errors or just stop
-                break # Exit loop on internal error for now
+                
+                # Update ledger with error
+                try:
+                    self.ledger.complete_iteration(
+                        self.current_run_id,
+                        iteration_id,
+                        None,
+                        f"Exception: {str(e)}",
+                        False,
+                        "FAILURE",
+                        f"Internal error: {str(e)}"
+                    )
+                except Exception as ledger_error:
+                    logging.error(f"Failed to update ledger with error: {ledger_error}")
+                
+                break
 
             finally:
                 self.state["current_iteration"] += 1
-                self._save_state() # Save state after each iteration
-                time.sleep(1) # Small delay between iterations
+                self._save_state()
+                time.sleep(1)
 
         # End of loop
         if self.state["converged"]:
             logging.info(f"Harness finished successfully after {self.state['current_iteration']} iterations.")
+            final_status = "SUCCESS"
         elif self.state["current_iteration"] >= self.max_retries:
             logging.warning(f"Harness stopped after reaching max retries ({self.max_retries}).")
+            final_status = f"MAX_RETRIES_REACHED: {self.state.get('last_error', 'Unknown error')}"
         else:
             logging.error(f"Harness stopped prematurely due to error: {self.state.get('last_error', 'Unknown error')}")
+            final_status = f"ERROR: {self.state.get('last_error', 'Unknown error')}"
+
+        # Update run status in ledger
+        self.ledger.end_run(
+            self.current_run_id,
+            self.state["converged"],
+            final_status
+        )
 
         logging.info("Harness run complete.")
+        
+        # Return summary
+        return {
+            "run_id": self.current_run_id,
+            "iterations": self.state["current_iteration"],
+            "converged": self.state["converged"],
+            "final_status": final_status
+        }
 
 
     def _evaluate_outcome(
@@ -347,7 +504,8 @@ class Harness:
         pytest_passed: bool
     ) -> Tuple[str, str]:
         """
-        Evaluates the outcome of an iteration using the LLM.
+        Evaluates the outcome of an iteration using the standard LLM.
+        This is used when the VESPER.MIND council is disabled.
 
         Args:
             initial_goal: The original goal prompt.
@@ -362,24 +520,36 @@ class Harness:
         """
         evaluation_prompt = self._create_evaluation_prompt(
             initial_goal,
-            self.state["prompt_history"], # Pass full history
+            self.state["prompt_history"],
             aider_diff,
             pytest_output,
             pytest_passed
         )
         try:
-            # Use a separate system prompt for evaluation
-            evaluation_system_prompt = """You are an expert software development assistant.
+            # Enhanced system prompt for better evaluation
+            evaluation_system_prompt = """You are an expert software development assistant and test harness evaluator.
 Analyze the provided goal, history, code changes (diff), and test results.
 Determine if the changes meet the goal and tests pass.
+
+Consider:
+1. Do the changes address the specific requirements in the goal?
+2. Do all tests pass? If not, are the failures related to the changes?
+3. Is the code well-structured, maintainable, and following best practices?
+4. Are there any potential issues or edge cases not covered?
+
 Respond ONLY in the specified format:
 Verdict: [SUCCESS|RETRY|FAILURE]
-Suggestions: [Provide concise suggestions ONLY if verdict is RETRY, otherwise leave blank]"""
+Suggestions: [Provide concise, actionable suggestions ONLY if verdict is RETRY, otherwise leave blank]
+
+SUCCESS = Goal achieved and tests pass
+RETRY = Changes need improvement but are on the right track
+FAILURE = Fundamental issues that require a different approach
+"""
 
             llm_evaluation_response = get_llm_response(
                 evaluation_prompt,
                 self.config,
-                history=None, # Evaluation is self-contained, history is in the prompt
+                history=None,
                 system_prompt=evaluation_system_prompt
             )
             logging.debug(f"LLM Evaluation Response:\n{llm_evaluation_response}")
@@ -397,7 +567,7 @@ Suggestions: [Provide concise suggestions ONLY if verdict is RETRY, otherwise le
                 logging.info(f"LLM evaluation parsed: Verdict={verdict}, Suggestions='{suggestions}'")
                 return verdict, suggestions
             else:
-                logging.warning(f"Could not parse verdict from LLM evaluation response. Defaulting to RETRY.\nResponse:\n{llm_evaluation_response}")
+                logging.warning(f"Could not parse verdict from LLM evaluation response. Defaulting to RETRY.")
                 verdict = "RETRY"
                 suggestions = "LLM response format was invalid. Please review the previous attempt and try again."
                 return verdict, suggestions
@@ -405,7 +575,6 @@ Suggestions: [Provide concise suggestions ONLY if verdict is RETRY, otherwise le
         except Exception as e:
             logging.error(f"Error during LLM evaluation: {e}. Defaulting to RETRY.")
             verdict = "RETRY"
-            # Provide a more generic suggestion if the evaluation itself failed
             suggestions = f"An error occurred during the evaluation step ({e}). Please review the previous code changes and test results, then try to improve the code to meet the original goal."
             return verdict, suggestions
 
@@ -413,92 +582,94 @@ Suggestions: [Provide concise suggestions ONLY if verdict is RETRY, otherwise le
     def _create_evaluation_prompt(
         self,
         initial_goal: str,
-        history: List[Dict[str, str]], # Use full history
+        history: List[Dict[str, str]],
         aider_diff: str,
         pytest_output: str,
         pytest_passed: bool
     ) -> str:
-        """Creates the prompt for the LLM evaluation step."""
+        """Creates an enhanced prompt for the LLM evaluation step."""
         # Create a concise history string for the prompt, showing last few turns
-        history_limit = 5 # Show last N pairs of user/assistant messages
-        limited_history = history[-(history_limit * 2):] # Get last N*2 messages
+        history_limit = 5
+        limited_history = history[-(history_limit * 2):]
         history_str = "\n".join([f"{msg['role']}: {msg['content'][:300]}{'...' if len(msg['content']) > 300 else ''}"
                                  for msg in limited_history])
 
         prompt = f"""
-Analyze the results of an automated code generation step.
+Analyze the results of an automated code generation step in a test harness.
 
 Initial Goal:
 {initial_goal}
 
-Conversation History (summary):
+Conversation History (summary of last {history_limit} exchanges):
 {history_str}
 
-Last Aider Diff:
+Last Code Changes (diff):
 ```diff
-{aider_diff if aider_diff else "[No changes made by Aider]"}
+{aider_diff if aider_diff else "[No changes made]"}
 ```
 
-Pytest Result: {'Success' if pytest_passed else 'Failure'}
-Pytest Output:
-```
-{pytest_output}
-```
-
-Pytest Result: {'Pass' if pytest_passed else 'Fail'}
-Pytest Output:
+Test Results:
+Status: {'PASSED' if pytest_passed else 'FAILED'}
 ```
 {pytest_output if pytest_output else "[No output captured]"}
 ```
 
 Based on the initial goal, the conversation history, the latest code changes (diff), and the test results, evaluate the outcome.
 
-Evaluation Criteria:
-1. Did the changes address the last request/goal?
-2. Do the tests pass? If not, why?
-3. Is the overall goal being achieved?
+Detailed Evaluation Criteria:
+1. Goal Alignment: Do the changes directly address the requirements in the initial goal?
+2. Test Results: Do all tests pass? If not, what specific issues are causing failures?
+3. Code Quality: Is the code well-structured, maintainable, and following best practices?
+4. Completeness: Does the implementation fully satisfy the goal, or are there missing elements?
+5. Edge Cases: Are there potential issues or edge cases not addressed?
 
 Respond using the EXACT format below:
 
 Verdict: [SUCCESS|RETRY|FAILURE]
-Suggestions: [Provide concise, actionable suggestions ONLY if the verdict is RETRY. Explain *why* it needs retry (e.g., failed tests, didn't address goal, introduced bug). If SUCCESS or FAILURE, leave this blank.]
+Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RETRY. Explain exactly what needs to be fixed and how. If SUCCESS or FAILURE, leave this blank.]
 """
         return prompt.strip()
 
     def _create_retry_prompt(
         self,
         initial_goal: str,
-        # History is not needed here, it's passed separately to run_aider
         aider_diff: str,
         pytest_output: str,
         suggestions: str
     ) -> str:
         """
-        Creates the user prompt for the *next* Aider attempt based on LLM's suggestions.
-        This prompt will be added to the history with role 'user'.
+        Creates an enhanced user prompt for the next Aider attempt based on evaluation suggestions.
         """
-        # The prompt should focus on the *task* for the next iteration, using the suggestions.
         retry_prompt = f"""
-The previous attempt to achieve the goal "{initial_goal}" had issues.
+The previous attempt to achieve the goal needs improvement:
 
-Last Aider Diff (changes made):
+Original Goal:
+"{initial_goal}"
+
+Last Code Changes:
 ```diff
-{aider_diff if aider_diff else "[No changes made by Aider]"}
+{aider_diff if aider_diff else "[No changes made]"}
 ```
 
-Pytest Output (results of running tests on the changes):
+Test Results:
 ```
 {pytest_output if pytest_output else "[No output captured]"}
 ```
 
-Evaluation and Suggestions for Improvement from the previous step:
-{suggestions if suggestions else "No specific suggestions were provided by the evaluation. Please analyze the previous diff and test output yourself to identify the issue and determine the next steps to achieve the goal."}
+Evaluation and Specific Suggestions for Improvement:
+{suggestions if suggestions else "No specific suggestions were provided by the evaluation. Please analyze the previous changes and test results to identify issues and determine next steps."}
 
-Based *only* on the suggestions above (if provided) and your analysis of the previous attempt's diff and test results, please modify the code to address the identified issues and progress towards the initial goal: "{initial_goal}". Focus on applying the suggested changes or fixing the errors indicated by the pytest output.
+Your Task:
+1. Carefully review the suggestions and test results
+2. Address each specific issue mentioned in the evaluation
+3. Ensure all tests pass
+4. Make sure your changes fully satisfy the original goal
+
+Focus on implementing the suggested improvements while maintaining code quality and best practices.
 """
-        # Add a specific note if the evaluation itself failed (indicated by specific suggestion text)
+        # Add a specific note if the evaluation itself failed
         if "An error occurred during the evaluation step" in suggestions:
-            retry_prompt += "\n\nNote: The automated evaluation step encountered an error, so the suggestions are generic. Please carefully review the goal, the last code changes (diff), and the test results yourself to decide how to proceed."
+            retry_prompt += "\n\nNote: The automated evaluation step encountered an error, so the suggestions are generic. Please carefully review the goal, the last code changes, and the test results yourself to decide how to proceed."
 
         return retry_prompt.strip()
 
@@ -520,3 +691,72 @@ if __name__ == "__main__":
     # shutil.rmtree(dummy_work_dir)
     # Path("config.yaml").unlink(missing_ok=True)
     # Path("goal.prompt").unlink(missing_ok=True)
+    def _run_code_review(
+        self,
+        initial_goal: str,
+        aider_diff: str,
+        pytest_output: str
+    ) -> str:
+        """
+        Runs a code review on successful changes using Aider.
+        
+        Args:
+            initial_goal: The original goal prompt.
+            aider_diff: The diff generated by Aider.
+            pytest_output: The output from pytest.
+            
+        Returns:
+            The code review result as a string.
+        """
+        logging.info("Running code review with Aider...")
+        
+        # Create code review prompt
+        review_prompt = f"""
+Act as a senior code reviewer. Review the following code changes that were made to achieve this goal:
+
+Goal: {initial_goal}
+
+Code Changes:
+```diff
+{aider_diff if aider_diff else "[No changes made]"}
+```
+
+Test Results:
+```
+{pytest_output}
+```
+
+Provide a thorough code review that includes:
+1. Overall assessment of code quality
+2. Specific strengths of the implementation
+3. Areas for potential improvement
+4. Any potential bugs or edge cases
+5. Suggestions for better practices or optimizations
+
+Format your review as a professional code review document with markdown headings and bullet points.
+"""
+        
+        try:
+            # Use the configured LLM directly instead of running another Aider instance
+            # This simplifies the process while still providing valuable feedback
+            review_system_prompt = """You are an expert code reviewer with years of experience.
+Provide thorough, constructive code reviews that highlight both strengths and areas for improvement.
+Focus on code quality, maintainability, performance, and adherence to best practices.
+Format your review as a professional markdown document with clear sections and specific examples."""
+            
+            review_result = get_llm_response(
+                review_prompt,
+                self.config,
+                history=None,
+                system_prompt=review_system_prompt
+            )
+            
+            # Add header to the review
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            header = f"# Code Review\n\n**Date:** {timestamp}\n\n**Reviewer:** AI Code Reviewer\n\n---\n\n"
+            
+            return header + review_result
+            
+        except Exception as e:
+            logging.error(f"Error during code review: {e}")
+            return f"# Code Review\n\nError during code review: {e}\n\nPlease review the code manually."

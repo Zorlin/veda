@@ -4,9 +4,12 @@ pytest
 PyYAML
 ollama # Official Ollama client library
 pexpect # For interactive subprocess control
+sqlite3 # For SQLite database support
+requests # For API interactions
+rich # For better console output
+tqdm # For progress bars
 
-# Optional dependencies (uncomment as needed)
-# requests # May be needed if not using ollama library directly, or as a dependency
-# Flask # For web dashboard
-# Streamlit # For web dashboard
-# textual # For TUI
+# VESPER.MIND council dependencies
+transformers # For model loading and inference
+torch # For PyTorch support
+sentence-transformers # For embedding generation

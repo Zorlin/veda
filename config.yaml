@@ -1,0 +1,27 @@
+# Aider Autoloop Harness Configuration
+
+# Ollama Configuration
+ollama_model: "gemma3:12b"
+ollama_api_url: "http://localhost:11434/api/generate"
+ollama_options:
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 40
+
+# Aider Configuration
+aider_command: "aider"
+project_dir: "."
+
+# VESPER.MIND Council Configuration
+enable_council: true
+theorist_model: "qwen:14b"
+architect_model: "deepseek-coder:16b"
+skeptic_model: "gemma:7b"
+historian_model: "yi:34b"
+coordinator_model: "command-r-plus"
+
+# Code Review Configuration
+enable_code_review: false
+
+# Storage Configuration
+storage_type: "sqlite"  # "sqlite" or "json"
