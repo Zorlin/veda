@@ -365,8 +365,14 @@
 
                     // Process the first incoming line combined with the current last line
                     let combinedFirstLine = currentLastLine + incomingLines[0];
-                    let parts = combinedFirstLine.split('\r');
-                    currentLastLine = parts[parts.length - 1]; // Take content after the last \r
+                    let lastCRIndexCombined = combinedFirstLine.lastIndexOf('\r');
+                    if (lastCRIndexCombined !== -1) {
+                        // If \r exists, take only the part after the last \r
+                        currentLastLine = combinedFirstLine.substring(lastCRIndexCombined + 1);
+                    } else {
+                        // Otherwise, keep the combined line as is
+                        currentLastLine = combinedFirstLine;
+                    }
 
                     // Add the processed first line back (or update the last line)
                     currentOutputLines.push(currentLastLine);
@@ -374,8 +380,14 @@
                     // Process remaining incoming lines
                     for (let i = 1; i < incomingLines.length; i++) {
                         let line = incomingLines[i];
-                        parts = line.split('\r');
-                        currentOutputLines.push(parts[parts.length - 1]); // Add the part after the last \r as a new line
+                        let lastCRIndexLine = line.lastIndexOf('\r');
+                        if (lastCRIndexLine !== -1) {
+                            // If \r exists, take only the part after the last \r
+                            currentOutputLines.push(line.substring(lastCRIndexLine + 1));
+                        } else {
+                            // Otherwise, add the whole line
+                            currentOutputLines.push(line);
+                        }
                     }
 
                     // Reconstruct liveAiderOutput, applying scrollback limit
