@@ -1,4 +1,5 @@
 import asyncio
+import asyncio
 import json
 import logging
 import websockets
@@ -8,6 +9,7 @@ from websockets.server import ServerProtocol # More modern approach often uses S
 from typing import Set, Dict, Any, Optional, Tuple, List, Union
 from http import HTTPStatus
 from pathlib import Path
+import anyio # Import anyio for TASK_STATUS_IGNORED
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +139,11 @@ class UIServer:
                  await self._unregister(client)
 
 
-    async def start(self):
-        """Start the HTTP/WebSocket server, trying port+1 if needed."""
+    async def start(self, *, task_status=anyio.TASK_STATUS_IGNORED):
+        """Start the HTTP/WebSocket server, trying port+1 if needed.
+        
+        Accepts task_status for compatibility with anyio.TaskGroup.start().
+        """
         self.stop_event.clear()
         self.loop = asyncio.get_running_loop() # Capture the loop we are running in
         current_port = self.port
@@ -175,6 +180,9 @@ class UIServer:
         if server is None:
              logger.error("Server could not be started after multiple attempts.")
              return
+
+        # Signal that the server has started successfully (for TaskGroup.start)
+        task_status.started()
 
         # Keep the server running until stop() is called
         try:
