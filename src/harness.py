@@ -50,7 +50,7 @@ class Harness:
         """Loads configuration from the YAML file."""
         logging.info(f"Loading configuration from {self.config_file}...")
         default_config = {
-            "ollama_model": "deepcoder:14b", # Updated default model
+            "ollama_model": "gemma3:12b", # Set default to gemma3:12b
             "ollama_api_url": "http://localhost:11434/api/generate", # TODO: Use this
             "aider_command": "aider", # Adjust if aider is not in PATH
             "project_dir": ".", # Directory Aider should operate on
