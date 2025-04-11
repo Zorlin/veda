@@ -162,6 +162,38 @@ class UIServer:
                  await self._unregister(client)
 
 
+    async def _update_listener(self):
+        """Listen for updates from the Harness via the receive stream."""
+        if not self.ui_receive_stream:
+            logger.error("Receive stream not set. Cannot start update listener.")
+            return
+
+        logger.info("Update listener started.")
+        try:
+            while not self.stop_event.is_set():
+                try:
+                    # Wait for an update with a timeout to check stop_event periodically
+                    update = await anyio.to_thread.run_sync(
+                        lambda: anyio.run(
+                            self.ui_receive_stream.receive,
+                            cancellable=True
+                        ),
+                        cancellable=True
+                    )
+                    # Broadcast the update to all connected clients
+                    await self.broadcast(update)
+                except anyio.EndOfStream:
+                    logger.info("End of stream reached. Stopping update listener.")
+                    break
+                except Exception as e:
+                    if not self.stop_event.is_set():  # Only log if not stopping intentionally
+                        logger.error(f"Error in update listener: {e}")
+                    break
+        except Exception as e:
+            logger.exception(f"Unexpected error in update listener: {e}")
+        finally:
+            logger.info("Update listener stopped.")
+
     async def start(self, *, task_status=anyio.TASK_STATUS_IGNORED):
         """Start the HTTP/WebSocket server, trying port+1 if needed.
         
@@ -194,13 +226,13 @@ class UIServer:
                         self._handler,
                         self.host,
                         current_port,
-                    # process_request=_process_request, # Removed HTTP handling
-                    ping_interval=20, # Keep connections alive
-                    ping_timeout=20
-                )
+                        # process_request=_process_request, # Removed HTTP handling
+                        ping_interval=20, # Keep connections alive
+                        ping_timeout=20
+                    )
                     # If websockets.serve() succeeds without raising an exception, break the loop.
                     break # Correct indentation level
-            except OSError as e:
+                except OSError as e:
                 if "Address already in use" in str(e) and attempt < max_attempts - 1:
                     logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
                     current_port += 1
@@ -208,9 +240,9 @@ class UIServer:
                     logger.error(f"Failed to start WebSocket server on {self.host}:{current_port}: {e}")
                     logger.error("Check if the port is already in use or if you have permissions.")
                     return # Exit start method if failed
-            except Exception as e:
-                 logger.exception(f"An unexpected error occurred during server startup: {e}")
-                 # Let the loop continue to the next attempt or finish
+                except Exception as e:
+                    logger.exception(f"An unexpected error occurred during server startup: {e}")
+                    # Let the loop continue to the next attempt or finish
 
             # --- End of for loop ---
 
@@ -228,16 +260,16 @@ class UIServer:
             # Signal that the server has started successfully (for TaskGroup.start)
             task_status.started()
 
-        # Keep the server running until stop() is called
-        try:
-            await self.stop_event.wait()
-        finally:
-            logger.info("Stop event received or server task cancelled, shutting down WebSocket server...")
-            # Use the correct variable name holding the server object
-            if websocket_server:
-                websocket_server.close()
-                await websocket_server.wait_closed()
-            logger.info("WebSocket server stopped.")
+            # Keep the server running until stop() is called
+            try:
+                await self.stop_event.wait()
+            finally:
+                logger.info("Stop event received or server task cancelled, shutting down WebSocket server...")
+                # Use the correct variable name holding the server object
+                if websocket_server:
+                    websocket_server.close()
+                    await websocket_server.wait_closed()
+                logger.info("WebSocket server stopped.")
 
         # Start the server and listener tasks concurrently
         try:
