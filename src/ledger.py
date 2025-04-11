@@ -114,19 +114,44 @@ class Ledger:
             raise
 
     def _initialize_json(self):
-        """Initialize JSON storage if it doesn't exist."""
-        if not self.json_path.exists():
-            initial_state = {
-                "runs": [],
-                "current_run": None,
-                "metadata": {
-                    "created_at": datetime.now().isoformat(),
-                    "version": "1.0"
-                }
+        """Initialize JSON storage, ensuring valid structure."""
+        initial_state = {
+            "runs": [],
+            "current_run": None, # Ensure this key exists
+            "metadata": {
+                "created_at": datetime.now().isoformat(),
+                "version": "1.0"
             }
-            with open(self.json_path, 'w') as f:
-                json.dump(initial_state, f, indent=4)
-            logger.info(f"JSON state file initialized at {self.json_path}")
+        }
+        write_initial = False
+        if self.json_path.exists():
+            try:
+                with open(self.json_path, 'r') as f:
+                    # Handle empty file case
+                    content = f.read()
+                    if not content:
+                        logger.warning(f"JSON state file {self.json_path} is empty. Re-initializing.")
+                        write_initial = True
+                    else:
+                        state = json.loads(content)
+                        # Basic structure check
+                        if "runs" not in state or "current_run" not in state or "metadata" not in state:
+                            logger.warning(f"JSON state file {self.json_path} has invalid structure. Re-initializing.")
+                            write_initial = True
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Error reading or parsing JSON state file {self.json_path}: {e}. Re-initializing.")
+                write_initial = True
+        else:
+            write_initial = True # File doesn't exist, need to create it
+
+        if write_initial:
+            try:
+                with open(self.json_path, 'w') as f:
+                    json.dump(initial_state, f, indent=4)
+                logger.info(f"JSON state file initialized/re-initialized at {self.json_path}")
+            except IOError as e:
+                logger.error(f"Could not write initial JSON state file {self.json_path}: {e}")
+                raise # Re-raise if we can't even write the initial file
 
     def start_run(self, initial_goal: str, max_retries: int, config: Dict[str, Any]) -> int:
         """
@@ -622,14 +647,20 @@ class Ledger:
             try:
                 with open(self.json_path, 'r') as f:
                     state = json.load(f)
-                
-                if state["current_run"] is not None:
-                    return state["current_run"]
-                
-                if state["runs"]:
-                    return max(run["run_id"] for run in state["runs"])
-                
-                return None
-            except (json.JSONDecodeError, IOError, KeyError) as e:
-                logger.error(f"JSON error getting latest run ID: {e}")
+
+                # Use .get() to safely access keys
+                current_run = state.get("current_run")
+                if current_run is not None:
+                    return current_run
+
+                runs = state.get("runs", []) # Default to empty list if 'runs' key is missing
+                if runs:
+                    # Ensure runs have 'run_id' before trying to get max
+                    valid_run_ids = [run.get("run_id") for run in runs if isinstance(run, dict) and "run_id" in run]
+                    if valid_run_ids:
+                        return max(valid_run_ids)
+
+                return None # No runs or no valid run_ids found
+            except (json.JSONDecodeError, IOError) as e: # Removed KeyError as .get handles it
+                logger.error(f"JSON error getting latest run ID from {self.json_path}: {e}")
                 return None
