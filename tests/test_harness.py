@@ -407,13 +407,14 @@ def test_harness_queues_guidance_and_injects_next_iteration(
     assert harness._force_interrupt is False
 
     # Verify history contains the guidance message
-    assert len(harness.state["prompt_history"]) == 5 # user_goal, aider_diff, user_retry_prompt, user_guidance_injection, (next aider call would use combined prompt)
+    # The history length should be 4 at this point: goal, diff, retry_prompt, guidance_injection
+    assert len(harness.state["prompt_history"]) == 4
     assert harness.state["prompt_history"][-1]["role"] == "user"
     assert harness.state["prompt_history"][-1]["content"] == f"[User Guidance] {guidance_message}"
 
     # Verify ledger contains the guidance message
     ledger_history = harness.ledger.get_conversation_history(harness.current_run_id)
-    assert len(ledger_history) == 5
+    assert len(ledger_history) == 4 # Should also be 4
     assert ledger_history[-1]["role"] == "user"
     assert ledger_history[-1]["content"] == f"[User Guidance] {guidance_message}"
 
