@@ -59,6 +59,14 @@ Based on the output and the prompt, what is the best response?
 Choose ONLY one character from the options provided in the prompt (e.g., y, n, q, a, v).
 Response:"""
 
+    # --- Special Handling for Add File Prompt ---
+    # Bypass LLM for this specific prompt due to observed failures and simplicity.
+    # Always decline adding files automatically for now.
+    if prompt_pattern == ADD_FILE_PROMPT_PATTERN:
+        logger.info("Detected 'Add file' prompt. Automatically responding 'n'.")
+        return 'n'
+    # --- End Special Handling ---
+
     try:
         # Use a limited history? Or the full history? Let's try full for now.
         response = get_llm_response(llm_prompt, config, history, system_prompt=system_prompt)
@@ -205,10 +213,16 @@ def run_aider(
                  return None, f"Pexpect error: {e}"
 
         # --- Process finished, analyze output ---
+        # Ensure exitstatus/signalstatus are checked *after* potential close() call in EOF block
         if child.exitstatus != 0:
             # Check if closed gracefully or crashed
-            if child.signalstatus:
+            if child.signalstatus is not None: # Check signalstatus first
                  error_message = f"Aider command terminated unexpectedly by signal: {child.signalstatus}.\nOutput:\n{full_output}"
+            elif child.exitstatus is not None: # Then check exitstatus
+                 error_message = f"Aider command failed with exit code {child.exitstatus}.\nOutput:\n{full_output}"
+            else:
+                 # This case should be less likely now after explicit close()
+                 error_message = f"Aider command failed with unknown status (exit={child.exitstatus}, signal={child.signalstatus}).\nOutput:\n{full_output}"
             else:
                  error_message = f"Aider command failed with exit code {child.exitstatus}.\nOutput:\n{full_output}"
             logger.error(error_message)
