@@ -6,6 +6,7 @@
     <title>Aider Harness UI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/ansi_up@5.1.0/ansi_up.js"></script> <!-- Add ansi_up library -->
     <style>
         /* Basic styling */
         body { font-family: sans-serif; }
@@ -41,8 +42,9 @@
         <!-- Live Aider Output -->
         <div class="mb-4">
             <h2 class="text-xl font-semibold mb-2">Live Aider Output</h2>
-            <div class="bg-gray-900 text-green-400 p-4 rounded h-96 overflow-y-auto text-xs font-mono" x-ref="aiderLogContainer">
-                <pre class="log-entry" x-text="liveAiderOutput"></pre>
+            <!-- Use div with x-html to render ANSI codes processed by ansi_up -->
+            <div class="bg-gray-900 text-gray-300 p-4 rounded h-96 overflow-y-auto text-xs font-mono" x-ref="aiderLogContainer">
+                <div class="log-entry" x-html="processedAiderOutput()"></div>
             </div>
         </div>
 
@@ -93,11 +95,13 @@
                 retrying: false, // Flag to indicate if a retry is scheduled
                 userInput: '', // For the textarea
                 interruptAider: false, // For the checkbox
-                liveAiderOutput: '', // To store live output from Aider
+                liveAiderOutput: '', // Raw Aider output with ANSI codes
                 lastInterruptStatus: '', // To store the status of the last interrupt request
+                ansiUp: null, // To hold the ansi_up instance
 
                 init() {
                     console.log('Initializing Harness UI...');
+                    this.ansiUp = new AnsiUp(); // Initialize ansi_up
                     this.connectWebSocket();
                 },
 
@@ -131,13 +135,16 @@
 
                             // Check message type
                             if (data.type === 'aider_output') {
-                                // Add the chunk to the live output
+                                // Append raw chunk
                                 if (data.chunk) {
                                     this.liveAiderOutput += data.chunk;
-                                    this.scrollToBottom('aiderLogContainer');
+                                    // Use nextTick to ensure DOM updates before scrolling
+                                    this.$nextTick(() => {
+                                        this.scrollToBottom('aiderLogContainer');
+                                    });
                                 }
                             } else if (data.type === 'aider_output_clear') {
-                                this.liveAiderOutput = ''; // Clear the live output
+                                this.liveAiderOutput = ''; // Clear the raw output
                             } else if (data.type === 'interrupt_ack') {
                                 // Handle interrupt acknowledgment
                                 this.lastInterruptStatus = data.message;
@@ -224,7 +231,15 @@
                         this.status.log.push('Error: WebSocket not connected. Cannot send guidance.');
                     }
                 },
-                
+
+                processedAiderOutput() {
+                    // Process the raw output with ansi_up
+                    if (this.ansiUp) {
+                        return this.ansiUp.ansi_to_html(this.liveAiderOutput);
+                    }
+                    return this.liveAiderOutput; // Fallback if ansi_up not ready
+                },
+
                 scrollToBottom(refName) {
                     // Scroll the specified container to the bottom
                     if (this.$refs[refName]) {
