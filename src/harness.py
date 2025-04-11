@@ -11,7 +11,7 @@ import yaml
 from .aider_interaction import run_aider
 # from .ollama_interaction import evaluate_output
 # from .persistence import Logger
-# from .pytest_interaction import run_pytest
+from .pytest_interaction import run_pytest
 
 
 class Harness:
@@ -38,7 +38,7 @@ class Harness:
         """Loads configuration from the YAML file."""
         logging.info(f"Loading configuration from {self.config_file}...")
         default_config = {
-            "ollama_model": "llama3",
+            "ollama_model": "deepcoder:14b", # Updated default model
             "ollama_api_url": "http://localhost:11434/api/generate", # TODO: Use this
             "aider_command": "aider", # Adjust if aider is not in PATH
             "project_dir": ".", # Directory Aider should operate on
@@ -189,10 +189,10 @@ class Harness:
 
                 # 2. Run Pytest
                 logging.info("Running pytest...")
-                # pytest_result, pytest_output = run_pytest(self.config["project_dir"]) # Placeholder
-                pytest_passed = True # Placeholder
-                pytest_output = "Placeholder: Pytest output" # Placeholder
-                logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput:\n{pytest_output}")
+                pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
+                # Log the outcome and truncated output for clarity
+                summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output) # Truncate long output for info log
+                logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
                 # self.logger.log_iteration(iteration, "pytest_output", pytest_output) # Placeholder
                 # self.logger.log_iteration(iteration, "pytest_passed", pytest_passed) # Placeholder
 
