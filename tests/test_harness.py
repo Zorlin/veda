@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock, mock_open
 
 import pytest
 import yaml
+from anyio.streams.memory import MemoryObjectSendStream # Added import
 
 from src.harness import Harness
 from src.ledger import Ledger

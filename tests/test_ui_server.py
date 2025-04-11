@@ -26,7 +26,8 @@ async def test_server(anyio_backend): # Add anyio_backend fixture back
     
     async with anyio.create_task_group() as tg:
         # Start the server in the background using the test's task group
-        server_task = await tg.start(server.start)
+        # Pass task_status to properly signal startup completion
+        await tg.start(server.start) 
         
         # Give the server a moment to initialize fully (e.g., bind the port)
         # A more robust approach might involve waiting for a specific log message or state.
@@ -35,10 +36,12 @@ async def test_server(anyio_backend): # Add anyio_backend fixture back
         # Yield the server instance to the test
         yield server
         
-        # Cleanup: Signal the server to stop and cancel the task group
+        # Cleanup: Cancel the task group first, then stop the server
+        tg.cancel_scope.cancel()
         server.stop()
         await send_stream.aclose()
-        tg.cancel_scope.cancel()
+        # Add a small delay to allow the OS to release the socket
+        await anyio.sleep(0.1) 
 
 # Removed pytestmark skip logic
 
