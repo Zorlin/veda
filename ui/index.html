@@ -43,9 +43,17 @@
         <div class="mb-4">
             <h2 class="text-xl font-semibold mb-2">Live Aider Output</h2>
             <!-- Use div with x-html to render ANSI codes processed by ansi_up -->
-            <!-- Bind directly to the conversion result -->
+            <!-- Add error handling for ansi_up -->
             <div class="bg-gray-900 text-gray-300 p-4 rounded h-96 overflow-y-auto text-xs font-mono" x-ref="aiderLogContainer">
-                <div class="log-entry" x-html="ansiUp ? ansiUp.ansi_to_html(liveAiderOutput) : liveAiderOutput"></div>
+                <div class="log-entry" x-html="() => {
+                    try {
+                        // console.log('Rendering liveAiderOutput length:', liveAiderOutput.length); // Optional: log before render
+                        return ansiUp ? ansiUp.ansi_to_html(liveAiderOutput) : liveAiderOutput;
+                    } catch (e) {
+                        console.error('AnsiUp conversion error:', e);
+                        return `<span style=&quot;color: red; font-weight: bold;&quot;>Error rendering output: ${e.message}</span><br>${liveAiderOutput}`; // Show error and raw output
+                    }
+                }"></div>
             </div>
         </div>
 
