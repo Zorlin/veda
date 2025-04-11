@@ -262,6 +262,9 @@ class Harness:
             # Add to ledger
             self.ledger.add_message(self.current_run_id, None, "user", current_prompt)
 
+        # Track recent diffs to detect stuck cycles
+        recent_diffs = [] # Store the last few non-empty diffs
+        stuck_cycle_threshold = 2 # Number of consecutive identical non-empty diffs to trigger abort
 
         while (
             self.state["current_iteration"] < self.max_retries
