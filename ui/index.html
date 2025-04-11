@@ -110,6 +110,7 @@
                 lastInterruptStatus: '', // To store the status of the last interrupt request
                 ansiUp: null, // To hold the ansi_up instance
                 lastLogEntry: null, // Track last log entry to prevent duplicates
+                lastProcessedChunk: '', // Track the last processed aider output chunk to prevent duplicates
 
                 init() {
                     console.log('Initializing Harness UI...');
@@ -305,7 +306,21 @@
 
                     const bufferToProcess = this.outputBuffer;
                     this.outputBuffer = ''; // Clear buffer before processing
+
+                    // Prevent processing if the chunk is identical to the last one
+                    if (bufferToProcess === this.lastProcessedChunk) {
+                        console.log("Skipping duplicate chunk processing:", bufferToProcess.substring(0, 50) + "...");
+                        // Reschedule if new data arrived while skipping
+                        if (this.outputBuffer !== '') {
+                            requestAnimationFrame(() => this.processOutputBuffer());
+                        } else {
+                            this.isProcessingScheduled = false;
+                        }
+                        return; // Don't process this duplicate chunk
+                    }
+
                     console.log("Processing buffer content:", bufferToProcess); // <-- Log buffer content
+                    this.lastProcessedChunk = bufferToProcess; // Store this chunk as the last processed one
 
                     // Directly append the raw buffer content to liveAiderOutput
                     // Let ansi_up handle the conversion in the x-html directive
