@@ -646,29 +646,34 @@ class Harness:
                     suggestions
                 )
 
-                # 4. Run code review if enabled and successful
-                if self.enable_code_review and verdict == "SUCCESS":
-                    logging.info("Running code review...")
-                    self._send_ui_update({"status": "Running Code Review", "log_entry": "Running code review..."})
-                    review_result = self.run_code_review(
-                        initial_goal_prompt,
-                        aider_diff if aider_diff is not None else "",
-                        pytest_output
-                    )
-                    logging.info(f"Code review result:\n{review_result}")
-                    
-                    # Save review to file
-                    review_dir = self.work_dir / "reviews"
-                    review_dir.mkdir(exist_ok=True)
-                    review_file = review_dir / f"review_run{self.current_run_id}_iter{iteration_id}.md"
-                    with open(review_file, 'w') as f:
-                        f.write(review_result)
-
-                # 5. Decide next step based on verdict
+                # 4. Decide next step based on verdict
                 if verdict == "SUCCESS":
-                    logging.info("Evaluation confirms SUCCESS. Stopping loop.")
+                    logging.info("Evaluation confirms SUCCESS.")
+                    self.state["converged"] = True # Mark as converged first
+
+                    # Run code review if enabled *after* confirming success
+                    if self.enable_code_review:
+                        logging.info("Running code review...")
+                        self._send_ui_update({"status": "Running Code Review", "log_entry": "Running code review..."})
+                        try:
+                            # run_code_review now saves the file itself
+                            self.run_code_review(
+                                initial_goal_prompt,
+                                aider_diff if aider_diff is not None else "",
+                                pytest_output
+                            )
+                            logging.info(f"Code review completed and saved.")
+                            self._send_ui_update({"status": "Code Review Complete", "log_entry": "Code review completed and saved."})
+                        except Exception as review_err:
+                            logging.error(f"Code review failed: {review_err}", exc_info=True)
+                            # Log the error, but don't stop the loop since the main goal succeeded
+                            self._send_ui_update({"status": "Error", "log_entry": f"Code review failed: {review_err}"})
+
+                    # Stop the loop after success (and optional review)
+                    logging.info("Stopping loop due to SUCCESS verdict.")
                     self._send_ui_update({"status": "SUCCESS", "log_entry": "Converged: SUCCESS"})
-                    self.state["converged"] = True
+                    break # Exit the loop
+
                 elif verdict == "RETRY":
                     logging.info("Evaluation suggests RETRY.")
                     self._send_ui_update({"status": "RETRY Suggested", "log_entry": f"RETRY suggested. Suggestions:\n{suggestions}"})
