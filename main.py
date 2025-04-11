@@ -174,10 +174,12 @@ This harness must be able to work on any project with a `pytest`-compatible test
             websocket_host=args.ui_host,      # Pass None if not set
             websocket_port=args.ui_port       # Pass None if not set
         )
-        
-        # Start WebSocket server if enabled
-        ui_server_thread = None
+
+        # Initialize UI server variables
         ui_server = None
+        ui_server_thread = None
+
+        # Start WebSocket server if enabled
         if harness.config.get("enable_ui"):
             ui_host = harness.config.get("websocket_host", "localhost")
             ui_port = harness.config.get("websocket_port", 8765)

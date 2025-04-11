@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import websockets
-from websockets.server import WebSocketServerProtocol
+# Use the modern import path if available, otherwise fallback might be needed
+# from websockets.legacy.server import WebSocketServerProtocol
+from websockets.server import ServerProtocol # More modern approach often uses ServerProtocol directly or via serve context
 from typing import Set, Dict, Any, Optional, Tuple, List, Union
 from http import HTTPStatus
 from pathlib import Path
@@ -15,8 +17,9 @@ class UIServer:
     def __init__(self, host: str = "localhost", port: int = 8765):
         self.host = host
         self.port = port
-        self.clients: Set[WebSocketServerProtocol] = set()
-        self.server_task: Optional[asyncio.Task] = None
+        self.clients: Set[ServerProtocol] = set() # Updated type hint
+        self.server_task: Optional[asyncio.Task] = None # Task for the running server
+        self.loop: Optional[asyncio.AbstractEventLoop] = None # Store the loop the server runs in
         self.stop_event = asyncio.Event()
         self.latest_status: Dict[str, Any] = {"status": "Initializing", "run_id": None, "iteration": 0, "log": []}
         # Define the path to the UI directory relative to this file's location or project root
@@ -32,7 +35,9 @@ class UIServer:
         self, path: str, request_headers: websockets.Headers
     ) -> Optional[Tuple[HTTPStatus, List[Tuple[str, str]], bytes]]:
         """Handle HTTP requests before WebSocket handshake."""
+        logger.debug(f"Processing HTTP request for path: {path}")
         if path == "/" or path == "/index.html":
+            logger.info(f"Serving index.html for path: {path}")
             html_file = self.ui_dir / "index.html"
             if html_file.is_file():
                 try:
@@ -50,9 +55,10 @@ class UIServer:
                 headers = [("Content-Type", "text/plain")]
                 return HTTPStatus.NOT_FOUND, headers, body
         # Let websockets handle other paths (potential WebSocket connections)
+        logger.debug(f"Path '{path}' not handled by HTTP server, passing to WebSocket.")
         return None
 
-    async def _register(self, websocket: WebSocketServerProtocol):
+    async def _register(self, websocket: ServerProtocol): # Updated type hint
         """Register a new client WebSocket connection."""
         self.clients.add(websocket)
         logger.info(f"Client connected: {websocket.remote_address}")
@@ -65,12 +71,12 @@ class UIServer:
             logger.error(f"Error sending initial status to {websocket.remote_address}: {e}")
 
 
-    async def _unregister(self, websocket: WebSocketServerProtocol):
+    async def _unregister(self, websocket: ServerProtocol): # Updated type hint
         """Unregister a client connection."""
         self.clients.remove(websocket)
         logger.info(f"Client disconnected: {websocket.remote_address}")
 
-    async def _handler(self, websocket: WebSocketServerProtocol, path: str):
+    async def _handler(self, websocket: ServerProtocol, path: str): # Updated type hint
         """Handle incoming WebSocket connections and messages."""
         # Registration is now handled after _process_request returns None
         await self._register(websocket)
@@ -132,31 +138,52 @@ class UIServer:
 
 
     async def start(self):
-        """Start the WebSocket server."""
-        logger.info(f"Starting WebSocket server on ws://{self.host}:{self.port}")
+        """Start the HTTP/WebSocket server, trying port+1 if needed."""
         self.stop_event.clear()
+        self.loop = asyncio.get_running_loop() # Capture the loop we are running in
+        current_port = self.port
+        max_attempts = 2 # Try original port and port + 1
+        server = None
+
+        for attempt in range(max_attempts):
+            try:
+                logger.info(f"Attempting to start server on ws://{self.host}:{current_port} (Attempt {attempt + 1}/{max_attempts})")
+                # Pass the HTTP request processor
+                server = await websockets.serve(
+                    self._handler,
+                    self.host,
+                    current_port,
+                    process_request=self._process_request,
+                    ping_interval=20, # Keep connections alive
+                    ping_timeout=20
+                )
+                self.port = current_port # Update port if successful
+                logger.info(f"HTTP/WebSocket server started successfully on ws://{self.host}:{self.port}")
+                break # Exit loop on success
+            except OSError as e:
+                if "Address already in use" in str(e) and attempt < max_attempts - 1:
+                    logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
+                    current_port += 1
+                else:
+                    logger.error(f"Failed to start WebSocket server on {self.host}:{current_port}: {e}")
+                    logger.error("Check if the port is already in use or if you have permissions.")
+                    return # Exit start method if failed
+            except Exception as e:
+                 logger.exception(f"An unexpected error occurred during server startup: {e}")
+                 return # Exit start method if failed
+
+        if server is None:
+             logger.error("Server could not be started after multiple attempts.")
+             return
+
+        # Keep the server running until stop() is called
         try:
-            # Pass the HTTP request processor
-            server = await websockets.serve(
-                self._handler,
-                self.host,
-                self.port,
-                process_request=self._process_request, # Add this line
-                ping_interval=20, # Keep connections alive
-                ping_timeout=20
-            )
-            logger.info("HTTP/WebSocket server started.")
-            # Keep the server running until stop() is called
             await self.stop_event.wait()
-            logger.info("Stop event received, shutting down server...")
+        finally:
+            logger.info("Stop event received or server task cancelled, shutting down server...")
             server.close()
             await server.wait_closed()
             logger.info("WebSocket server stopped.")
-        except OSError as e:
-             logger.error(f"Failed to start WebSocket server on {self.host}:{self.port}: {e}")
-             logger.error("Check if the port is already in use or if you have permissions.")
-        except Exception as e:
-            logger.exception(f"An unexpected error occurred in the WebSocket server: {e}")
 
 
     def stop(self):
@@ -166,20 +193,40 @@ class UIServer:
 
     # Method to be called by the Harness to send updates
     def send_update(self, update_data: Dict[str, Any]):
-        """Send an update to all connected UI clients."""
-        # Run the broadcast in the server's event loop
-        if self.server_task and not self.server_task.done():
-             asyncio.run_coroutine_threadsafe(self.broadcast(update_data), self.server_task.get_loop())
+        """Send an update to all connected UI clients via the server's event loop."""
+        if self.loop and self.loop.is_running():
+            # Schedule the broadcast coroutine in the server's event loop
+            asyncio.run_coroutine_threadsafe(self.broadcast(update_data), self.loop)
         else:
-             logger.warning("UI server task not running, cannot send update.")
+             logger.warning("UI server loop not running or not found, cannot send update.")
 
 # --- Example Usage (for testing) ---
 async def main_test():
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
     server = UIServer()
-    server.server_task = asyncio.create_task(server.start()) # Store task reference
+    # Start the server in the background
+    server_task = asyncio.create_task(server.start())
+
+    # Give server time to start
+    await asyncio.sleep(2)
 
     # Simulate sending updates
-    await asyncio.sleep(5)
+    logger.info("Sending test update 1")
+    server.send_update({"status": "Running Aider", "iteration": 1})
+    await asyncio.sleep(2)
+    logger.info("Sending test update 2")
+    server.send_update({"status": "Running Pytest", "iteration": 1, "log_entry": "Pytest started..."})
+    await asyncio.sleep(2)
+    logger.info("Sending test update 3")
+    server.send_update({"status": "Evaluating", "iteration": 1, "log_entry": "Pytest failed."})
+    await asyncio.sleep(5) # Keep server running longer
+
+    logger.info("Stopping test server")
+    server.stop()
+    await server_task # Wait for server task to finish cleanly
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
     server.send_update({"status": "Running Aider", "iteration": 1})
     await asyncio.sleep(5)
     server.send_update({"status": "Running Pytest", "iteration": 1, "log_entry": "Pytest started..."})
