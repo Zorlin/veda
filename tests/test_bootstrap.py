@@ -55,10 +55,9 @@ def test_ollama_model_is_accessible():
     except ollama.ResponseError as e:
         # This catches errors like model not found (404)
         pytest.fail(f"Ollama API request failed: {e.status_code} - {e.error}")
-    except requests.exceptions.ConnectionError:
-        # The ollama library uses requests internally, so connection errors are still possible
-        # Default host is http://localhost:11434
-        pytest.fail("Could not connect to Ollama at default host. Is Ollama running?")
+    except ollama.ConnectionError as e:
+        # Catch the specific connection error from the ollama library
+        pytest.fail(f"Could not connect to Ollama: {e}. Is Ollama running and accessible?")
     except Exception as e:
         # Catch other potential errors (timeouts, unexpected issues)
         pytest.fail(f"An unexpected error occurred while testing Ollama: {e}")
