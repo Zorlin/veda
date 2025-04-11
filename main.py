@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import sys # Add sys import for exiting
 # import time # Unused import
 from pathlib import Path
 import rich
@@ -146,31 +147,8 @@ def main():
             logger.info(f"Loaded initial goal from: {args.goal_prompt_file}")
         except FileNotFoundError:
             logger.error(f"Goal prompt file not found: {args.goal_prompt_file}")
-            # Use the default prompt as a fallback
-            initial_goal_prompt = """
-Your task is to build a Python-based test harness that:
-
-1. Launches an Aider subprocess to apply a code or test change.
-2. Runs pytest against the updated project.
-3. Evaluates the outcome using a local LLM (via Ollama) that decides if the result was:
-   - Successful
-   - Retry-worthy with suggestions
-   - A structural failure
-4. Logs diffs, outcomes, and retry metadata in a stateful SQLite or JSON ledger.
-5. Supports a prompt history chain so Aider can reason over its own history.
-6. Continues looping until a 'converged' verdict is reached or max attempts.
-7. Optionally allows another Aider process to act as a code reviewer.
-
-You are allowed to modify files, install packages, and manage subprocesses.
-This harness must be able to work on any project with a `pytest`-compatible test suite.
-"""
-            logger.warning("Using default goal prompt")
-            # Create the default goal file
-            default_goal_path = Path(args.goal_prompt_file)
-            if not default_goal_path.exists():
-                with open(default_goal_path, "w") as f:
-                    f.write(initial_goal_prompt.strip())
-                logger.info(f"Created default goal file: {default_goal_path}")
+            logger.error("Please create the goal prompt file or specify a valid path.")
+            sys.exit(1) # Exit if the prompt file is essential and not found
 
 
     # Display banner
