@@ -217,42 +217,54 @@ class UIServer:
         websocket_server = None # Variable to hold the server instance
 
         async def serve_websocket(task_status=anyio.TASK_STATUS_IGNORED):
-            """Inner function to start the websocket server."""
+            """Inner function to start the websocket server, trying port+1 on failure."""
             nonlocal websocket_server # Allow modification of outer scope variable
             srv = None
-            try:
-                # Use self.port (which might be 0 for ephemeral)
-                requested_port = self.port
-                logger.info(f"Attempting to start WebSocket server on ws://{self.host}:{requested_port}")
-                srv = await websockets.serve(
-                    self._handler,
-                    self.host,
-                    requested_port, # Pass the requested port (could be 0)
-                    ping_interval=20, # Keep connections alive
-                    ping_timeout=20
-                )
-                # --- Server started successfully ---
-                # Get the actual port the server bound to
-                actual_port = srv.sockets[0].getsockname()[1]
-                self.port = actual_port # Update instance port to the actual one
-                logger.info(f"WebSocket server started successfully on ws://{self.host}:{self.port}")
-                websocket_server = srv # Store the server object
+            initial_port = self.port # Store the originally requested port (could be 0)
+            current_port = initial_port
+            max_attempts = 2 if initial_port != 0 else 1 # Only try +1 if a specific port was requested
 
-                # Signal that the server has started successfully (for TaskGroup.start)
-                # This MUST be called before awaiting the stop_event
-                task_status.started()
+            for attempt in range(max_attempts):
+                try:
+                    logger.info(f"Attempting to start WebSocket server on ws://{self.host}:{current_port} (Attempt {attempt + 1}/{max_attempts})")
+                    srv = await websockets.serve(
+                        self._handler,
+                        self.host,
+                        current_port, # Use the current attempt's port
+                        ping_interval=20, # Keep connections alive
+                        ping_timeout=20
+                    )
+                    # --- Server started successfully ---
+                    actual_port = srv.sockets[0].getsockname()[1]
+                    self.port = actual_port # Update instance port to the actual one
+                    logger.info(f"WebSocket server started successfully on ws://{self.host}:{self.port}")
+                    websocket_server = srv # Store the server object
 
-            except OSError as e:
-                logger.error(f"Failed to start WebSocket server on {self.host}:{requested_port} due to OSError: {e}")
-                # Do NOT call task_status.started() - signal failure by returning.
+                    # Signal that the server has started successfully (for TaskGroup.start)
+                    task_status.started()
+                    break # Exit the loop on success
+
+                except OSError as e:
+                    if "Address already in use" in str(e) and attempt < max_attempts - 1:
+                        logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
+                        current_port += 1 # Increment port for the next attempt
+                    else:
+                        # Log final failure (either last attempt or different OSError)
+                        logger.error(f"Failed to start WebSocket server on {self.host}:{current_port} due to OSError: {e}")
+                        # Do NOT call task_status.started() - signal failure by returning.
+                        return # Exit serve_websocket
+                except Exception as e:
+                    # Catch any other unexpected error during startup
+                    logger.exception(f"An unexpected error occurred during server startup attempt on port {current_port}: {e}")
+                    # Do NOT call task_status.started() - signal failure by returning.
+                    return # Exit serve_websocket
+            else:
+                # This else block executes if the loop completes without break (i.e., all attempts failed)
+                logger.error(f"WebSocket server could not be started after {max_attempts} attempts.")
+                # Ensure task_status is not called if we exit the loop due to failure
                 return # Exit serve_websocket
-            except Exception as e:
-                # Catch any other unexpected error during startup
-                logger.exception(f"An unexpected error occurred during server startup attempt on port {requested_port}: {e}")
-                # Do NOT call task_status.started() - signal failure by returning.
-                return # Exit serve_websocket
 
-            # Keep the server running until stop() is called
+            # Keep the server running until stop() is called (only reached if loop breaks on success)
             try:
                 await self.stop_event.wait()
             finally:
