@@ -6,7 +6,16 @@
     <title>Aider Harness UI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://unpkg.com/ansi-to-html@0.7.2/lib/ansi_to_html.js"></script> <!-- Replace ansi_up with ansi-to-html -->
+    <script src="https://unpkg.com/ansi-to-html@0.7.2/lib/ansi_to_html.js"></script>
+    <!-- Prism.js for Syntax Highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <!-- Add diff language support explicitly if autoloader doesn't pick it up -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-diff.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/keep-markup/prism-keep-markup.min.js"></script> <!-- Keep HTML markup within code blocks -->
+
+
     <style>
         /* Basic styling */
         body { font-family: sans-serif; }
@@ -53,7 +62,8 @@
              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <div>
                      <h3 class="text-lg font-medium mb-1">Aider Diff</h3>
-                     <pre class="bg-gray-900 text-gray-300 p-3 rounded h-48 overflow-y-auto text-xs font-mono" x-text="status.aider_diff || '[No diff]'"></pre>
+                     <!-- Add language-diff class and wrap content in <code> for Prism.js -->
+                     <pre class="bg-gray-900 text-gray-300 p-3 rounded h-48 overflow-y-auto text-xs font-mono language-diff" x-ref="diffViewer"><code x-text="status.aider_diff || '[No diff]'"></code></pre>
                  </div>
                  <div>
                      <h3 class="text-lg font-medium mb-1">Pytest Output</h3>
@@ -222,6 +232,7 @@
                                 }
 
                                 // Merge new data (potentially without duplicate log_entry)
+                                const previousDiff = this.status.aider_diff; // Store previous diff
                                 this.status = { ...this.status, ...data };
 
                                 // Limit the size of the status.log array
@@ -232,8 +243,13 @@
                                 }
 
                                 // Scroll main log container to bottom
-                                this.$nextTick(() => { // Ensure DOM is updated before scrolling
+                                this.$nextTick(() => {
                                     this.scrollToBottom('logContainer');
+                                    // Highlight diff if it changed
+                                    if (this.status.aider_diff !== previousDiff && this.$refs.diffViewer && this.$refs.diffViewer.children.length > 0) {
+                                        // console.log("Diff changed, highlighting..."); // Optional log
+                                        Prism.highlightElement(this.$refs.diffViewer.children[0]); // Highlight the <code> element
+                                    }
                                 });
                             }
                         } catch (e) {
@@ -358,11 +374,33 @@
                     console.log("Processing buffer content:", bufferToProcess.substring(0, 100) + (bufferToProcess.length > 100 ? "..." : "")); // Log start of buffer
                     this.lastProcessedChunk = bufferToProcess; // Store raw chunk
 
-                    // --- Simplified Processing: Append raw chunk directly ---
-                    // Let ansi_up handle all ANSI/control codes during rendering
-                    this.liveAiderOutput += bufferToProcess;
+                    // --- Process buffer for control codes (\r, \b) ---
+                    let currentOutput = this.liveAiderOutput; // Get current state
+                    for (let i = 0; i < bufferToProcess.length; i++) {
+                        const char = bufferToProcess[i];
+                        if (char === '\r') {
+                            // Carriage Return: Find last newline and discard text after it
+                            const lastNewline = currentOutput.lastIndexOf('\n');
+                            if (lastNewline !== -1) {
+                                currentOutput = currentOutput.substring(0, lastNewline + 1);
+                            } else {
+                                currentOutput = ''; // If no newline, clear everything
+                            }
+                        } else if (char === '\b') {
+                            // Backspace: Remove last character if output is not empty
+                            if (currentOutput.length > 0) {
+                                currentOutput = currentOutput.slice(0, -1);
+                            }
+                        } else {
+                            // Append normal characters
+                            currentOutput += char;
+                        }
+                    }
+                    this.liveAiderOutput = currentOutput; // Update the state
+                    // --- End Control Code Processing ---
 
-                    // Apply scrollback limit after appending
+
+                    // Apply scrollback limit after processing
                     const maxLines = 10000; // Keep the limit
                     // Split by newline to estimate lines for scrollback limit
                     const lines = this.liveAiderOutput.split('\n');
