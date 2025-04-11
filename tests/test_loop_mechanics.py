@@ -125,7 +125,7 @@ def test_local_llm_evaluates_result(mock_get_llm_response, mock_run_pytest, mock
     evaluation_prompt = args[0] # The first positional argument is the prompt
     
     # Check if the prompt contains key elements from the iteration
-    assert "Initial Goal:\nTest goal" in evaluation_prompt
+    assert "Current Goal:\nTest goal" in evaluation_prompt # Expect "Current Goal:" now
     assert "Last Code Changes (diff):\n```diff\nfake diff\n```" in evaluation_prompt
     assert "Test Results:\nStatus: FAILED" in evaluation_prompt
     assert "Pytest FAILED: Assertion Error" in evaluation_prompt
