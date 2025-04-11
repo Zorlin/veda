@@ -130,16 +130,10 @@ def run_aider(
     # Base command arguments
     command_args = []
 
-    # Add the Ollama model if specified in config (prioritize local model)
-    if ollama_model:
-        # Aider expects model names potentially prefixed (e.g., ollama/llama3)
-        # We assume the config value is the correct name for Ollama.
-        # Aider might need a prefix like 'ollama/' - adjust if needed based on Aider docs/behavior.
-        # For now, pass the raw model name. Aider might auto-detect Ollama.
-        # If Aider requires a specific format like `ollama/modelname`, adjust here.
-        # Example: command_args.append(f"--model ollama/{ollama_model}")
-        command_args.append(f"--model {shlex.quote(ollama_model)}")
-        logger.info(f"Configuring Aider to use model: {ollama_model}")
+    # Explicitly configure Aider to use the gemini model
+    command_args.append("--model gemini")
+    logger.info("Configuring Aider to use model: gemini")
+    # Remove the logic that used the harness's ollama_model for Aider
 
     # Add the message argument
     command_args.append(f"--message {quoted_prompt}")
