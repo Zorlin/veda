@@ -641,17 +641,6 @@ class Harness:
                     # Skip the rest of the loop (pytest, eval) for this iteration
                     logging.info(f"Continuing to next iteration after handling interrupt for iteration {iteration_num_display}.")
                     continue # Go to the next iteration immediately
-                        self.current_run_id,
-                        iteration_id,
-                        aider_diff, # Diff might be partial or None
-                        "[No tests run due to interrupt]",
-                        False, # Assume tests didn't pass
-                        "INTERRUPTED", # Special verdict
-                        "Aider process stopped by user signal."
-                    )
-
-                    # Skip the rest of the loop (pytest, eval) for this iteration
-                    continue # Go to the next iteration immediately
 
                 # Handle other Aider errors
                 elif aider_error:
