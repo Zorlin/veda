@@ -20,10 +20,8 @@ async def test_server(anyio_backend): # Add anyio_backend fixture back
     # Create a memory stream pair for testing
     send_stream, receive_stream = anyio.create_memory_object_stream(float('inf'))
 
-    # Use the default port (9940) for testing and pass the stream to the constructor
-    # The server's start logic will handle rollover to 9941 if needed.
-    server = UIServer(host="127.0.0.1", port=9940, receive_stream=receive_stream)
-    # server.set_receive_stream(receive_stream) # Removed this line
+    # Use port 0 to let the OS assign an available ephemeral port.
+    server = UIServer(host="127.0.0.1", port=0, receive_stream=receive_stream)
 
     async with anyio.create_task_group() as tg:
         # Start the server in the background using the test's task group
