@@ -214,9 +214,12 @@ class UIServer:
                  logger.exception(f"An unexpected error occurred during server startup: {e}")
                  return # Exit start method if failed
 
-        if server is None:
-             logger.error("Server could not be started after multiple attempts.")
-             return
+            # Check if the server object (srv) was successfully created
+            if srv is None:
+                 logger.error("Server could not be started after multiple attempts.")
+                 return
+
+            websocket_server = srv # Store the server object
 
         # Signal that the server has started successfully (for TaskGroup.start)
         task_status.started()
@@ -229,6 +232,24 @@ class UIServer:
             server.close()
             await server.wait_closed()
             logger.info("WebSocket server stopped.")
+
+        # Start the server and listener tasks concurrently
+        try:
+            async with anyio.create_task_group() as tg:
+                # Start the WebSocket server task, waiting for it to signal readiness
+                await tg.start(serve_websocket)
+                # Start the update listener task concurrently
+                tg.start_soon(self._update_listener)
+                logger.info("WebSocket server and update listener tasks started.")
+                # Signal overall readiness if required by the caller context
+                task_status.started()
+                # The group will now wait until all tasks complete or are cancelled.
+                # The stop_event mechanism inside serve_websocket handles shutdown.
+
+        except Exception as e:
+             logger.exception(f"Error in UI server main task group: {e}")
+        finally:
+             logger.info("UI Server start method finished.")
 
 
     def stop(self):
