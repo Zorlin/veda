@@ -205,10 +205,6 @@ class UIServer:
 
     async def _update_listener(self):
         """Listen for updates from the Harness via the receive stream."""
-                logger.error(f"Error sending message to {client.remote_address}: {result}")
-                # Optionally remove clients with persistent errors
-                # disconnected_clients.append(client)
-
         # Remove disconnected clients after iteration
         for client in disconnected_clients:
             if client in self.clients:
