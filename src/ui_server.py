@@ -231,25 +231,37 @@ class UIServer:
                         ping_timeout=20
                     )
                     # If websockets.serve() succeeds without raising an exception, break the loop.
-                    break # Correct indentation level
+                    break # Exit loop on success
                 except OSError as e:
                     if "Address already in use" in str(e) and attempt < max_attempts - 1:
                         logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
                         current_port += 1
                     else:
-                        logger.error(f"Failed to start WebSocket server on {self.host}:{current_port}: {e}")
-                        logger.error("Check if the port is already in use or if you have permissions.")
-                        return # Exit start method if failed
+                        logger.error(f"Failed to start WebSocket server on {self.host}:{current_port} due to OSError: {e}")
+                        # Let the loop finish, srv will remain None
+                        break # Exit loop on final OSError failure
+                except RuntimeError as e:
+                    # Catch the specific RuntimeError indicating backend incompatibility
+                    if "no running event loop" in str(e):
+                         logger.error(f"Failed to start WebSocket server on {self.host}:{current_port}: {e}. This often indicates incompatibility between the 'websockets' library and the current async backend (e.g., Trio).")
+                    else:
+                         # Log other RuntimeErrors differently if needed, or re-raise
+                         logger.exception(f"An unexpected RuntimeError occurred during server startup attempt on port {current_port}: {e}")
+                    srv = None # Ensure srv is None after this kind of error
+                    break # Exit loop, cannot proceed
                 except Exception as e:
-                    logger.exception(f"An unexpected error occurred during server startup: {e}")
-                    # Let the loop continue to the next attempt or finish
+                    # Catch any other unexpected error during startup
+                    logger.exception(f"An unexpected error occurred during server startup attempt on port {current_port}: {e}")
+                    srv = None # Ensure srv is None after this kind of error
+                    break # Exit loop
 
             # --- End of for loop ---
 
             # Check if the loop completed successfully (i.e., srv is not None)
             if srv is None:
-                 logger.error("Server could not be started after all attempts.")
-                 # Do not signal task_status.started() if we failed
+                 logger.error("Server could not be started after all attempts or due to an error.")
+                 # Do NOT call task_status.started() - signal failure to the TaskGroup by returning.
+                 # The TaskGroup will raise the "child exited without calling task_status.started()" error.
                  return # Exit serve_websocket
 
             # --- Server started successfully ---
