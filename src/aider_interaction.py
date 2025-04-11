@@ -28,76 +28,7 @@ AIDER_PROMPT_PATTERNS = [
 # Default timeout for waiting for Aider output
 AIDER_TIMEOUT = 300 # seconds (5 minutes)
 
-# --- Helper Function for LLM Response ---
-
-def _get_llm_aider_response(
-    aider_output: str,
-    prompt_pattern: str,
-    config: Dict[str, Any],
-    history: List[Dict[str, str]]
-) -> str:
-    """
-    Uses the LLM to decide how to respond to an Aider prompt.
-    """
-    system_prompt = """You are an automated agent controlling the 'aider' coding tool.
-Aider has presented a prompt requiring a decision. Analyze the preceding output, focusing on any proposed code changes (diffs).
-Based on the overall goal (implicitly from history) and the specific changes proposed, decide the appropriate response.
-Respond ONLY with the single character representing the desired action (e.g., 'y', 'n', 'q', 'a')."""
-
-    # Extract the specific question Aider asked (the matched pattern)
-    match = re.search(prompt_pattern, aider_output, re.IGNORECASE | re.MULTILINE)
-    aider_question = match.group(0) if match else f"Detected prompt matching: {prompt_pattern}"
-
-    llm_prompt = f"""Aider Output Before Prompt:
-```
-{aider_output}
-```
-
-Aider Prompt: "{aider_question}"
-
-Based on the output and the prompt, what is the best response?
-Choose ONLY one character from the options provided in the prompt (e.g., y, n, q, a, v).
-Response:"""
-
-    # --- Special Handling for Add File Prompt ---
-    # Bypass LLM for this specific prompt due to observed failures and simplicity.
-    # Always decline adding files automatically for now.
-    if prompt_pattern == ADD_FILE_PROMPT_PATTERN:
-        logger.info("Detected 'Add file' prompt. Automatically responding 'n'.")
-        return 'n'
-    # --- End Special Handling ---
-
-    try:
-        # Use a limited history? Or the full history? Let's try full for now.
-        response = get_llm_response(llm_prompt, config, history, system_prompt=system_prompt)
-        # Validate the response - ensure it's one of the expected single characters
-        # Extract allowed characters from the prompt pattern (e.g., y/n/q/a/v)
-        allowed_chars_match = re.search(r'\[([a-z/]+)\]', aider_question, re.IGNORECASE)
-        allowed_chars = set()
-        if allowed_chars_match:
-            allowed_chars = set(c for c in allowed_chars_match.group(1) if c != '/')
-        # Handle specific allowed characters for the Add File prompt
-        elif prompt_pattern == ADD_FILE_PROMPT_PATTERN:
-            allowed_chars = {'y', 'n', 'a', 's', 'd'}
-            logger.debug(f"Using predefined allowed chars for Add File prompt: {allowed_chars}")
-
-        logger.debug(f"Raw LLM response for Aider prompt: '{response}'")
-        # Basic validation: take the first character, lowercased
-        llm_choice = response.strip().lower()[:1]
-
-        if allowed_chars and llm_choice not in allowed_chars:
-            logger.warning(f"LLM proposed invalid response '{llm_choice}' (from raw: '{response}'). Allowed: {allowed_chars}. Defaulting to 'n'.")
-            return 'n' # Default to 'no' if LLM response is invalid
-        elif not allowed_chars: # Fallback validation if pattern parsing failed AND it's not a known pattern with hardcoded chars
-             logger.warning(f"LLM proposed potentially invalid response '{llm_choice}' (from raw: '{response}'). Could not determine allowed chars for pattern '{prompt_pattern}'. Defaulting to 'n'.")
-             return 'n'
-
-        logger.info(f"LLM decided valid response to '{aider_question}' is: '{llm_choice}'")
-        return llm_choice
-
-    except Exception as e:
-        logger.error(f"Error getting LLM response for Aider prompt: {e}. Defaulting to 'n'.")
-        return 'n' # Default to 'no' on LLM error
+# --- Helper function removed as --yes flag makes it unnecessary ---
 
 # --- Main Aider Interaction Function ---
 
@@ -133,7 +64,10 @@ def run_aider(
     # Explicitly configure Aider to use the gemini model
     command_args.append("--model gemini")
     logger.info("Configuring Aider to use model: gemini")
-    # Remove the logic that used the harness's ollama_model for Aider
+
+    # Add --yes to automatically approve actions
+    command_args.append("--yes")
+    logger.info("Adding --yes flag to Aider command.")
 
     # Add the message argument
     command_args.append(f"--message {quoted_prompt}")
@@ -164,57 +98,23 @@ def run_aider(
         # Interaction loop
         while True:
             try:
-                # Wait for either a known prompt pattern or EOF/Timeout
-                logger.debug(f"Waiting for Aider output/prompt (timeout={AIDER_TIMEOUT}s)...")
-                index = child.expect(AIDER_PROMPT_PATTERNS + [pexpect.EOF, pexpect.TIMEOUT], timeout=AIDER_TIMEOUT)
-                output_before = child.before
-                output_after = child.after # This might be EOF/TIMEOUT type
+                # Wait only for EOF or Timeout, as --yes handles prompts
+                logger.debug(f"Waiting for Aider to finish (EOF or timeout={AIDER_TIMEOUT}s)...")
+                index = child.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=AIDER_TIMEOUT)
 
-                # Always accumulate output *before* the match
+                # Accumulate output that came before the EOF/Timeout
+                output_before = child.before
                 if output_before:
                     full_output += output_before
+                logger.debug(f"Output before EOF/Timeout:\n>>>\n{output_before}\n<<<")
 
-                logger.debug(f"Pexpect matched index: {index}")
-                logger.debug(f"Output BEFORE match:\n>>>\n{output_before}\n<<<")
-                logger.debug(f"Output AFTER match (triggering pattern/EOF/Timeout):\n>>>\n{output_after}\n<<<")
-
-                # Only accumulate output_after if it's part of a matched pattern (string)
-                if index < len(AIDER_PROMPT_PATTERNS):
-                    if output_after and isinstance(output_after, str): # Check it's a string
-                         full_output += output_after
-
-
-                if index < len(AIDER_PROMPT_PATTERNS):
-                    # Matched one of the known prompts
-                    matched_pattern = AIDER_PROMPT_PATTERNS[index]
-                    logger.info(f"Aider prompt detected matching pattern: {matched_pattern}")
-
-                    # Get LLM response
-                    response_char = _get_llm_aider_response(
-                        aider_output=full_output, # Pass accumulated output
-                        prompt_pattern=matched_pattern,
-                        config=config,
-                        history=history # Pass conversation history
-                    )
-
-                    # Send the response back to Aider
-                    logger.info(f"Sending response '{response_char}' to Aider.")
-                    child.sendline(response_char)
-
-                    # Handle specific responses if needed (e.g., 'q' means quit)
-                    if response_char == 'q':
-                        logger.warning("LLM chose to quit Aider ('q'). Terminating interaction.")
-                        child.close()
-                        return None, "Aider interaction terminated by LLM ('q')"
-
-                elif index == len(AIDER_PROMPT_PATTERNS): # EOF
+                if index == 0: # EOF
                     logger.info("Aider process finished (EOF detected).")
-                    # Explicitly close before checking status
-                    child.close()
+                    child.close() # Close explicitly
                     break # Exit loop, process finished normally
-                elif index == len(AIDER_PROMPT_PATTERNS) + 1: # Timeout
+                elif index == 1: # Timeout
                     logger.error(f"Timeout waiting for Aider output after {AIDER_TIMEOUT} seconds.")
-                    full_output += child.before # Capture output before timeout
+                    # full_output already contains output before timeout
                     child.close(force=True)
                     return None, f"Timeout waiting for Aider after {AIDER_TIMEOUT}s"
 
