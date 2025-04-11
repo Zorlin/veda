@@ -198,10 +198,8 @@ class UIServer:
                     ping_interval=20, # Keep connections alive
                     ping_timeout=20
                 )
-                # Successful server start handling:
-                self.port = current_port # Update port if successful
-                logger.info(f"WebSocket server started successfully on ws://{self.host}:{self.port}")
-                break # Exit loop on success
+                # If websockets.serve() succeeds without raising an exception, break the loop.
+                break
             except OSError as e:
                 if "Address already in use" in str(e) and attempt < max_attempts - 1:
                     logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
@@ -212,17 +210,23 @@ class UIServer:
                     return # Exit start method if failed
             except Exception as e:
                  logger.exception(f"An unexpected error occurred during server startup: {e}")
-                 return # Exit start method if failed
+                 # Let the loop continue to the next attempt or finish
 
-            # Check if the server object (srv) was successfully created
+            # --- End of for loop ---
+
+            # Check if the loop completed successfully (i.e., srv is not None)
             if srv is None:
-                 logger.error("Server could not be started after multiple attempts.")
-                 return
+                 logger.error("Server could not be started after all attempts.")
+                 # Do not signal task_status.started() if we failed
+                 return # Exit serve_websocket
 
+            # --- Server started successfully ---
+            self.port = current_port # Update port to the one that worked
+            logger.info(f"WebSocket server started successfully on ws://{self.host}:{self.port}")
             websocket_server = srv # Store the server object
 
-        # Signal that the server has started successfully (for TaskGroup.start)
-        task_status.started()
+            # Signal that the server has started successfully (for TaskGroup.start)
+            task_status.started()
 
         # Keep the server running until stop() is called
         try:
