@@ -265,8 +265,9 @@ def run_aider(
         logger.error(error_message)
         # Check for common file not found error
         if "No such file or directory" in str(e):
-             # Use the correct variable name 'aider_command_base' here
-             error_message = f"Aider command '{aider_command_base}' not found. Make sure Aider is installed and in the system PATH or configure 'aider_command' in config.yaml."
+             # Use the first part of the command (the executable) in the error message
+             executable = command_args[0] if command_args else aider_command_str # Get executable or full string
+             error_message = f"Aider command '{executable}' not found. Make sure Aider is installed and in the system PATH or configure 'aider_command' in config.yaml."
         return None, error_message
     except Exception as e:
         error_message = f"An unexpected error occurred while running Aider interactively: {e}"
