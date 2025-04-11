@@ -364,6 +364,9 @@ class Harness:
             current_goal_prompt = initial_goal_prompt_or_file
             self._goal_prompt_file = None # Not using a file
             self._last_goal_prompt_hash = None
+        
+        # Initialize current_prompt before history check
+        current_prompt = current_goal_prompt
 
         # Start a new run in the ledger if we don't have an active one
         if self.state["run_id"] is None:
@@ -387,13 +390,14 @@ class Harness:
             # Add to ledger (using current_goal_prompt)
             self.ledger.add_message(self.current_run_id, None, "user", current_goal_prompt)
         elif self.state["prompt_history"]:
-            # If resuming, the last message should be the user prompt for the current iteration
+            # If resuming, check if the last message was a user prompt and update current_prompt
             last_message = self.state["prompt_history"][-1]
             if last_message.get("role") == "user":
-                current_prompt = last_message["content"]
+                current_prompt = last_message["content"] # Update current_prompt for this iteration
                 logging.info(f"Resuming run from iteration {self.state['current_iteration'] + 1}. Last user prompt retrieved from history.")
-            else: # Last message is from assistant
+            else: # Last message is from assistant or system
                 # This means the previous iteration's Aider run completed, but didn't generate a new user prompt.
+                # Or a system message was the last one.
                 # Start a fresh run with the potentially updated goal.
                 logging.info("Previous run concluded (last message was from assistant). Starting a fresh run with the current goal.")
                 # current_goal_prompt is already set from file/string loading above
@@ -409,15 +413,18 @@ class Harness:
                     self.config
                 )
                 self.state["run_id"] = self.current_run_id
-                # Add to ledger
-                self.ledger.add_message(self.current_run_id, None, "user", current_prompt)
+                # Add initial goal message to ledger for the new run
+                self.ledger.add_message(self.current_run_id, None, "user", current_goal_prompt)
+                # current_prompt remains the initial current_goal_prompt set earlier
         else:
             # Should not happen if initialization is correct, but handle defensively
             logging.warning("State indicates resumption but history is empty. Starting with current goal.")
+            # current_prompt remains the initial current_goal_prompt set earlier
             # current_goal_prompt is already set from file/string loading above
             self.state["prompt_history"] = [{"role": "user", "content": current_goal_prompt}]
-            # Add to ledger (using current_goal_prompt)
-            self.ledger.add_message(self.current_run_id, None, "user", current_prompt)
+            # Add initial goal message to ledger (using current_goal_prompt)
+            self.ledger.add_message(self.current_run_id, None, "user", current_goal_prompt)
+            # current_prompt remains the initial current_goal_prompt set earlier
 
         # Track recent diffs to detect stuck cycles
         recent_diffs = [] # Store the last few non-empty diffs
