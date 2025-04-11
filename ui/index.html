@@ -357,49 +357,25 @@
                     console.log("Processing buffer content:", bufferToProcess.substring(0, 100) + (bufferToProcess.length > 100 ? "..." : "")); // Log start of buffer
                     this.lastProcessedChunk = bufferToProcess; // Store raw chunk
 
-                    // --- Process buffer to handle \r before appending ---
-                    let currentOutputLines = this.liveAiderOutput.split('\n');
-                    let currentLastLine = currentOutputLines.pop() || ''; // Get last line, handle empty output
+                    // --- Simplified Processing: Append raw chunk directly ---
+                    // Let ansi_up handle all ANSI/control codes during rendering
+                    this.liveAiderOutput += bufferToProcess;
 
-                    let incomingLines = bufferToProcess.split('\n');
-
-                    // Process the first incoming line combined with the current last line
-                    let combinedFirstLine = currentLastLine + incomingLines[0];
-                    let lastCRIndexCombined = combinedFirstLine.lastIndexOf('\r');
-                    if (lastCRIndexCombined !== -1) {
-                        // If \r exists, take only the part after the last \r
-                        currentLastLine = combinedFirstLine.substring(lastCRIndexCombined + 1);
-                    } else {
-                        // Otherwise, keep the combined line as is
-                        currentLastLine = combinedFirstLine;
-                    }
-
-                    // Add the processed first line back (or update the last line)
-                    currentOutputLines.push(currentLastLine);
-
-                    // Process remaining incoming lines
-                    for (let i = 1; i < incomingLines.length; i++) {
-                        let line = incomingLines[i];
-                        let lastCRIndexLine = line.lastIndexOf('\r');
-                        if (lastCRIndexLine !== -1) {
-                            // If \r exists, take only the part after the last \r
-                            currentOutputLines.push(line.substring(lastCRIndexLine + 1));
-                        } else {
-                            // Otherwise, add the whole line
-                            currentOutputLines.push(line);
-                        }
-                    }
-
-                    // Reconstruct liveAiderOutput, applying scrollback limit
+                    // Apply scrollback limit after appending
                     const maxLines = 10000; // Keep the limit
-                    if (currentOutputLines.length > maxLines) {
-                        this.liveAiderOutput = currentOutputLines.slice(-maxLines).join('\n');
-                    } else {
-                        this.liveAiderOutput = currentOutputLines.join('\n');
+                    // Split by newline to estimate lines for scrollback limit
+                    const lines = this.liveAiderOutput.split('\n');
+                    if (lines.length > maxLines) {
+                        // Find the index to slice from to keep maxLines
+                        const startIndex = lines.length - maxLines;
+                        // Rejoin the necessary lines. Note: This might split ANSI sequences,
+                        // but it's a necessary tradeoff for scrollback limiting.
+                        // ansi_up should hopefully handle broken sequences gracefully.
+                        this.liveAiderOutput = lines.slice(startIndex).join('\n');
                     }
-                    // --- End processing ---
+                    // --- End Simplified Processing ---
 
-                    console.log("After processing buffer. New liveAiderOutput length:", this.liveAiderOutput.length); // <-- Log updated length
+                    console.log("After appending buffer. New liveAiderOutput length:", this.liveAiderOutput.length); // <-- Log updated length
 
                     // Use nextTick to ensure DOM updates before scrolling
                     this.$nextTick(() => {
