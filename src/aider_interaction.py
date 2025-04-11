@@ -72,11 +72,11 @@ Response:"""
         if allowed_chars and llm_choice not in allowed_chars:
             logger.warning(f"LLM proposed invalid response '{llm_choice}' (from raw: '{response}'). Allowed: {allowed_chars}. Defaulting to 'n'.")
             return 'n' # Default to 'no' if LLM response is invalid
-        elif not allowed_chars and llm_choice not in ('y', 'n', 'q', 'a', 'v'): # Fallback validation
-             logger.warning(f"LLM proposed potentially invalid response '{response}'. Defaulting to 'n'.")
+        elif not allowed_chars and llm_choice not in ('y', 'n', 'q', 'a', 'v'): # Fallback validation if pattern parsing failed
+             logger.warning(f"LLM proposed potentially invalid response '{llm_choice}' (from raw: '{response}'). Could not determine allowed chars. Defaulting to 'n'.")
              return 'n'
 
-        logger.info(f"LLM decided response to '{aider_question}' is: '{llm_choice}'")
+        logger.info(f"LLM decided valid response to '{aider_question}' is: '{llm_choice}'")
         return llm_choice
 
     except Exception as e:
@@ -138,8 +138,15 @@ def run_aider(
         while True:
             try:
                 # Wait for either a known prompt pattern or EOF/Timeout
+                logger.debug(f"Waiting for Aider output/prompt (timeout={AIDER_TIMEOUT}s)...")
                 index = child.expect(AIDER_PROMPT_PATTERNS + [pexpect.EOF, pexpect.TIMEOUT], timeout=AIDER_TIMEOUT)
-                full_output += child.before + child.after # Accumulate output
+                output_before = child.before
+                output_after = child.after
+                full_output += output_before + output_after # Accumulate output
+                logger.debug(f"Pexpect matched index: {index}")
+                logger.debug(f"Output BEFORE match:\n>>>\n{output_before}\n<<<")
+                logger.debug(f"Output AFTER match (triggering pattern/EOF/Timeout):\n>>>\n{output_after}\n<<<")
+
 
                 if index < len(AIDER_PROMPT_PATTERNS):
                     # Matched one of the known prompts
