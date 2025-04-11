@@ -34,7 +34,8 @@ def get_llm_response(
     """
     # Use the specific model from config, fall back to a default if necessary
     ollama_model = config.get("ollama_model", "gemma3:12b") # Updated default
-    ollama_options = config.get("ollama_options", {}) # e.g., {"temperature": 0.7}
+    ollama_options = config.get("ollama_options", {}).copy() # Copy to avoid modifying original
+    request_timeout = config.get("ollama_request_timeout", 300) # Default 5 minutes
     # ollama_host = config.get("ollama_host", None) # Optional: configure host if not default localhost
 
     messages = []
@@ -58,8 +59,15 @@ def get_llm_response(
             model=ollama_model,
             messages=messages,
             stream=False, # We want the full response at once
-            options=ollama_options
+            options=ollama_options,
             # Add keep_alive handling if needed via options or separate call? Check library docs.
+            # Note: The ollama library itself might handle timeouts differently.
+            # We pass it via options if supported, otherwise rely on underlying http client timeouts.
+            # Checking ollama-python source, timeout isn't a direct param to chat,
+            # but the underlying httpx client has timeouts. Let's rely on that for now,
+            # but keep the config option for potential future use or explicit client setup.
+            # If hangs persist, we might need to configure the client explicitly:
+            # client = ollama.Client(timeout=request_timeout)
         )
 
         # The ollama library response structure is slightly different

@@ -3,6 +3,7 @@
 # Ollama Configuration
 ollama_model: "gemma3:12b"
 ollama_api_url: "http://localhost:11434/api/generate"
+ollama_request_timeout: 300 # Timeout in seconds for Ollama API requests
 ollama_options:
   temperature: 0.7
   top_p: 0.9

@@ -83,6 +83,7 @@ class Harness:
             "aider_command": "aider", # Adjust if aider is not in PATH
             "aider_test_command": "pytest -v", # Default test command for Aider
             "project_dir": ".", # Directory Aider should operate on
+            "ollama_request_timeout": 300, # Default timeout for Ollama requests (seconds)
             # TODO: Add other necessary config like pytest command, etc.
         }
         config = default_config.copy()
