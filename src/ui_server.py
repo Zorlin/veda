@@ -198,6 +198,7 @@ class UIServer:
                     ping_interval=20, # Keep connections alive
                     ping_timeout=20
                 )
+                # These lines should be inside the try block, executed on success
                 self.port = current_port # Update port if successful
                 logger.info(f"WebSocket server started successfully on ws://{self.host}:{self.port}")
                 break # Exit loop on success
