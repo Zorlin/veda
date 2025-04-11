@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import time # Import the time module
 from pathlib import Path
 import rich
 from rich.console import Console
