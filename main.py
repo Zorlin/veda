@@ -8,11 +8,12 @@ from rich.console import Console
 from rich.logging import RichHandler
 import threading # For running UI server in background
 import asyncio # For running async UI server
+import anyio # For creating streams
 import yaml # For loading config early
 import http.server
 import socketserver
 from functools import partial
- 
+
 from src.harness import Harness
 from src.ui_server import UIServer # Import UI Server
 
@@ -252,12 +253,16 @@ This harness must be able to work on any project with a `pytest`-compatible test
         )
         http_server_thread.start()
         # Note: We don't have a direct handle to the httpd object to call shutdown cleanly from here.
-        # Daemon threads will exit when the main thread exits. For cleaner shutdown, 
+        # Daemon threads will exit when the main thread exits. For cleaner shutdown,
         # start_http_server would need modification (e.g., using httpd.shutdown() via another thread/signal).
+
+    # Create the communication stream for UI updates
+    # Use infinite buffer to prevent blocking harness if UI server lags/crashes
+    send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size=float('inf'))
 
     # Initialize and run the harness
     try:
-        # Create harness, passing determined UI settings
+        # Create harness, passing determined UI settings and the send stream
         harness = Harness(
             config_file=args.config_file, # Harness still loads its full config internally
             max_retries=args.max_retries,
@@ -273,12 +278,15 @@ This harness must be able to work on any project with a `pytest`-compatible test
             websocket_host=ws_host, # Pass WS host/port
             websocket_port=ws_port,
             # http_port=http_port # Harness doesn't need the HTTP port directly
+            ui_send_stream=send_stream if ui_enabled else None # Pass the send stream
         )
 
-        # Link the already running UI server instance to the harness
+        # Link the harness instance to the UI server for interrupt callbacks
         if ui_server:
-            harness.set_ui_server(ui_server)
-            logger.info("Linked running UI server instance to Harness.")
+            ui_server.set_harness_instance(harness)
+            # Pass the receive stream to the UI server
+            ui_server.set_receive_stream(receive_stream)
+            logger.info("Linked Harness instance and receive stream to UI server.")
 
         # Run the harness and get results
         result = harness.run(initial_goal_prompt)

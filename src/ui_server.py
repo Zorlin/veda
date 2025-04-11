@@ -3,27 +3,33 @@ import asyncio
 import json
 import logging
 import websockets
-# Use the modern import path if available, otherwise fallback might be needed
-# from websockets.legacy.server import WebSocketServerProtocol
-from websockets.server import ServerProtocol # More modern approach often uses ServerProtocol directly or via serve context
-from typing import Set, Dict, Any, Optional, Tuple, List, Union
+from websockets.server import ServerProtocol
+from typing import Set, Dict, Any, Optional, Tuple, List, Union, TYPE_CHECKING
 from http import HTTPStatus
 from pathlib import Path
-import anyio # Import anyio for TASK_STATUS_IGNORED
+import anyio
+from anyio.streams.memory import MemoryObjectReceiveStream # Specific type hint
+
+# Avoid circular import for type hinting Harness
+if TYPE_CHECKING:
+    from .harness import Harness
 
 logger = logging.getLogger(__name__)
 
 class UIServer:
-    """Handles WebSocket connections and broadcasts harness status updates."""
+    """Handles WebSocket connections, listens for updates, and broadcasts them."""
 
     def __init__(self, host: str = "localhost", port: int = 8765):
         self.host = host
         self.port = port
-        self.clients: Set[ServerProtocol] = set() # Updated type hint
-        self.server_task: Optional[asyncio.Task] = None # Task for the running server
-        self.loop: Optional[asyncio.AbstractEventLoop] = None # Store the loop the server runs in
+        self.clients: Set[ServerProtocol] = set()
+        self.server_task: Optional[asyncio.Task] = None
         self.stop_event = asyncio.Event()
         self.latest_status: Dict[str, Any] = {"status": "Initializing", "run_id": None, "iteration": 0, "log": []}
+        # Stream for receiving updates from Harness
+        self.ui_receive_stream: Optional[MemoryObjectReceiveStream] = None
+        # Reference to Harness for sending interrupts back
+        self.harness_instance: Optional['Harness'] = None
         # Define the path to the UI directory relative to this file's location or project root
         # Assuming the script runs from the project root or src/ui_server.py location allows finding ui/
         self.ui_dir = Path(__file__).parent.parent / "ui"
@@ -31,12 +37,17 @@ class UIServer:
              # Fallback if running from a different structure (e.g., tests)
              self.ui_dir = Path.cwd() / "ui"
         # Note: UI serving path is still relevant for finding index.html in main.py's HTTP server
-        logger.info(f"WebSocket Server initialized (host={host}, port={port})") 
-        # Removed reference to serving UI from here
+        logger.info(f"WebSocket Server initialized (host={host}, port={port})")
 
-    # Removed _process_request method as this server will only handle WebSockets
+    def set_harness_instance(self, harness_instance: 'Harness'):
+        """Allows main script to inject the Harness instance for callbacks."""
+        self.harness_instance = harness_instance
 
-    async def _register(self, websocket: ServerProtocol): # Updated type hint
+    def set_receive_stream(self, receive_stream: MemoryObjectReceiveStream):
+        """Allows main script to inject the receive stream."""
+        self.ui_receive_stream = receive_stream
+
+    async def _register(self, websocket: ServerProtocol):
         """Register a new client WebSocket connection."""
         self.clients.add(websocket)
         logger.info(f"Client connected: {websocket.remote_address}")
@@ -67,7 +78,7 @@ class UIServer:
                     command = data.get("command")
 
                     # Handle interrupt command from UI
-                    if command == "interrupt" and hasattr(self, 'harness_instance') and self.harness_instance:
+                    if command == "interrupt" and self.harness_instance: # Check if harness_instance is set
                         user_message = data.get("message", "")
                         interrupt_now = data.get("interrupt_now", False) # Get the interrupt flag from UI
                         log_level = logging.WARNING if interrupt_now else logging.INFO
@@ -157,20 +168,33 @@ class UIServer:
         
         Accepts task_status for compatibility with anyio.TaskGroup.start().
         """
+        if not self.ui_receive_stream:
+            logger.error("Receive stream not set. Cannot start UI server listener.")
+            # Signal failure if using task_status
+            if task_status is not anyio.TASK_STATUS_IGNORED:
+                 # Need a way to signal error back if using start_soon context
+                 # For now, just log and return, preventing server start.
+                 # A more robust solution might involve raising an exception
+                 # that the caller (main.py) can catch.
+                 pass # Or raise RuntimeError("Receive stream not set")
+            return
+
         self.stop_event.clear()
-        self.loop = asyncio.get_running_loop() # Capture the loop we are running in
         current_port = self.port
         max_attempts = 2 # Try original port and port + 1
-        server = None
+        websocket_server = None
 
-        for attempt in range(max_attempts):
-            try:
-                logger.info(f"Attempting to start server on ws://{self.host}:{current_port} (Attempt {attempt + 1}/{max_attempts})")
-                # Start WebSocket server without HTTP request processing
-                server = await websockets.serve(
-                    self._handler,
-                    self.host,
-                    current_port,
+        async def serve_websocket(task_status=anyio.TASK_STATUS_IGNORED):
+            """Inner function to start the websocket server."""
+            nonlocal websocket_server # Allow modification of outer scope variable
+            srv = None
+            for attempt in range(max_attempts):
+                try:
+                    logger.info(f"Attempting to start WebSocket server on ws://{self.host}:{current_port} (Attempt {attempt + 1}/{max_attempts})")
+                    srv = await websockets.serve(
+                        self._handler,
+                        self.host,
+                        current_port,
                     # process_request=_process_request, # Removed HTTP handling
                     ping_interval=20, # Keep connections alive
                     ping_timeout=20
@@ -209,42 +233,49 @@ class UIServer:
 
     def stop(self):
         """Signal the server to stop."""
-        logger.info("Signaling WebSocket server to stop...")
+        logger.info("Signaling WebSocket server and listener to stop...")
         self.stop_event.set()
+        # Close the stream from the server side as well to unblock listener if waiting
+        if self.ui_receive_stream:
+            self.ui_receive_stream.close()
 
-    # Method to be called by the Harness to send updates
-    def send_update(self, update_data: Dict[str, Any]):
-        """Send an update to all connected UI clients via the server's event loop."""
-        if self.loop and self.loop.is_running():
-            # Schedule the broadcast coroutine in the server's event loop
-            asyncio.run_coroutine_threadsafe(self.broadcast(update_data), self.loop)
-        else:
-             logger.warning("UI server loop not running or not found, cannot send update.")
+
+    # Removed send_update method - updates now come via stream
+
 
 # --- Example Usage (for testing) ---
 async def main_test():
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    # Create a dummy stream pair for testing
+    send_stream, receive_stream = anyio.create_memory_object_stream(float('inf'))
+
     server = UIServer()
-    # Start the server in the background
-    server_task = asyncio.create_task(server.start())
+    server.set_receive_stream(receive_stream) # Inject the stream
 
-    # Give server time to start
-    await asyncio.sleep(2)
+    async with anyio.create_task_group() as tg:
+        # Start the server in the background using the task group
+        await tg.start(server.start)
+        logger.info("Test UI Server started.")
 
-    # Simulate sending updates
-    logger.info("Sending test update 1")
-    server.send_update({"status": "Running Aider", "iteration": 1})
-    await asyncio.sleep(2)
-    logger.info("Sending test update 2")
-    server.send_update({"status": "Running Pytest", "iteration": 1, "log_entry": "Pytest started..."})
-    await asyncio.sleep(2)
-    logger.info("Sending test update 3")
-    server.send_update({"status": "Evaluating", "iteration": 1, "log_entry": "Pytest failed."})
-    await asyncio.sleep(5) # Keep server running longer
+        # Give server time to start
+        await anyio.sleep(1)
 
-    logger.info("Stopping test server")
-    server.stop()
-    await server_task # Wait for server task to finish cleanly
+        # Simulate sending updates from another "thread" (task) via the stream
+        logger.info("Simulating sending test update 1")
+        await send_stream.send({"status": "Running Aider", "iteration": 1})
+        await anyio.sleep(1)
+        logger.info("Simulating sending test update 2")
+        await send_stream.send({"status": "Running Pytest", "iteration": 1, "log_entry": "Pytest started..."})
+        await anyio.sleep(1)
+        logger.info("Simulating sending test update 3")
+        await send_stream.send({"status": "Evaluating", "iteration": 1, "log_entry": "Pytest failed."})
+        await anyio.sleep(3) # Keep server running longer
+
+        logger.info("Stopping test server")
+        server.stop()
+        # Closing the send stream also signals the end to the receiver
+        await send_stream.aclose()
+        # Task group cancellation will be handled by server.stop() triggering stop_event
 
 if __name__ == "__main__":
     # This block is intended for running the main_test function for standalone testing.
