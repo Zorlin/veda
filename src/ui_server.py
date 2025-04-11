@@ -125,8 +125,15 @@ class UIServer:
             log_preview = f"type={message_type}"
             if message_type == "aider_output":
                 chunk = message.get('chunk', '')
-                log_preview += f", chunk={chunk[:50]}..." if chunk else ", chunk=<empty>"
-            logger.debug(f"Broadcasting specific message type to {len(self.clients)} clients: {log_preview}")
+                log_preview += f", chunk_len={len(chunk)}"
+                # --- Added Logging ---
+                logger.debug(f"[broadcast] Processing 'aider_output' message for {len(self.clients)} clients. Chunk length: {len(chunk)}")
+                # --- End Added Logging ---
+            elif message_type == "aider_output_clear":
+                 # --- Added Logging ---
+                 logger.debug(f"[broadcast] Processing 'aider_output_clear' message for {len(self.clients)} clients.")
+                 # --- End Added Logging ---
+            # logger.debug(f"Broadcasting specific message type to {len(self.clients)} clients: {log_preview}") # Keep original or remove if too verbose
         else:
             # For general status updates, update latest_status and send that
             self.latest_status.update(message)
@@ -183,10 +190,14 @@ class UIServer:
                 try:
                     # Directly await receiving from the stream
                     update = await self.ui_receive_stream.receive()
+                    # --- Added Logging ---
+                    log_update_preview = {k: (v[:50] + '...' if isinstance(v, str) and len(v) > 50 else v) for k, v in update.items()}
+                    logger.debug(f"[_update_listener] Received update from stream: {log_update_preview}")
+                    # --- End Added Logging ---
                     # Broadcast the update to all connected clients
                     await self.broadcast(update)
                 except (anyio.EndOfStream, anyio.ClosedResourceError): # Handle stream closure gracefully
-                    logger.info("End of stream reached. Stopping update listener.")
+                    logger.info("End of stream reached or stream closed. Stopping update listener.")
                     break
                 except Exception as e:
                     if not self.stop_event.is_set():  # Only log if not stopping intentionally

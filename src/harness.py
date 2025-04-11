@@ -125,9 +125,14 @@ class Harness:
             # Add common context if not present
             update.setdefault("run_id", self.current_run_id)
             update.setdefault("iteration", self.state.get("current_iteration", 0) + 1) # UI shows 1-based
+            # --- Added Logging ---
+            log_update_preview = {k: (v[:50] + '...' if isinstance(v, str) and len(v) > 50 else v) for k, v in update.items()}
+            logging.debug(f"[_send_ui_update] Attempting to send update via stream: {log_update_preview}")
+            # --- End Added Logging ---
             try:
                 # Send the update dictionary through the stream (non-blocking)
                 self.ui_send_stream.send_nowait(update)
+                # logging.debug(f"[_send_ui_update] Successfully sent update.") # Optional: log success
             except anyio.WouldBlock:
                 # Should not happen with infinite buffer, but good practice
                 logging.warning("UI update stream is unexpectedly blocked.")
