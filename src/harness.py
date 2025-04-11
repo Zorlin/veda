@@ -823,8 +823,9 @@ class Harness:
                         logging.warning(f"Retry suggested, but max retries ({self.max_retries}) reached. Stopping.")
                         self._send_ui_update({"status": "Max Retries Reached", "log_entry": "Max retries reached after RETRY verdict."})
                         self.state["last_error"] = "Max retries reached after RETRY verdict."
+                        self.state["converged"] = False # Explicitly set converged to False
                         break
-
+ 
                     logging.info("Creating retry prompt...")
                     # Create retry prompt using the potentially updated goal (instance var)
                     current_prompt = self._create_retry_prompt( # Update local var for next Aider run
@@ -840,9 +841,9 @@ class Harness:
                     logging.error(f"Structural failure detected. Stopping loop. Reason: {suggestions}")
                     self.state["last_error"] = f"Evaluation reported FAILURE: {suggestions}"
                     self._send_ui_update({"status": "FAILURE", "log_entry": f"FAILURE detected: {suggestions}"})
-                    self.state["converged"] = False
+                    self.state["converged"] = False # Explicitly set converged to False
                     break
-
+ 
             except Exception as e:
                 # Ensure thread cleanup even if other parts of the loop fail
                 if self._aider_thread and self._aider_thread.is_alive():
@@ -891,10 +892,15 @@ class Harness:
             final_status = "SUCCESS"
         elif self.state["current_iteration"] >= self.max_retries:
             logging.warning(f"Harness stopped after reaching max retries ({self.max_retries}).")
+            # Ensure convergence is False if max retries hit
+            self.state["converged"] = False
             final_status = f"MAX_RETRIES_REACHED: {self.state.get('last_error', 'Unknown error')}"
             final_log_entry = f"Harness finished: MAX_RETRIES_REACHED. Last error: {self.state.get('last_error', 'Unknown error')}"
         else:
+            # Loop broke due to error or FAILURE verdict
             logging.error(f"Harness stopped prematurely due to error: {self.state.get('last_error', 'Unknown error')}")
+            # Ensure convergence is False if loop broke early
+            self.state["converged"] = False
             final_log_entry = f"Harness finished: ERROR. Last error: {self.state.get('last_error', 'Unknown error')}"
             final_status = f"ERROR: {self.state.get('last_error', 'Unknown error')}"
 
