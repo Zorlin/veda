@@ -192,13 +192,24 @@ def main():
         try:
             with socketserver.TCPServer((host, port), handler_class) as httpd:
                 logger.info(f"HTTP server serving '{directory}' started on http://{host}:{port}")
-                httpd.serve_forever()
+                # Store httpd instance so it can be shut down
+                global httpd_instance
+                httpd_instance = httpd
+                httpd.serve_forever() # This blocks until shutdown() is called
         except OSError as e:
-            logger.error(f"Failed to start HTTP server on {host}:{port}: {e}")
+            # Log specific error if port is in use
+            if "Address already in use" in str(e):
+                 logger.error(f"HTTP server failed: Port {port} is already in use.")
+            else:
+                 logger.error(f"Failed to start HTTP server on {host}:{port}: {e}")
+            # Signal main thread about failure? For now, just log.
+            httpd_instance = None # Ensure instance is None on failure
         except Exception as e:
             logger.error(f"HTTP server thread encountered an error: {e}", exc_info=True)
+            httpd_instance = None
         finally:
-            logger.info(f"HTTP server on {host}:{port} stopped.")
+            # This block runs *after* serve_forever() returns (i.e., after shutdown)
+            logger.info(f"HTTP server on {host}:{port} has shut down.")
     # Create the communication stream for UI updates *before* initializing UIServer
     # Use infinite buffer to prevent blocking harness if UI server lags/crashes
     send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size=float('inf'))

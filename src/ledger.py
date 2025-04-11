@@ -138,6 +138,10 @@ class Ledger:
                         if "runs" not in state or "current_run" not in state or "metadata" not in state:
                             logger.warning(f"JSON state file {self.json_path} has invalid structure. Re-initializing.")
                             write_initial = True
+                        # Ensure 'runs' is a list if it exists
+                        elif "runs" in state and not isinstance(state.get("runs"), list):
+                             logger.warning(f"JSON state file {self.json_path} 'runs' key is not a list. Re-initializing.")
+                             write_initial = True
             except (json.JSONDecodeError, IOError) as e:
                 logger.warning(f"Error reading or parsing JSON state file {self.json_path}: {e}. Re-initializing.")
                 write_initial = True
