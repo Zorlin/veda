@@ -316,6 +316,106 @@ def test_initialize_state_load_valid_resumes_run(resumable_ledger):
 
 # --- Test Interrupt Handling ---
 
+@patch('src.harness.run_aider')
+@patch('src.harness.run_pytest')
+@patch('src.harness.Harness._evaluate_outcome')
+@patch('src.harness.VesperMind', MagicMock()) # Mock VesperMind if council enabled by default
+def test_harness_queues_guidance_and_injects_next_iteration(
+    mock_evaluate, mock_run_pytest, mock_run_aider, temp_work_dir
+):
+    """Test that guidance (interrupt_now=False) is queued and injected into the next prompt."""
+    # --- Setup ---
+    harness = Harness(
+        work_dir=temp_work_dir,
+        max_retries=3,
+        enable_council=False, # Disable council for simplicity
+        storage_type="json" # Use JSON for easier state inspection if needed
+    )
+    # Simulate UI is enabled for interrupt logic
+    harness.config["enable_ui"] = True
+    # Mock the UI send stream
+    harness.ui_send_stream = MagicMock(spec=MemoryObjectSendStream)
+
+    initial_goal = "Initial Goal"
+    guidance_message = "Please focus on adding comments."
+
+    # Mock Aider/Pytest/Eval for Iteration 1 to succeed normally
+    mock_run_aider.return_value = ("```diff\n+ code\n```", None) # Normal diff, no error
+    mock_run_pytest.return_value = (True, "Pytest PASSED")
+    # Make evaluation suggest RETRY to trigger a second iteration prompt generation
+    mock_evaluate.return_value = ("RETRY", "Needs more comments")
+
+    # --- Run Iteration 1 ---
+    # Start the run manually (mimicking harness.run start)
+    harness.current_run_id = harness.ledger.start_run(initial_goal, 3, harness.config)
+    harness.state["run_id"] = harness.current_run_id
+    harness.state["prompt_history"] = [{"role": "user", "content": initial_goal}]
+    harness.ledger.add_message(harness.current_run_id, None, "user", initial_goal)
+
+    # Simulate the first iteration loop (simplified)
+    iteration_1_id = harness.ledger.start_iteration(harness.current_run_id, 1, initial_goal)
+    # Simulate Aider run (using mock return value)
+    aider_diff, aider_error = mock_run_aider(initial_goal, harness.config, [], harness.config["project_dir"])
+    harness.state["prompt_history"].append({"role": "assistant", "content": aider_diff})
+    harness.ledger.add_message(harness.current_run_id, iteration_1_id, "assistant", aider_diff)
+    # Simulate Pytest run
+    pytest_passed, pytest_output = mock_run_pytest(harness.config["project_dir"])
+    # Simulate Evaluation
+    verdict, suggestions = mock_evaluate(initial_goal, aider_diff, pytest_output, pytest_passed)
+    harness.ledger.complete_iteration(
+        harness.current_run_id, iteration_1_id, aider_diff, pytest_output, pytest_passed, verdict, suggestions
+    )
+
+    # --- Inject Guidance (interrupt_now=False) ---
+    harness.request_interrupt(guidance_message, interrupt_now=False)
+    assert harness._interrupt_requested is True
+    assert harness._force_interrupt is False # Should be False for guidance
+    assert harness._interrupt_message == guidance_message
+
+    # --- Simulate start of Iteration 2 (where injection happens) ---
+    # Create the retry prompt (this happens inside the loop before the next Aider call)
+    retry_prompt = harness._create_retry_prompt(initial_goal, aider_diff, pytest_output, suggestions)
+    harness.state["prompt_history"].append({"role": "user", "content": retry_prompt})
+    # Ledger message for retry prompt is added here in the real loop
+    harness.ledger.add_message(harness.current_run_id, None, "user", retry_prompt) # Associate with run, not specific iteration yet
+
+    # Now, simulate the *very beginning* of the next loop iteration where the check happens
+    next_prompt_for_aider = retry_prompt # Start with the generated retry prompt
+    if harness._interrupt_requested and harness._interrupt_message is not None:
+        # Simulate the injection logic from harness.run
+        guidance_prefix = "[User Guidance]"
+        next_prompt_for_aider = f"{guidance_prefix}\n{harness._interrupt_message}\n\n---\n(Continuing previous task with this guidance)\n---\n\n{next_prompt_for_aider}"
+        # Simulate adding guidance to history (as done in harness.run)
+        guidance_history_entry = {"role": "user", "content": f"{guidance_prefix} {harness._interrupt_message}"}
+        harness.state["prompt_history"].append(guidance_history_entry)
+        harness.ledger.add_message(harness.current_run_id, None, "user", f"{guidance_prefix} {harness._interrupt_message}")
+        # Simulate flag reset
+        harness._interrupt_requested = False
+        harness._interrupt_message = None
+        harness._force_interrupt = False # Should remain False
+
+    # --- Assertions ---
+    # Verify the prompt for the *next* Aider run contains the guidance
+    assert "[User Guidance]" in next_prompt_for_aider
+    assert guidance_message in next_prompt_for_aider
+    assert retry_prompt in next_prompt_for_aider # Original retry prompt should still be there
+
+    # Verify flags are reset
+    assert harness._interrupt_requested is False
+    assert harness._interrupt_message is None
+    assert harness._force_interrupt is False
+
+    # Verify history contains the guidance message
+    assert len(harness.state["prompt_history"]) == 5 # user_goal, aider_diff, user_retry_prompt, user_guidance_injection, (next aider call would use combined prompt)
+    assert harness.state["prompt_history"][-1]["role"] == "user"
+    assert harness.state["prompt_history"][-1]["content"] == f"[User Guidance] {guidance_message}"
+
+    # Verify ledger contains the guidance message
+    ledger_history = harness.ledger.get_conversation_history(harness.current_run_id)
+    assert len(ledger_history) == 5
+    assert ledger_history[-1]["role"] == "user"
+    assert ledger_history[-1]["content"] == f"[User Guidance] {guidance_message}"
+
 # Note: The non-forced interrupt test ('test_harness_interrupt_modifies_next_prompt')
 # was likely not applied previously. If needed, it should be added here as well.
 

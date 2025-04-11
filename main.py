@@ -211,6 +211,7 @@ def main():
     ui_server = None
     ws_server_thread = None
     http_server_thread = None
+    httpd_instance = None # Global variable to hold the HTTP server instance for shutdown
     ui_dir_path = Path(__file__).parent / "ui"
 
     if ui_enabled:
@@ -239,7 +240,15 @@ def main():
             name="HttpServerThread"
         )
         http_server_thread.start()
-        # Note: HTTP server startup remains the same. We don't have a clean shutdown mechanism here for the HTTP server yet.
+        # Wait briefly to check if server started successfully (httpd_instance should be set)
+        time.sleep(0.5)
+        if http_server_thread.is_alive() and httpd_instance is None:
+             logger.error("HTTP Server thread started but failed to bind to port. Check logs.")
+             # Decide how to handle this - exit? Continue without HTTP?
+             # For now, log the error and continue. UI might not be accessible via HTTP.
+        elif not http_server_thread.is_alive():
+             logger.error("HTTP Server thread failed to start. Check logs.")
+
 
     # Initialize and run the harness
     try:
@@ -309,11 +318,22 @@ def main():
             else:
                  logger.info("WebSocket server stopped.") # Corrected log message
         
-        # Log HTTP server thread status (it's a daemon, so it will exit, but we can check)
-        if http_server_thread and http_server_thread.is_alive():
-            logger.info("HTTP server thread is still running (expected for daemon thread).")
+        # Stop the HTTP server if it was started and the instance exists
+        if http_server_thread and http_server_thread.is_alive() and httpd_instance:
+            logger.info("Stopping HTTP server...")
+            try:
+                httpd_instance.shutdown() # Signal serve_forever() to stop
+                httpd_instance.server_close() # Close the server socket
+                http_server_thread.join(timeout=5) # Wait for thread to finish
+                if http_server_thread.is_alive():
+                    logger.warning("HTTP server thread did not stop cleanly.")
+                else:
+                    logger.info("HTTP server stopped.")
+            except Exception as http_shutdown_err:
+                logger.error(f"Error during HTTP server shutdown: {http_shutdown_err}")
         elif http_server_thread:
-            logger.info("HTTP server thread has stopped.")
+             # If thread finished but instance wasn't set (e.g., bind error)
+             logger.info("HTTP server thread already stopped or failed to start.")
 
 
 if __name__ == "__main__":

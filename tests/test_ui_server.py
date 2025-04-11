@@ -113,6 +113,43 @@ async def test_ui_server_latest_status_on_connect(test_server, anyio_backend): #
     assert latest_status["run_id"] == 123
     assert "Status before connect" in latest_status["log"]
 
+@pytest.mark.anyio
+async def test_ui_server_receives_interrupt_command(test_server, anyio_backend):
+    """Test that the server handles the 'interrupt' command from a client."""
+    uri = f"ws://{test_server.host}:{test_server.port}"
+
+    # Mock the harness instance and its request_interrupt method
+    mock_harness = MagicMock()
+    test_server.set_harness_instance(mock_harness)
+
+    interrupt_msg = "Stop and refactor the database module."
+    interrupt_flag = True
+
+    async with websockets.connect(uri) as websocket:
+        # Receive initial status
+        await asyncio.wait_for(websocket.recv(), timeout=1.0)
+
+        # Send interrupt command from client
+        command = {
+            "command": "interrupt",
+            "message": interrupt_msg,
+            "interrupt_now": interrupt_flag
+        }
+        await websocket.send(json.dumps(command))
+
+        # Check for acknowledgment from server
+        ack_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
+        ack = json.loads(ack_str)
+
+        assert ack["type"] == "interrupt_ack"
+        assert ack["interrupt_now"] == interrupt_flag
+
+    # Assert that the harness method was called correctly
+    mock_harness.request_interrupt.assert_called_once_with(
+        interrupt_msg, interrupt_now=interrupt_flag
+    )
+
+
 # Note: Testing the thread startup in main.py is more complex and might require
 # mocking threading.Thread or using integration tests. These tests focus on the
 # UIServer class functionality itself.

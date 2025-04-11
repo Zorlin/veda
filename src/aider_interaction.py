@@ -209,7 +209,7 @@ def run_aider(
             return None, error_message
         # If exit status is 0 and signal is None, it finished "successfully"
         else:
-             logger.info(f"Aider command finished successfully (exit code {child.exitstatus}).")
+             logger.info(f"Aider command finished successfully (Exit Code: {child.exitstatus}, Signal: {child.signalstatus}).")
 
         # --- Diff Extraction Logic (applied to full_output from successful run) ---
         # Look for the last diff block in the entire session output
