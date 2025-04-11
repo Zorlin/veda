@@ -199,7 +199,7 @@ class UIServer:
                     ping_timeout=20
                 )
                 # If websockets.serve() succeeds without raising an exception, break the loop.
-                    break
+                break # Correct indentation level
             except OSError as e:
                 if "Address already in use" in str(e) and attempt < max_attempts - 1:
                     logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
