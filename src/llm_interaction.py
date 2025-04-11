@@ -8,6 +8,39 @@ import json # Keep for potential JSON parsing errors if needed, though less like
 # Configure logging for this module
 logger = logging.getLogger(__name__)
 
+def check_ollama_model_availability(model_name: str) -> bool:
+    """
+    Checks if a specific model tag is available in the local Ollama instance.
+
+    Args:
+        model_name: The name of the model tag to check (e.g., "llama3:8b").
+
+    Returns:
+        True if the model is available, False otherwise.
+    """
+    try:
+        client = ollama.Client() # Uses default host or OLLAMA_HOST env var
+        # ollama.show() raises ResponseError if the model doesn't exist
+        client.show(model_name=model_name)
+        logger.debug(f"Model '{model_name}' confirmed available via ollama.show().")
+        return True
+    except ResponseError as e:
+        # Model not found error typically has status code 404
+        if e.status_code == 404:
+            logger.debug(f"Model '{model_name}' not found (ResponseError 404).")
+        else:
+            # Log other API errors but still treat as unavailable
+            logger.warning(f"Ollama API error checking model '{model_name}': {e.status_code} - {e.error}")
+        return False
+    except ConnectionError:
+        # If Ollama server isn't running at all
+        logger.error("ConnectionError checking model availability. Is Ollama running?")
+        return False
+    except Exception as e:
+        # Catch any other unexpected errors
+        logger.exception(f"Unexpected error checking model availability for '{model_name}': {e}")
+        return False
+
 def get_llm_response(
     prompt: str,
     config: Dict[str, Any],

@@ -6,7 +6,8 @@ from pathlib import Path
 from datetime import datetime
 import time
 
-from .llm_interaction import get_llm_response
+# Import both functions now
+from .llm_interaction import get_llm_response, check_ollama_model_availability
 from .ledger import Ledger
 
 # Configure logging
@@ -95,22 +96,14 @@ class VesperMind:
                 available_models.append(details["model"])
             return available_models
         
-        # For open-source models, check if they're available in Ollama
+        # For open-source models, check if they're available in Ollama using the lightweight check
         for role, details in self.open_source_council.items():
             model_name = details["model"]
-            try:
-                # Use a simple prompt to test if the model is available
-                test_prompt = "Hello"
-                response = get_llm_response(
-                    test_prompt,
-                    {"ollama_model": model_name},
-                    history=None,
-                    system_prompt="Respond with 'OK' if you can see this message."
-                )
+            if check_ollama_model_availability(model_name):
                 available_models.append(model_name)
                 logger.info(f"Model {model_name} for role {role} is available")
-            except Exception as e:
-                logger.warning(f"Model {model_name} for role {role} is not available: {e}")
+            else:
+                logger.warning(f"Model {model_name} for role {role} is not available.")
                 # Log which model will be used as fallback
                 logger.info(f"Will use {self.default_model} as fallback for {role}")
         
