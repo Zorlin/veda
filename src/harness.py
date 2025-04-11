@@ -112,6 +112,7 @@ class Harness:
         # Goal prompt tracking
         self._goal_prompt_file: Optional[Path] = None # Store path to goal file if applicable
         self._last_goal_prompt_hash: Optional[str] = None # Store hash of the goal prompt content
+        self.current_goal_prompt: Optional[str] = None # Store the active goal prompt content
 
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
         logging.info(f"Working directory: {self.work_dir.resolve()}")
@@ -353,12 +354,12 @@ class Harness:
 
         # Determine if input is a file path or a string
         goal_prompt_path = Path(initial_goal_prompt_or_file)
-        current_goal_prompt = ""
+        # Use self.current_goal_prompt instance variable
         if goal_prompt_path.is_file():
             logging.info(f"Loading initial goal from file: {goal_prompt_path}")
             self._goal_prompt_file = goal_prompt_path.resolve() # Store absolute path
             try:
-                current_goal_prompt = self._goal_prompt_file.read_text()
+                self.current_goal_prompt = self._goal_prompt_file.read_text() # Assign to instance var
                 self._last_goal_prompt_hash = self._get_file_hash(self._goal_prompt_file)
                 logging.info(f"Initial goal prompt hash: {self._last_goal_prompt_hash}")
             except Exception as e:
@@ -390,16 +391,16 @@ class Harness:
             self.current_run_id = self.state["run_id"]
             logging.info(f"Continuing run with ID {self.current_run_id}")
         
-        # Initialize prompt history only if starting fresh (using current_goal_prompt)
+        # Initialize prompt history only if starting fresh (using self.current_goal_prompt)
         if self.state["current_iteration"] == 0 and not self.state["prompt_history"]:
             logging.info("Initializing prompt history with the initial goal.")
-            # current_prompt is already set from file/string loading above
+            # current_prompt (local var) is already set from self.current_goal_prompt above
             # Ensure history is clean before adding the first prompt
-            self.state["prompt_history"] = [{"role": "user", "content": current_goal_prompt}]
-            # Add to ledger (using current_goal_prompt)
-            self.ledger.add_message(self.current_run_id, None, "user", current_goal_prompt)
+            self.state["prompt_history"] = [{"role": "user", "content": self.current_goal_prompt}]
+            # Add to ledger (using self.current_goal_prompt)
+            self.ledger.add_message(self.current_run_id, None, "user", self.current_goal_prompt)
         elif self.state["prompt_history"]:
-            # If resuming, check if the last message was a user prompt and update current_prompt
+            # If resuming, check if the last message was a user prompt and update current_prompt (local var)
             last_message = self.state["prompt_history"][-1]
             if last_message.get("role") == "user":
                 current_prompt = last_message["content"] # Update current_prompt for this iteration
@@ -409,13 +410,13 @@ class Harness:
                 # Or a system message was the last one.
                 # Start a fresh run with the potentially updated goal.
                 logging.info("Previous run concluded (last message was from assistant). Starting a fresh run with the current goal.")
-                # current_goal_prompt is already set from file/string loading above
+                # self.current_goal_prompt is already set from file/string loading above
                 # Reset state for a fresh run
                 self.state["current_iteration"] = 0
-                self.state["prompt_history"] = [{"role": "user", "content": current_goal_prompt}]
+                self.state["prompt_history"] = [{"role": "user", "content": self.current_goal_prompt}]
                 self.state["converged"] = False
                 self.state["last_error"] = None
-                # Start a new run in the ledger (using initial_goal_for_run)
+                # Start a new run in the ledger (using initial_goal_for_run, which was set from self.current_goal_prompt)
                 self.current_run_id = self.ledger.start_run(
                     initial_goal_for_run,
                     self.max_retries,
@@ -423,17 +424,17 @@ class Harness:
                 )
                 self.state["run_id"] = self.current_run_id
                 # Add initial goal message to ledger for the new run
-                self.ledger.add_message(self.current_run_id, None, "user", current_goal_prompt)
-                # current_prompt remains the initial current_goal_prompt set earlier
+                self.ledger.add_message(self.current_run_id, None, "user", self.current_goal_prompt)
+                # current_prompt (local var) remains the initial self.current_goal_prompt set earlier
         else:
             # Should not happen if initialization is correct, but handle defensively
             logging.warning("State indicates resumption but history is empty. Starting with current goal.")
-            # current_prompt remains the initial current_goal_prompt set earlier
-            # current_goal_prompt is already set from file/string loading above
-            self.state["prompt_history"] = [{"role": "user", "content": current_goal_prompt}]
-            # Add initial goal message to ledger (using current_goal_prompt)
-            self.ledger.add_message(self.current_run_id, None, "user", current_goal_prompt)
-            # current_prompt remains the initial current_goal_prompt set earlier
+            # current_prompt (local var) remains the initial self.current_goal_prompt set earlier
+            # self.current_goal_prompt is already set from file/string loading above
+            self.state["prompt_history"] = [{"role": "user", "content": self.current_goal_prompt}]
+            # Add initial goal message to ledger (using self.current_goal_prompt)
+            self.ledger.add_message(self.current_run_id, None, "user", self.current_goal_prompt)
+            # current_prompt (local var) remains the initial self.current_goal_prompt set earlier
 
         # Track recent diffs to detect stuck cycles
         recent_diffs = [] # Store the last few non-empty diffs
@@ -454,10 +455,10 @@ class Harness:
                     logging.warning(f"Change detected in goal prompt file: {self._goal_prompt_file}")
                     self._send_ui_update({"status": "Goal Updated", "log_entry": f"Goal prompt file '{self._goal_prompt_file.name}' changed. Reloading..."})
                     try:
-                        current_goal_prompt = self._goal_prompt_file.read_text()
+                        self.current_goal_prompt = self._goal_prompt_file.read_text() # Update instance var
                         self._last_goal_prompt_hash = new_hash
                         logging.info("Successfully reloaded goal prompt.")
-                        # Option 1: Inject as guidance (similar to interrupt)
+                        # Option 1: Inject as guidance (similar to interrupt) - Deprecated
                         # self._interrupt_message = f"[Goal Reloaded]\n{current_goal_prompt}"
                         # self._interrupt_requested = True
                         # Option 2: Update the 'initial_goal_prompt' variable used later in evaluations/retries
@@ -469,11 +470,10 @@ class Harness:
                         goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} at Iteration {iteration_num_display}."
                         self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
                         self.ledger.add_message(self.current_run_id, None, "system", goal_change_message) # Associate with run, not specific iteration
-                        # Update the variable used in evaluation prompts etc.
-                        initial_goal_for_run = current_goal_prompt # Update the correct variable used by eval/retry
-                        # Also update the current_prompt for the *next* iteration if needed,
+                        # No need to update initial_goal_for_run (it's the original goal)
+                        # Update the local current_prompt for the *next* Aider run if needed,
                         # although it will likely be overwritten by retry logic if RETRY occurs.
-                        current_prompt = current_goal_prompt
+                        current_prompt = self.current_goal_prompt # Update local var from instance var
                         self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."})
 
                     except Exception as e:
@@ -492,15 +492,15 @@ class Harness:
 
                 # Modify the 'current_prompt' variable which holds the prompt for the upcoming Aider run
                 # Place guidance *before* the previous prompt content for priority
-                # Ensure 'current_prompt' reflects the latest state before modification
+                # Ensure 'current_prompt' (local var) reflects the latest state before modification
                 if not self.state["prompt_history"] or self.state["prompt_history"][-1]["role"] != "user":
-                     # If history is empty or last message wasn't user, base next prompt on current_goal_prompt
-                     base_prompt_for_guidance = current_goal_prompt
+                     # If history is empty or last message wasn't user, base next prompt on self.current_goal_prompt
+                     base_prompt_for_guidance = self.current_goal_prompt
                 else:
                      # Otherwise, base it on the last user message in history
                      base_prompt_for_guidance = self.state["prompt_history"][-1]["content"]
 
-                current_prompt = f"{guidance_prefix}\n{interrupt_msg}\n\n---\n(Continuing task with this guidance)\n---\n\n{base_prompt_for_guidance}"
+                current_prompt = f"{guidance_prefix}\n{interrupt_msg}\n\n---\n(Continuing task with this guidance)\n---\n\n{base_prompt_for_guidance}" # Update local var
 
                 logging.info(f"Updated prompt after injecting guidance:\n{current_prompt}")
                 self._send_ui_update({"status": "Prompt Updated", "log_entry": "Prompt updated with user guidance."})
@@ -528,7 +528,7 @@ class Harness:
             logging.info(f"--- Starting Iteration {iteration_num_display} ---")
             self._send_ui_update({"status": f"Starting Iteration {iteration_num_display}", "iteration": iteration_num_display, "log_entry": f"Starting Iteration {iteration_num_display}"})
 
-            # Start iteration in ledger
+            # Start iteration in ledger (using the local current_prompt for this iteration)
             iteration_id = self.ledger.start_iteration(
                 self.current_run_id,
                 iteration + 1,
@@ -619,11 +619,28 @@ class Harness:
                     # and will be injected at the *start* of the next loop cycle by the logic above.
 
                     # Reset the force_interrupt flag now that the interruption has been handled
+                    # IMPORTANT: Reset this *before* completing iteration in case ledger fails
                     self._force_interrupt = False
                     logging.info("Force interrupt flag reset after handling INTERRUPTED status.")
 
                     # Complete the iteration record in the ledger, noting the interruption
-                    self.ledger.complete_iteration(
+                    try:
+                        self.ledger.complete_iteration(
+                            self.current_run_id,
+                            iteration_id,
+                            aider_diff, # Diff might be partial or None
+                            "[No tests run due to interrupt]",
+                            False, # Assume tests didn't pass
+                            "INTERRUPTED", # Special verdict
+                            "Aider process stopped by user signal."
+                        )
+                    except Exception as ledger_err:
+                         # Log error but still try to continue
+                         logging.error(f"Failed to complete ledger iteration for interrupt: {ledger_err}")
+
+                    # Skip the rest of the loop (pytest, eval) for this iteration
+                    logging.info(f"Continuing to next iteration after handling interrupt for iteration {iteration_num_display}.")
+                    continue # Go to the next iteration immediately
                         self.current_run_id,
                         iteration_id,
                         aider_diff, # Diff might be partial or None
@@ -912,7 +929,7 @@ class Harness:
 
     def _evaluate_outcome(
         self,
-        initial_goal: str,
+        current_goal: str, # Renamed for clarity
         aider_diff: str,
         pytest_output: str,
         pytest_passed: bool
@@ -933,7 +950,7 @@ class Harness:
             - str: Suggestions from the LLM (empty if not RETRY).
         """
         evaluation_prompt = self._create_evaluation_prompt(
-            initial_goal,
+            current_goal, # Pass the current goal
             self.state["prompt_history"],
             aider_diff,
             pytest_output,
@@ -1005,7 +1022,7 @@ FAILURE = Fundamental issues that require a different approach
 
     def _create_evaluation_prompt(
         self,
-        initial_goal: str,
+        current_goal: str, # Renamed for clarity
         history: List[Dict[str, str]],
         aider_diff: str,
         pytest_output: str,
@@ -1030,8 +1047,8 @@ FAILURE = Fundamental issues that require a different approach
         prompt = f"""
 Analyze the results of an automated code generation step in a test harness.
 
-Initial Goal:
-{initial_goal}
+Current Goal:
+{current_goal}
 
 Iteration Context:
 {iteration_context}
@@ -1053,7 +1070,7 @@ Status: {'PASSED' if pytest_passed else 'FAILED'}
 Based on the initial goal, the conversation history, the latest code changes (diff), and the test results, evaluate the outcome.
 
 Detailed Evaluation Criteria:
-1. Goal Alignment: Do the changes directly address the requirements in the initial goal?
+1. Goal Alignment: Do the changes directly address the requirements in the current goal?
 2. Test Results: Do all tests pass? If not, what specific issues are causing failures?
 3. Code Quality: Is the code well-structured, maintainable, and following best practices?
 4. Completeness: Does the implementation fully satisfy the goal, or are there missing elements?
@@ -1069,7 +1086,7 @@ Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RE
 
     def _create_retry_prompt(
         self,
-        initial_goal: str,
+        current_goal: str, # Renamed for clarity
         aider_diff: str,
         pytest_output: str,
         suggestions: str
@@ -1084,8 +1101,8 @@ Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RE
         retry_prompt = f"""
 The previous attempt to achieve the goal needs improvement (Iteration {current_iteration + 1} of {max_retries}):
 
-Original Goal:
-"{initial_goal}"
+Current Goal:
+"{current_goal}"
 
 Last Code Changes:
 ```diff
@@ -1104,7 +1121,7 @@ Your Task:
 1. Carefully review the suggestions and test results
 2. Address each specific issue mentioned in the evaluation
 3. Ensure all tests pass
-4. Make sure your changes fully satisfy the original goal
+4. Make sure your changes fully satisfy the current goal
 
 Focus on implementing the suggested improvements while maintaining code quality and best practices.
 """
@@ -1122,7 +1139,7 @@ Focus on implementing the suggested improvements while maintaining code quality 
     # --- Code Review ---
     def run_code_review(
         self,
-        initial_goal: str,
+        current_goal: str, # Renamed for clarity
         aider_diff: str,
         pytest_output: str
     ) -> str:
@@ -1151,7 +1168,7 @@ Focus on implementing the suggested improvements while maintaining code quality 
         review_prompt = f"""
 Act as a senior code reviewer. Review the following code changes that were made to achieve this goal:
 
-Goal: {initial_goal}
+Goal: {current_goal}
 
 Code Changes:
 ```diff
