@@ -160,6 +160,7 @@ def run_aider(
                     full_output += output_chunk
                     if output_callback:
                         try:
+                            # Send the chunk to the callback for real-time UI updates
                             output_callback(output_chunk)
                         except Exception as cb_err:
                             # Log callback error but don't crash the interaction

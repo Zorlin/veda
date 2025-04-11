@@ -416,7 +416,7 @@ class Harness:
             try:
                 # --- 1. Run Aider (in a separate thread) ---
                 logging.info("Starting Aider thread...")
-                # Send message to clear previous Aider output in UI
+                # Clear the Aider output in the UI at the start of a new iteration
                 self._send_ui_update({"type": "aider_output_clear"})
                 # Update status
                 self._send_ui_update({"status": "Running Aider", "log_entry": "Invoking Aider..."})
@@ -426,6 +426,7 @@ class Harness:
 
                 # Define the callback for streaming Aider output to the UI
                 def ui_output_callback(chunk: str):
+                    """Callback function to send Aider output to the UI in real-time."""
                     # Send output chunk with a specific type identifier
                     self._send_ui_update({"type": "aider_output", "chunk": chunk})
 

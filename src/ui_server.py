@@ -103,7 +103,10 @@ class UIServer:
         if message_type in ["aider_output", "aider_output_clear"]:
             # For specific types, send the message dictionary directly
             message_to_send = message
-            log_preview = f"type={message_type}, chunk={message.get('chunk', '')[:50]}..." if message_type == "aider_output" else f"type={message_type}"
+            log_preview = f"type={message_type}"
+            if message_type == "aider_output":
+                chunk = message.get('chunk', '')
+                log_preview += f", chunk={chunk[:50]}..." if chunk else ", chunk=<empty>"
             logger.debug(f"Broadcasting specific message type to {len(self.clients)} clients: {log_preview}")
         else:
             # For general status updates, update latest_status and send that

@@ -34,30 +34,30 @@ class VesperMind:
         # Define council members and their roles
         self.open_source_council = {
             "theorist": {
-                "model": config.get("theorist_model", "qwen:14b"),
+                "model": config.get("theorist_model", "qwen2.5:14b"),
                 "description": "Synthesizes new rules, infers structure from patterns"
             },
             "architect": {
-                "model": config.get("architect_model", "deepseek-coder:16b"),
+                "model": config.get("architect_model", "deepcoder:14b"),
                 "description": "Optimizes actual code changes from proposed topology shifts"
             },
             "skeptic": {
-                "model": config.get("skeptic_model", "gemma:7b"),
+                "model": config.get("skeptic_model", "gemma3:12b"),
                 "description": "Challenges logic and points out risks, fragility, or overfit"
             },
             "historian": {
-                "model": config.get("historian_model", "yi:34b"),
+                "model": config.get("historian_model", "qwen2.5:14b"),
                 "description": "Tracks long-term patterns, suggests rollback or reinforcement"
             },
             "coordinator": {
-                "model": config.get("coordinator_model", "command-r-plus"),
+                "model": config.get("coordinator_model", "command-r7b"),
                 "description": "Mediates dialogue and relays findings to upper quorum"
             }
         }
         
         self.closed_source_council = {
             "arbiter": {
-                "model": config.get("arbiter_model", "claude-3-sonnet"),
+                "model": config.get("arbiter_model", "claude-3.7-sonnet"),
                 "description": "Final judge of logical and structural soundness"
             },
             "canonizer": {

@@ -127,8 +127,11 @@
 
                             // Check message type
                             if (data.type === 'aider_output') {
-                                this.liveAiderOutput += data.chunk;
-                                this.scrollToBottom('aiderLogContainer');
+                                // Add the chunk to the live output
+                                if (data.chunk) {
+                                    this.liveAiderOutput += data.chunk;
+                                    this.scrollToBottom('aiderLogContainer');
+                                }
                             } else if (data.type === 'aider_output_clear') {
                                 this.liveAiderOutput = ''; // Clear the live output
                             } else {
