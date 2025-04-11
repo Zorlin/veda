@@ -203,6 +203,47 @@ def test_load_config_project_dir_absolute(temp_work_dir, default_config):
     # Work dir should be resolved relative to CWD, not project_dir
     assert harness.work_dir == temp_work_dir.resolve()
 
+# --- Code Review Test ---
+
+@patch('src.harness.get_llm_response')
+def test_run_code_review_generates_review(mock_get_llm, temp_work_dir):
+    """Test that _run_code_review calls the LLM and returns a formatted review."""
+    # Setup Harness instance
+    harness = Harness(work_dir=temp_work_dir, enable_code_review=True, storage_type="json")
+    harness.current_run_id = 1 # Simulate an active run
+
+    # Mock LLM response
+    mock_review_content = "This code looks good overall.\n\n**Improvements:**\n- Add more comments."
+    mock_get_llm.return_value = mock_review_content
+
+    # Input data for the review
+    initial_goal = "Implement feature X"
+    aider_diff = "```diff\n+ new code\n```"
+    pytest_output = "All tests passed."
+
+    # Call the method
+    review_result = harness._run_code_review(initial_goal, aider_diff, pytest_output)
+
+    # Assert LLM was called once
+    mock_get_llm.assert_called_once()
+    call_args, call_kwargs = mock_get_llm.call_args
+    
+    # Assert prompt contains key elements
+    review_prompt_arg = call_args[0]
+    assert initial_goal in review_prompt_arg
+    assert aider_diff in review_prompt_arg
+    assert pytest_output in review_prompt_arg
+    assert "Act as a senior code reviewer" in review_prompt_arg
+    
+    # Assert system prompt was passed
+    assert "expert code reviewer" in call_kwargs.get("system_prompt", "")
+
+    # Assert the returned result includes the header and the LLM content
+    assert "# Code Review" in review_result
+    assert f"**Run ID:** {harness.current_run_id}" in review_result
+    assert "**Reviewer:** AI Code Reviewer" in review_result
+    assert mock_review_content in review_result
+
 
 # --- State Initialization Tests ---
 

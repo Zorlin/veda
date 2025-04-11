@@ -695,6 +695,8 @@ if __name__ == "__main__":
     # shutil.rmtree(dummy_work_dir)
     # Path("config.yaml").unlink(missing_ok=True)
     # Path("goal.prompt").unlink(missing_ok=True)
+
+    # --- Code Review ---
     def _run_code_review(
         self,
         initial_goal: str,
@@ -712,8 +714,8 @@ if __name__ == "__main__":
         Returns:
             The code review result as a string.
         """
-        logging.info("Running code review with Aider...")
-        
+        logging.info("Running code review using configured LLM...")
+
         # Create code review prompt
         review_prompt = f"""
 Act as a senior code reviewer. Review the following code changes that were made to achieve this goal:
@@ -725,42 +727,41 @@ Code Changes:
 {aider_diff if aider_diff else "[No changes made]"}
 ```
 
-Test Results:
+Test Results (showing PASSED):
 ```
 {pytest_output}
 ```
 
 Provide a thorough code review that includes:
-1. Overall assessment of code quality
-2. Specific strengths of the implementation
-3. Areas for potential improvement
-4. Any potential bugs or edge cases
-5. Suggestions for better practices or optimizations
+1. Overall assessment of code quality (readability, maintainability, efficiency).
+2. Specific strengths of the implementation.
+3. Areas for potential improvement (e.g., alternative approaches, optimizations, style suggestions).
+4. Any potential bugs, edge cases, or security concerns missed by the tests.
+5. Adherence to best practices and Python conventions.
 
-Format your review as a professional code review document with markdown headings and bullet points.
+Format your review as a professional code review document using Markdown. Use headings, bullet points, and code snippets where appropriate.
 """
-        
+
         try:
-            # Use the configured LLM directly instead of running another Aider instance
-            # This simplifies the process while still providing valuable feedback
+            # Use the configured LLM directly
             review_system_prompt = """You are an expert code reviewer with years of experience.
 Provide thorough, constructive code reviews that highlight both strengths and areas for improvement.
 Focus on code quality, maintainability, performance, and adherence to best practices.
 Format your review as a professional markdown document with clear sections and specific examples."""
-            
+
             review_result = get_llm_response(
                 review_prompt,
                 self.config,
-                history=None,
+                history=None, # Review is based on the current state, not conversation history
                 system_prompt=review_system_prompt
             )
-            
+
             # Add header to the review
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            header = f"# Code Review\n\n**Date:** {timestamp}\n\n**Reviewer:** AI Code Reviewer\n\n---\n\n"
-            
+            header = f"# Code Review\n\n**Run ID:** {self.current_run_id}\n**Date:** {timestamp}\n\n**Reviewer:** AI Code Reviewer ({self.config.get('ollama_model', 'default')})\n\n---\n\n"
+
             return header + review_result
-            
+
         except Exception as e:
-            logging.error(f"Error during code review: {e}")
-            return f"# Code Review\n\nError during code review: {e}\n\nPlease review the code manually."
+            logging.error(f"Error during code review generation: {e}")
+            return f"# Code Review\n\nError during code review generation: {e}\n\nPlease review the code manually."
