@@ -385,7 +385,7 @@ class Harness:
             # Ensure history is clean before adding the first prompt
             self.state["prompt_history"] = [{"role": "user", "content": current_goal_prompt}]
             # Add to ledger (using current_goal_prompt)
-            self.ledger.add_message(self.current_run_id, None, "user", current_prompt)
+            self.ledger.add_message(self.current_run_id, None, "user", current_goal_prompt)
         elif self.state["prompt_history"]:
             # If resuming, the last message should be the user prompt for the current iteration
             last_message = self.state["prompt_history"][-1]
