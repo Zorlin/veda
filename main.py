@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 import sys # Add sys import for exiting
-# import time # Unused import
+import time # Import the time module
 from pathlib import Path
 import rich
 from rich.console import Console
