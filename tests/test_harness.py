@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from src.harness import Harness
+from src.ledger import Ledger
 
 # --- Fixtures ---
 
@@ -201,187 +202,83 @@ def test_load_config_project_dir_absolute(temp_work_dir, default_config):
     assert harness.work_dir == temp_work_dir.resolve()
 
 
-# --- Test _initialize_state Method ---
+# --- State Initialization Tests ---
 
-def test_initialize_state_fresh_start(temp_work_dir, default_config): # Add default_config fixture
-    """Test initializing state when no state file exists."""
-    # Calculate expected resolved path and clean up any old state file there
-    expected_work_dir = Path(default_config["project_dir"]) / temp_work_dir.name
-    resolved_state_file = expected_work_dir.resolve() / "harness_state.json"
-    resolved_state_file.unlink(missing_ok=True)
+@pytest.fixture
+def resumable_ledger(temp_work_dir):
+    """Creates a Ledger with an in-progress run for resume testing."""
+    ledger = Ledger(work_dir=temp_work_dir, storage_type="json") # Use JSON for easier inspection if needed
+    run_id = ledger.start_run("Initial Goal", 5, {"test_config": True})
+    iter1_id = ledger.start_iteration(run_id, 1, "Prompt 1")
+    ledger.add_message(run_id, iter1_id, "user", "Prompt 1")
+    ledger.add_message(run_id, iter1_id, "assistant", "Diff 1")
+    ledger.complete_iteration(run_id, iter1_id, "Diff 1", "Pytest Output 1", True, "RETRY", "Suggestion 1")
+    # Start iteration 2 but don't complete it
+    iter2_id = ledger.start_iteration(run_id, 2, "Prompt 2 (Retry)")
+    ledger.add_message(run_id, iter2_id, "user", "Prompt 2 (Retry)")
+    # The run is NOT ended
+    return ledger, run_id
 
-    # Initialize Harness - this will create the state file if it doesn't exist
-    # Use default config file name, triggering resolution
-    harness = Harness(work_dir=temp_work_dir, reset_state=False)
-
-    # Assert that the state was initialized freshly, not that the file doesn't exist
+def test_initialize_state_fresh_start(temp_work_dir):
+    """Test initializing state with no existing ledger state."""
+    # Ensure ledger file doesn't exist (Ledger handles this)
+    harness = Harness(config_file=None, work_dir=temp_work_dir, reset_state=False, storage_type="json")
+    
     assert harness.state["current_iteration"] == 0
     assert harness.state["prompt_history"] == []
     assert not harness.state["converged"]
-    # State file is only created on _save_state, not during init, so we don't assert its existence here.
+    assert harness.state["last_error"] is None
+    assert harness.state["run_id"] is None
 
-def test_initialize_state_reset_flag(temp_work_dir, sample_state_path):
-    """Test initializing state with reset_state=True ignores existing file."""
-    # sample_state_path fixture creates the state file in temp_work_dir
-    harness = Harness(work_dir=temp_work_dir, reset_state=True)
+def test_initialize_state_reset_flag(resumable_ledger):
+    """Test initializing state with reset_state=True ignores existing ledger state."""
+    ledger, run_id = resumable_ledger
+    work_dir = ledger.work_dir
+    
+    harness = Harness(config_file=None, work_dir=work_dir, reset_state=True, storage_type="json")
+    
     assert harness.state["current_iteration"] == 0
     assert harness.state["prompt_history"] == []
     assert not harness.state["converged"]
+    assert harness.state["last_error"] is None
+    assert harness.state["run_id"] is None # Should ignore existing run_id
 
-def test_initialize_state_load_valid(temp_work_dir, sample_state_path):
-    """Test loading a valid state file."""
-    # Pass config_file=None to prevent work_dir resolution based on default config
-    harness = Harness(config_file=None, work_dir=temp_work_dir, reset_state=False)
-    assert harness.state["current_iteration"] == 2
-    assert len(harness.state["prompt_history"]) == 3
+def test_initialize_state_load_valid_resumes_run(resumable_ledger):
+    """Test initializing state loads and resumes an in-progress run from the ledger."""
+    ledger, expected_run_id = resumable_ledger
+    work_dir = ledger.work_dir
+    
+    # Initialize Harness without resetting state
+    harness = Harness(config_file=None, work_dir=work_dir, reset_state=False, storage_type="json")
+    
+    # Check if the state reflects the resumed run
+    assert harness.state["run_id"] == expected_run_id
+    assert harness.state["current_iteration"] == 1 # Resumes at the start of iteration 2 (index 1)
+    assert not harness.state["converged"] # Run wasn't finished
+    assert harness.state["last_error"] is None # Run wasn't finished with an error
+    
+    # Check if history was loaded correctly
+    assert len(harness.state["prompt_history"]) == 3 # user1, assistant1, user2
     assert harness.state["prompt_history"][0]["role"] == "user"
-    assert not harness.state["converged"]
+    assert harness.state["prompt_history"][0]["content"] == "Prompt 1"
+    assert harness.state["prompt_history"][1]["role"] == "assistant"
+    assert harness.state["prompt_history"][1]["content"] == "Diff 1"
+    assert harness.state["prompt_history"][2]["role"] == "user"
+    assert harness.state["prompt_history"][2]["content"] == "Prompt 2 (Retry)"
 
-def test_initialize_state_invalid_json(temp_work_dir, caplog):
-    """Test initializing state when state file contains invalid JSON."""
-    state_file = temp_work_dir / "harness_state.json"
-    with open(state_file, "w") as f:
-        f.write("{invalid_json,")
-    # Pass config_file=None and set level for WARNING
-    caplog.set_level(logging.WARNING)
-    harness = Harness(config_file=None, work_dir=temp_work_dir, reset_state=False)
+# Removed tests:
+# - test_initialize_state_invalid_json
+# - test_initialize_state_invalid_format
+# - test_initialize_state_invalid_history_type
+# - test_initialize_state_io_error
+# These tests checked low-level JSON parsing/IO errors that are now the responsibility
+# of the Ledger class and should be tested in test_ledger.py.
 
-    assert f"Could not load or parse state file {state_file}" in caplog.text
-    assert "Initializing fresh state." in caplog.text # Match exact log message
-    assert harness.state["current_iteration"] == 0 # Should reset to default
-
-def test_initialize_state_invalid_format(temp_work_dir, caplog):
-    """Test initializing state when state file has incorrect structure."""
-    state_file = temp_work_dir / "harness_state.json"
-    invalid_state = {"iterations": 1, "history": []} # Missing keys
-    with open(state_file, "w") as f:
-        json.dump(invalid_state, f)
-    # Pass config_file=None and set level for WARNING
-    caplog.set_level(logging.WARNING)
-    harness = Harness(config_file=None, work_dir=temp_work_dir, reset_state=False)
-
-    assert f"State file {state_file} has invalid format. Initializing fresh state." in caplog.text # Match exact log message
-    assert harness.state["current_iteration"] == 0 # Should reset to default
-
-def test_initialize_state_invalid_history_type(temp_work_dir, caplog):
-    """Test initializing state when prompt_history is not a list."""
-    state_file = temp_work_dir / "harness_state.json"
-    invalid_state = {
-        "current_iteration": 1,
-        "prompt_history": "not a list", # Invalid type
-        "converged": False,
-        "last_error": None,
-    }
-    with open(state_file, "w") as f:
-        json.dump(invalid_state, f)
-    # Pass config_file=None and set level for WARNING
-    caplog.set_level(logging.WARNING)
-    harness = Harness(config_file=None, work_dir=temp_work_dir, reset_state=False)
-
-    assert "Loaded state has invalid 'prompt_history'. Resetting history." in caplog.text
-    assert harness.state["current_iteration"] == 1 # Other fields loaded
-    assert harness.state["prompt_history"] == [] # History reset
-
-def test_initialize_state_io_error(temp_work_dir, caplog):
-    """Test initializing state handles IOError during file read."""
-    state_file = temp_work_dir / "harness_state.json"
-    # Mock open to raise IOError when reading state file
-    # Need to be careful mocking open as it's used for config too.
-    # We'll initialize first, then mock for the state read part.
-    harness = Harness(work_dir=temp_work_dir, reset_state=False) # Initialize first
-
-    # Mock open specifically for the state file read attempt inside _initialize_state
-    # This is tricky because _initialize_state is called by __init__.
-    # A better approach might be to test _initialize_state directly.
-
-    # Let's test _initialize_state directly
-    # Pass config_file=None to prevent work_dir resolution issues
-    harness_instance = Harness(config_file=None, work_dir=temp_work_dir, reset_state=True) # Get an instance with fresh state
-    state_file_path = harness_instance.work_dir / "harness_state.json"
-    # Ensure the state file exists so the open attempt happens
-    state_file_path.touch()
-
-    # Set log level for WARNING
-    caplog.set_level(logging.WARNING)
-
-    # Mock open to raise IOError specifically when opening the state file path
-    original_open = open
-    def mock_open_side_effect(file, mode='r', *args, **kwargs):
-        if Path(file) == state_file_path and 'r' in mode:
-            raise IOError("Cannot read state")
-        # Fallback to original open for other files/modes if necessary
-        # Be cautious with this fallback in complex tests
-        return original_open(file, mode=mode, *args, **kwargs)
-
-    with patch("builtins.open", side_effect=mock_open_side_effect):
-        # Call _initialize_state directly
-        state = harness_instance._initialize_state(reset_state=False)
-
-    # Assert based on the actual path used
-    assert f"Could not load or parse state file {state_file_path}: Cannot read state" in caplog.text
-    assert "Initializing fresh state." in caplog.text # Match exact log message
-    assert state["current_iteration"] == 0 # Should return default state
-
-# --- Test _save_state Method ---
-
-def test_save_state_creates_file(temp_work_dir, default_config): # Add default_config fixture
-    """Test that _save_state creates the state file correctly."""
-     # Calculate expected resolved path and clean up any old state file there
-    expected_work_dir = Path(default_config["project_dir"]) / temp_work_dir.name
-    resolved_state_file = expected_work_dir.resolve() / "harness_state.json"
-    resolved_state_file.unlink(missing_ok=True)
-
-    # Initialize Harness - this might create the state file during init
-    harness = Harness(work_dir=temp_work_dir)
-    state_file = harness.work_dir / "harness_state.json" # This is the resolved path
-
-    # Modify state slightly (ensure it's different from default init state)
-    harness.state["current_iteration"] = 1
-    harness.state["prompt_history"].append({"role": "user", "content": "test"})
-
-    harness._save_state()
-
-    assert state_file.exists()
-    with open(state_file, 'r') as f:
-        saved_state = json.load(f)
-
-    assert saved_state["current_iteration"] == 1
-    assert len(saved_state["prompt_history"]) == 1
-    assert saved_state["prompt_history"][0]["content"] == "test"
-
-def test_save_state_creates_directory(tmp_path):
-    """Test that _save_state creates the work directory if it doesn't exist."""
-    non_existent_dir = tmp_path / "new_work_dir"
-    assert not non_existent_dir.exists()
-
-    # Pass config_file=None to prevent work_dir resolution
-    harness = Harness(config_file=None, work_dir=non_existent_dir)
-    harness._save_state()
-
-    state_file = non_existent_dir / "harness_state.json"
-    assert non_existent_dir.exists()
-    assert state_file.exists()
-
-def test_save_state_io_error(temp_work_dir, caplog):
-    """Test _save_state handles IOError during file write."""
-    # Pass config_file=None to prevent work_dir resolution
-    harness = Harness(config_file=None, work_dir=temp_work_dir)
-    state_file = harness.work_dir / "harness_state.json"
-    # Ensure directory exists, as _save_state expects
-    harness.work_dir.mkdir(parents=True, exist_ok=True)
-    # Ensure file does *not* exist before the save attempt
-    state_file.unlink(missing_ok=True)
-
-    # Mock json.dump to raise IOError
-    with patch("json.dump", side_effect=IOError("Disk full")) as mock_dump:
-        harness._save_state()
-
-    assert f"Could not write state file {state_file}: Disk full" in caplog.text
-    # Check that json.dump was called with the harness state and a file handle
-    mock_dump.assert_called_once()
-    # Check the first argument passed to json.dump was the state
-    assert mock_dump.call_args[0][0] == harness.state
-    # Assert the file wasn't created or is empty due to the error
-    assert not state_file.exists() or state_file.stat().st_size == 0
+# Removed tests:
+# - test_save_state_creates_file
+# - test_save_state_creates_directory
+# - test_save_state_io_error
+# The Harness._save_state method was removed as state saving is now implicitly
+# handled by the Ledger throughout the run and via ledger.end_run().
 
 # TODO: Add tests for _create_evaluation_prompt, _create_retry_prompt, _evaluate_outcome (mocking LLM), and run (mocking subprocesses and LLM)
