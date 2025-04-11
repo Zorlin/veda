@@ -476,7 +476,7 @@ class Harness:
                     except Exception as e:
                         logging.error(f"Failed to reload goal prompt file {self._goal_prompt_file}: {e}")
                         self._send_ui_update({"status": "Error", "log_entry": f"Failed to reload goal file: {e}. Continuing with previous goal."})
-                        # Continue with the old goal prompt in memory
+                        # Continue with the old goal prompt in memory (initial_goal_for_run remains unchanged)
 
             # --- Check for Pending User Guidance (Inject before starting Aider) ---
             # Use 'current_prompt' which holds the prompt intended for the *next* Aider run
