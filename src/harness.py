@@ -8,8 +8,7 @@ from typing import Dict, Any, Optional
 
 import yaml
 
-# Placeholder for future imports
-# from .aider_interaction import run_aider
+from .aider_interaction import run_aider
 # from .ollama_interaction import evaluate_output
 # from .persistence import Logger
 # from .pytest_interaction import run_pytest
@@ -162,13 +161,31 @@ class Harness:
             try:
                 # 1. Run Aider
                 logging.info("Running Aider...")
-                # aider_result = run_aider(current_prompt, self.config, self.state["prompt_history"]) # Placeholder
-                aider_diff = "Placeholder: Aider generated diff" # Placeholder
-                logging.info(f"Aider finished. Diff:\n{aider_diff}")
+                aider_diff, aider_error = run_aider(
+                    prompt=current_prompt,
+                    config=self.config,
+                    history=self.state["prompt_history"],
+                    work_dir=self.config["project_dir"] # Run aider in the target project dir
+                )
+
+                if aider_error:
+                    logging.error(f"Aider failed: {aider_error}")
+                    self.state["last_error"] = f"Aider failed: {aider_error}"
+                    # Decide if we should stop or try to recover
+                    break # Stop loop on Aider error for now
+
+                if aider_diff is None: # Should not happen if error handling is correct, but check anyway
+                    logging.error("Aider returned None for diff without error. Stopping.")
+                    self.state["last_error"] = "Aider returned None diff unexpectedly."
+                    break
+
+                logging.info(f"Aider finished. Diff:\n{aider_diff if aider_diff else '[No changes detected]'}")
                 # self.logger.log_iteration(iteration, "aider_diff", aider_diff) # Placeholder
 
-                # Add Aider's response (diff/message) to history for context
-                # self.state["prompt_history"].append({"role": "assistant", "content": aider_diff})
+                # Add Aider's response (diff) to history for context
+                # Use the diff as the assistant's message. If no diff, maybe add a note?
+                assistant_message = aider_diff if aider_diff else "[Aider made no changes]"
+                self.state["prompt_history"].append({"role": "assistant", "content": assistant_message})
 
                 # 2. Run Pytest
                 logging.info("Running pytest...")
