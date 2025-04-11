@@ -209,6 +209,8 @@ This harness must be able to work on any project with a `pytest`-compatible test
     def start_http_server(host: str, port: int, directory: Path):
         """Starts a simple HTTP server in the current thread."""
         handler_class = partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
+        # Allow reusing the address immediately to prevent "Address already in use" errors on quick restarts
+        socketserver.TCPServer.allow_reuse_address = True
         try:
             with socketserver.TCPServer((host, port), handler_class) as httpd:
                 logger.info(f"HTTP server serving '{directory}' started on http://{host}:{port}")
