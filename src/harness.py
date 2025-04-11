@@ -39,6 +39,7 @@ class Harness:
         enable_council: bool = True,
         enable_code_review: bool = False,
         # Allow overriding UI settings via init
+        enable_ui: Optional[bool] = None, # Add enable_ui argument
         websocket_host: Optional[str] = None,
         websocket_port: Optional[int] = None,
         # Add stream for UI updates
@@ -54,11 +55,10 @@ class Harness:
             logging.info(f"Overriding configured Ollama model with __init__ argument: {ollama_model}")
             self.config["ollama_model"] = ollama_model
 
-        # Override UI settings if provided in __init__ arguments (Note: enable_ui is not an argument here)
-        # Let's log the final determined UI setting after potential overrides below
-        # if enable_ui is not None: # This argument doesn't exist
-        #     self.config["enable_ui"] = enable_ui
-        #     logging.info(f"UI enabled status set by __init__ argument: {enable_ui}")
+        # Override UI settings if provided in __init__ arguments
+        if enable_ui is not None:
+            self.config["enable_ui"] = enable_ui
+            logging.info(f"UI enabled status set by __init__ argument: {enable_ui}")
         if websocket_host is not None:
             self.config["websocket_host"] = websocket_host
             logging.info(f"WebSocket host set by __init__ argument: {websocket_host}")
