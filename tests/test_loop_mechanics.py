@@ -41,7 +41,8 @@ def harness_instance(temp_harness_work_dir):
         config_file=str(temp_harness_work_dir / "config.yaml"),
         work_dir=temp_harness_work_dir,
         max_retries=3, # Keep low for testing
-        reset_state=True
+        reset_state=True,
+        enable_council=False # Explicitly disable council for these tests
     )
     # Ensure project dir exists within the harness config
     Path(harness.config["project_dir"]).mkdir(parents=True, exist_ok=True)
