@@ -1,6 +1,7 @@
 import logging
 import pexpect # Use pexpect for interactive control
 import re
+import shlex # Import shlex for quoting
 import sys
 from typing import List, Dict, Tuple, Optional, Any
 
