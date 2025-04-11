@@ -664,3 +664,43 @@ class Ledger:
             except (json.JSONDecodeError, IOError) as e: # Removed KeyError as .get handles it
                 logger.error(f"JSON error getting latest run ID from {self.json_path}: {e}")
                 return None
+    def get_council_evaluations(self, iteration_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all council evaluations for an iteration.
+        
+        Args:
+            iteration_id: The iteration ID.
+            
+        Returns:
+            List of council evaluation dictionaries.
+        """
+        if self.storage_type == "sqlite":
+            try:
+                conn = sqlite3.connect(self.db_path)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT * FROM council_evaluations WHERE iteration_id = ? ORDER BY timestamp",
+                    (iteration_id,)
+                )
+                evaluations = [dict(row) for row in cursor.fetchall()]
+                conn.close()
+                return evaluations
+            except sqlite3.Error as e:
+                logger.error(f"SQLite error getting council evaluations: {e}")
+                return []
+        else:  # JSON storage
+            try:
+                with open(self.json_path, 'r') as f:
+                    state = json.load(f)
+                
+                # Find the iteration
+                for run in state.get("runs", []):
+                    for iteration in run.get("iterations", []):
+                        if iteration.get("iteration_id") == iteration_id:
+                            return iteration.get("council_evaluations", [])
+                
+                return []
+            except (json.JSONDecodeError, IOError) as e:
+                logger.error(f"JSON error getting council evaluations: {e}")
+                return []

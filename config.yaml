@@ -16,14 +16,19 @@ project_dir: "."
 
 # VESPER.MIND Council Configuration
 enable_council: true
+# Open-Source Thinkers
 theorist_model: "qwen:14b"
-architect_model: "deepcoder:14b" # Updated model
-skeptic_model: "gemma3:12b" # Updated model
-historian_model: "qwen2.5:14b" # Updated model
-coordinator_model: "command-r7b" # Updated model
+architect_model: "deepseek-coder:16b"
+skeptic_model: "gemma:7b"
+historian_model: "yi:34b"
+coordinator_model: "command-r-plus"
+# Final Authority (Closed-Source Models - using open-source fallbacks)
+arbiter_model: "claude-3-sonnet" # Fallback to ollama_model if not available
+canonizer_model: "gemini-2.5-pro" # Fallback to ollama_model if not available
+redactor_model: "gpt-4-turbo" # Fallback to ollama_model if not available
 
 # Code Review Configuration
-enable_code_review: false
+enable_code_review: true
 
 # Storage Configuration
 storage_type: "sqlite"  # "sqlite" or "json"
@@ -32,3 +37,7 @@ storage_type: "sqlite"  # "sqlite" or "json"
 enable_ui: false
 websocket_host: "localhost"
 websocket_port: 8765
+
+# Convergence Settings
+max_iterations: 10
+stuck_cycle_threshold: 2

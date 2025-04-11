@@ -69,11 +69,18 @@ class Harness:
         # Initialize VESPER.MIND council if enabled
         self.enable_council = enable_council
         if enable_council:
-            self.council = VesperMind(
-                config=self.config,
-                ledger=self.ledger,
-                work_dir=self.work_dir
-            )
+            try:
+                self.council = VesperMind(
+                    config=self.config,
+                    ledger=self.ledger,
+                    work_dir=self.work_dir
+                )
+                logging.info("VESPER.MIND council initialized successfully")
+            except Exception as e:
+                logging.error(f"Failed to initialize VESPER.MIND council: {e}")
+                logging.info("Falling back to standard LLM evaluation")
+                self.enable_council = False
+                self.council = None
         else:
             self.council = None
         
@@ -286,7 +293,7 @@ class Harness:
 
         # Track recent diffs to detect stuck cycles
         recent_diffs = [] # Store the last few non-empty diffs
-        stuck_cycle_threshold = 2 # Number of consecutive identical non-empty diffs to trigger abort
+        stuck_cycle_threshold = self.config.get("stuck_cycle_threshold", 2) # Number of consecutive identical non-empty diffs to trigger abort
 
         while (
             self.state["current_iteration"] < self.max_retries
@@ -374,44 +381,58 @@ class Harness:
                 logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
 
                 # 3. Evaluate with VESPER.MIND council or standard LLM
-                if self.enable_council and self.council:
-                    logging.info("Evaluating with VESPER.MIND council...")
-                    verdict, suggestions, council_results = self.council.evaluate_iteration(
-                        self.current_run_id,
-                        iteration_id,
-                        initial_goal_prompt,
-                        aider_diff if aider_diff is not None else "",
-                        pytest_output,
-                        pytest_passed,
-                        self.state["prompt_history"]
-                    )
-                    logging.info(f"VESPER.MIND council verdict: {verdict}")
-                    
-                    # Generate changelog if successful
-                    if verdict == "SUCCESS":
-                        changelog = self.council.generate_changelog(
+                try:
+                    if self.enable_council and self.council:
+                        logging.info("Evaluating with VESPER.MIND council...")
+                        verdict, suggestions, council_results = self.council.evaluate_iteration(
                             self.current_run_id,
                             iteration_id,
-                            verdict
+                            initial_goal_prompt,
+                            aider_diff if aider_diff is not None else "",
+                            pytest_output,
+                            pytest_passed,
+                            self.state["prompt_history"]
                         )
-                        logging.info(f"Generated changelog:\n{changelog}")
+                        logging.info(f"VESPER.MIND council verdict: {verdict}")
                         
-                        # Save changelog to file
-                        changelog_dir = self.work_dir / "changelogs"
-                        changelog_dir.mkdir(exist_ok=True)
-                        changelog_file = changelog_dir / f"changelog_run{self.current_run_id}_iter{iteration_id}.md"
-                        with open(changelog_file, 'w') as f:
-                            f.write(changelog)
-                else:
-                    # Standard LLM evaluation
-                    logging.info("Evaluating outcome with standard LLM...")
+                        # Generate changelog if successful
+                        if verdict == "SUCCESS":
+                            try:
+                                changelog = self.council.generate_changelog(
+                                    self.current_run_id,
+                                    iteration_id,
+                                    verdict
+                                )
+                                logging.info(f"Generated changelog:\n{changelog}")
+                                
+                                # Save changelog to file
+                                changelog_dir = self.work_dir / "changelogs"
+                                changelog_dir.mkdir(exist_ok=True)
+                                changelog_file = changelog_dir / f"changelog_run{self.current_run_id}_iter{iteration_id}.md"
+                                with open(changelog_file, 'w') as f:
+                                    f.write(changelog)
+                            except Exception as e:
+                                logging.error(f"Error generating changelog: {e}")
+                    else:
+                        # Standard LLM evaluation
+                        logging.info("Evaluating outcome with standard LLM...")
+                        verdict, suggestions = self._evaluate_outcome(
+                            initial_goal_prompt,
+                            aider_diff if aider_diff is not None else "",
+                            pytest_output,
+                            pytest_passed
+                        )
+                        logging.info(f"LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
+                except Exception as e:
+                    logging.error(f"Error during evaluation: {e}")
+                    logging.info("Falling back to standard LLM evaluation")
                     verdict, suggestions = self._evaluate_outcome(
                         initial_goal_prompt,
                         aider_diff if aider_diff is not None else "",
                         pytest_output,
                         pytest_passed
                     )
-                    logging.info(f"LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
+                    logging.info(f"Fallback LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
 
                 # Update ledger with iteration results
                 self.ledger.complete_iteration(
@@ -563,8 +584,9 @@ Consider:
 3. Is the code well-structured, maintainable, and following best practices?
 4. Are there any potential issues or edge cases not covered?
 
-Respond ONLY in the specified format:
+Respond in the following format:
 Verdict: [SUCCESS|RETRY|FAILURE]
+Rationale: [Brief explanation of your verdict]
 Suggestions: [Provide concise, actionable suggestions ONLY if verdict is RETRY, otherwise leave blank]
 
 SUCCESS = Goal achieved and tests pass
@@ -572,9 +594,13 @@ RETRY = Changes need improvement but are on the right track
 FAILURE = Fundamental issues that require a different approach
 """
 
+            # Use a lower temperature for evaluation to get more consistent results
+            ollama_options = self.config.get("ollama_options", {}).copy()
+            ollama_options["temperature"] = 0.3
+            
             llm_evaluation_response = get_llm_response(
                 evaluation_prompt,
-                self.config,
+                {**self.config, "ollama_options": ollama_options},
                 history=None,
                 system_prompt=evaluation_system_prompt
             )
@@ -582,15 +608,22 @@ FAILURE = Fundamental issues that require a different approach
 
             # Parse the LLM response
             verdict_match = re.search(r"Verdict:\s*(SUCCESS|RETRY|FAILURE)", llm_evaluation_response, re.IGNORECASE)
+            rationale_match = re.search(r"Rationale:\s*(.*?)(?=\n\n|\nSuggestions:|\Z)", llm_evaluation_response, re.IGNORECASE | re.DOTALL)
             suggestions_match = re.search(r"Suggestions:\s*(.*)", llm_evaluation_response, re.IGNORECASE | re.DOTALL)
 
             if verdict_match:
                 verdict = verdict_match.group(1).upper()
+                rationale = rationale_match.group(1).strip() if rationale_match else "No rationale provided."
                 suggestions = suggestions_match.group(1).strip() if suggestions_match else ""
+                
                 # Ensure suggestions are only returned if verdict is RETRY
                 if verdict != "RETRY":
                     suggestions = ""
-                logging.info(f"LLM evaluation parsed: Verdict={verdict}, Suggestions='{suggestions}'")
+                else:
+                    # Include rationale in suggestions for RETRY
+                    suggestions = f"Rationale: {rationale}\n\n{suggestions}"
+                
+                logging.info(f"LLM evaluation parsed: Verdict={verdict}, Rationale='{rationale[:100]}...'")
                 return verdict, suggestions
             else:
                 logging.warning(f"Could not parse verdict from LLM evaluation response. Defaulting to RETRY.")
@@ -615,10 +648,19 @@ FAILURE = Fundamental issues that require a different approach
     ) -> str:
         """Creates an enhanced prompt for the LLM evaluation step."""
         # Create a concise history string for the prompt, showing last few turns
-        history_limit = 5
-        limited_history = history[-(history_limit * 2):]
-        history_str = "\n".join([f"{msg['role']}: {msg['content'][:300]}{'...' if len(msg['content']) > 300 else ''}"
+        history_limit = 3
+        limited_history = history[-(history_limit * 2):] if len(history) > history_limit * 2 else history
+        history_str = "\n".join([f"{msg['role'].upper()}: {msg['content'][:300]}{'...' if len(msg['content']) > 300 else ''}"
                                  for msg in limited_history])
+
+        # Determine if this is the first iteration
+        is_first_iteration = self.state["current_iteration"] == 0
+        
+        # Adjust evaluation criteria based on iteration number
+        if is_first_iteration:
+            iteration_context = "This is the first iteration. Focus on whether the implementation is on the right track, even if not perfect."
+        else:
+            iteration_context = f"This is iteration {self.state['current_iteration'] + 1} of maximum {self.max_retries}. Consider the progress made across iterations."
 
         prompt = f"""
 Analyze the results of an automated code generation step in a test harness.
@@ -626,7 +668,10 @@ Analyze the results of an automated code generation step in a test harness.
 Initial Goal:
 {initial_goal}
 
-Conversation History (summary of last {history_limit} exchanges):
+Iteration Context:
+{iteration_context}
+
+Conversation History (summary of last {len(limited_history)} exchanges):
 {history_str}
 
 Last Code Changes (diff):
@@ -649,9 +694,10 @@ Detailed Evaluation Criteria:
 4. Completeness: Does the implementation fully satisfy the goal, or are there missing elements?
 5. Edge Cases: Are there potential issues or edge cases not addressed?
 
-Respond using the EXACT format below:
+Respond using the following format:
 
 Verdict: [SUCCESS|RETRY|FAILURE]
+Rationale: [Brief explanation of your verdict, considering the evaluation criteria]
 Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RETRY. Explain exactly what needs to be fixed and how. If SUCCESS or FAILURE, leave this blank.]
 """
         return prompt.strip()
@@ -666,8 +712,12 @@ Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RE
         """
         Creates an enhanced user prompt for the next Aider attempt based on evaluation suggestions.
         """
+        # Determine iteration number for context
+        current_iteration = self.state["current_iteration"]
+        max_retries = self.max_retries
+        
         retry_prompt = f"""
-The previous attempt to achieve the goal needs improvement:
+The previous attempt to achieve the goal needs improvement (Iteration {current_iteration + 1} of {max_retries}):
 
 Original Goal:
 "{initial_goal}"
@@ -696,7 +746,12 @@ Focus on implementing the suggested improvements while maintaining code quality 
         # Add a specific note if the evaluation itself failed
         if "An error occurred during the evaluation step" in suggestions:
             retry_prompt += "\n\nNote: The automated evaluation step encountered an error, so the suggestions are generic. Please carefully review the goal, the last code changes, and the test results yourself to decide how to proceed."
-
+        
+        # Add context about remaining iterations
+        remaining = max_retries - current_iteration - 1
+        if remaining <= 2:
+            retry_prompt += f"\n\nIMPORTANT: You have only {remaining} {'iteration' if remaining == 1 else 'iterations'} remaining. Please focus on the most critical issues first."
+        
         return retry_prompt.strip()
 
     # --- Code Review ---
@@ -718,6 +773,17 @@ Focus on implementing the suggested improvements while maintaining code quality 
             The code review result as a string.
         """
         logging.info("Running code review using configured LLM...")
+
+        # If VESPER.MIND council is enabled, use the Architect model for code review
+        if self.enable_council and self.council:
+            model_name = self.council.open_source_council.get("architect", {}).get("model")
+            if model_name in self.council.available_models:
+                logging.info(f"Using Architect model ({model_name}) for code review")
+            else:
+                model_name = self.config.get("ollama_model", "gemma3:12b")
+                logging.info(f"Architect model not available, using default model ({model_name}) for code review")
+        else:
+            model_name = self.config.get("ollama_model", "gemma3:12b")
 
         # Create code review prompt
         review_prompt = f"""
@@ -741,8 +807,17 @@ Provide a thorough code review that includes:
 3. Areas for potential improvement (e.g., alternative approaches, optimizations, style suggestions).
 4. Any potential bugs, edge cases, or security concerns missed by the tests.
 5. Adherence to best practices and Python conventions.
+6. Suggestions for future enhancements or refactorings.
 
-Format your review as a professional code review document using Markdown. Use headings, bullet points, and code snippets where appropriate.
+Format your review as a professional code review document using Markdown with the following sections:
+- Summary
+- Strengths
+- Areas for Improvement
+- Code Quality Assessment
+- Security Considerations
+- Future Recommendations
+
+Use headings, bullet points, and code snippets where appropriate.
 """
 
         try:
@@ -750,24 +825,47 @@ Format your review as a professional code review document using Markdown. Use he
             review_system_prompt = """You are an expert code reviewer with years of experience.
 Provide thorough, constructive code reviews that highlight both strengths and areas for improvement.
 Focus on code quality, maintainability, performance, and adherence to best practices.
+Be specific and provide concrete examples and suggestions.
 Format your review as a professional markdown document with clear sections and specific examples."""
 
+            # Use a higher temperature for code review to get more creative insights
+            ollama_options = self.config.get("ollama_options", {}).copy()
+            ollama_options["temperature"] = 0.7
+            
             review_result = get_llm_response(
                 review_prompt,
-                self.config,
+                {"ollama_model": model_name, "ollama_options": ollama_options},
                 history=None, # Review is based on the current state, not conversation history
                 system_prompt=review_system_prompt
             )
 
             # Add header to the review
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            header = f"# Code Review\n\n**Run ID:** {self.current_run_id}\n**Date:** {timestamp}\n\n**Reviewer:** AI Code Reviewer ({self.config.get('ollama_model', 'default')})\n\n---\n\n"
+            header = f"# Code Review\n\n**Run ID:** {self.current_run_id}\n**Date:** {timestamp}\n\n**Reviewer:** AI Code Reviewer ({model_name})\n\n---\n\n"
 
-            return header + review_result
+            full_review = header + review_result
+            
+            # Save the review to a file
+            review_dir = self.work_dir / "reviews"
+            review_dir.mkdir(exist_ok=True)
+            review_file = review_dir / f"review_run{self.current_run_id}_iter{self.state['current_iteration']}.md"
+            with open(review_file, 'w') as f:
+                f.write(full_review)
+            
+            return full_review
 
         except Exception as e:
             logging.error(f"Error during code review generation: {e}")
-            return f"# Code Review\n\nError during code review generation: {e}\n\nPlease review the code manually."
+            error_review = f"# Code Review\n\n**Run ID:** {self.current_run_id}\n**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n**Reviewer:** AI Code Reviewer (Error)\n\n---\n\nError during code review generation: {e}\n\nPlease review the code manually."
+            
+            # Save the error review to a file
+            review_dir = self.work_dir / "reviews"
+            review_dir.mkdir(exist_ok=True)
+            review_file = review_dir / f"review_run{self.current_run_id}_iter{self.state['current_iteration']}_error.md"
+            with open(review_file, 'w') as f:
+                f.write(error_review)
+            
+            return error_review
 
 
 # Example usage (for testing purposes, normally called from main.py)
