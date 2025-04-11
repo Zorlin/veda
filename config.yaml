@@ -15,10 +15,10 @@ project_dir: "."
 # VESPER.MIND Council Configuration
 enable_council: true
 theorist_model: "qwen:14b"
-architect_model: "deepseek-coder:16b"
-skeptic_model: "gemma:7b"
-historian_model: "yi:34b"
-coordinator_model: "command-r-plus"
+architect_model: "deepcoder:14b" # Updated model
+skeptic_model: "gemma3:12b" # Updated model
+historian_model: "qwen2.5:14b" # Updated model
+coordinator_model: "command-r7b" # Updated model
 
 # Code Review Configuration
 enable_code_review: false
