@@ -269,6 +269,7 @@ class UIServer:
             websocket_server = srv # Store the server object
 
             # Signal that the server has started successfully (for TaskGroup.start)
+            # This MUST be called before awaiting the stop_event
             task_status.started()
 
             # Keep the server running until stop() is called
@@ -285,15 +286,17 @@ class UIServer:
         # Start the server and listener tasks concurrently
         try:
             async with anyio.create_task_group() as tg:
-                # Start the WebSocket server task, waiting for it to signal readiness
-                await tg.start(serve_websocket)
-                # Start the update listener task concurrently
+                # Start the WebSocket server task, passing the task_status for it to signal readiness
+                await tg.start(serve_websocket) 
+                # Start the update listener task concurrently (doesn't need task_status)
                 tg.start_soon(self._update_listener)
-                logger.info("WebSocket server and update listener tasks started.")
-                # Signal overall readiness if required by the caller context
-                task_status.started()
-                # The group will now wait until all tasks complete or are cancelled.
-                # The stop_event mechanism inside serve_websocket handles shutdown.
+                logger.info("WebSocket server and update listener tasks started within the group.")
+                # Signal overall readiness of the UIServer.start method itself
+                # This is called AFTER tg.start successfully launched its tasks
+                task_status.started() 
+                logger.info("UIServer.start signaled readiness.")
+                # The group will now wait until all tasks (serve_websocket, _update_listener) complete or are cancelled.
+                # The stop_event mechanism inside serve_websocket handles its shutdown trigger.
 
         except Exception as e:
              logger.exception(f"Error in UI server main task group: {e}")
