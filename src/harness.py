@@ -378,10 +378,14 @@ Pytest Output:
 ```
 
 Evaluation and Suggestions for Improvement:
-{suggestions}
+{suggestions if suggestions else "No specific suggestions provided. Please analyze the diff and test output to identify the issue and try again."}
 
-Based *only* on the suggestions above, please modify the code to address the identified issues and progress towards the initial goal. Focus on applying the suggested changes.
+Based *only* on the suggestions above (if any), please modify the code to address the identified issues and progress towards the initial goal. Focus on applying the suggested changes or analyzing the previous attempt if no suggestions were given.
 """
+        # Add a specific note if the evaluation itself failed
+        if "An error occurred during the evaluation step" in suggestions:
+            retry_prompt += "\n\nNote: The evaluation step encountered an error, so the suggestions are generic. Please carefully review the goal, code changes, and test results yourself."
+
         return retry_prompt.strip()
 
 # Example usage (for testing purposes, normally called from main.py)

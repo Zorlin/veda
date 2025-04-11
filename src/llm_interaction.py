@@ -68,13 +68,25 @@ def get_llm_response(
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Check if the expected keys exist
-        if "message" not in response_data or "content" not in response_data["message"]:
-            error_msg = f"LLM response missing 'message' or 'content' key. Response: {response_data}"
+        # Check for specific non-content responses like model loading
+        if response_data.get("done") and response_data.get("done_reason") == "load":
+            error_msg = f"Ollama model '{ollama_model}' is still loading or failed to load (done_reason: load)."
             logger.error(error_msg)
-            raise KeyError(error_msg)
+            # Raise a specific error or handle retry logic if desired
+            raise ValueError(error_msg)
 
-        llm_content = response_data["message"]["content"]
+        # Check if the expected keys exist for a successful response
+        if "message" not in response_data or "content" not in response_data.get("message", {}):
+            # Check if 'response' key exists for older Ollama versions or different endpoints
+            if "response" in response_data:
+                 llm_content = response_data["response"] # Use 'response' key if 'message.content' is missing
+                 logger.warning("Using 'response' key from Ollama output (older format?).")
+            else:
+                 error_msg = f"LLM response missing 'message.content' or 'response' key. Response: {response_data}"
+                 logger.error(error_msg)
+                 raise KeyError(error_msg)
+        else:
+             llm_content = response_data["message"]["content"]
         logger.debug(f"Received LLM response content (truncated): {llm_content[:200]}...")
         return llm_content.strip()
 

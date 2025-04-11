@@ -122,14 +122,31 @@ def run_aider(
         - An error message string (if an error occurred).
     """
     aider_command = config.get("aider_command", "aider")
+    ollama_model = config.get("ollama_model") # Get the model from harness config
+
     # Quote the prompt to handle spaces and special characters
     quoted_prompt = shlex.quote(prompt)
-    # Remove --yes, add --message with the quoted initial prompt
-    command_args = [
-        f"--message {quoted_prompt}", # Pass the quoted prompt as part of the argument
-        # Add other necessary aider flags from config if needed
-        # e.g., "--model", config.get("aider_model", "gpt-4")
-    ]
+
+    # Base command arguments
+    command_args = []
+
+    # Add the Ollama model if specified in config (prioritize local model)
+    if ollama_model:
+        # Aider expects model names potentially prefixed (e.g., ollama/llama3)
+        # We assume the config value is the correct name for Ollama.
+        # Aider might need a prefix like 'ollama/' - adjust if needed based on Aider docs/behavior.
+        # For now, pass the raw model name. Aider might auto-detect Ollama.
+        # If Aider requires a specific format like `ollama/modelname`, adjust here.
+        # Example: command_args.append(f"--model ollama/{ollama_model}")
+        command_args.append(f"--model {shlex.quote(ollama_model)}")
+        logger.info(f"Configuring Aider to use model: {ollama_model}")
+
+    # Add the message argument
+    command_args.append(f"--message {quoted_prompt}")
+
+    # Add other necessary aider flags from config if needed (ensure they don't conflict)
+    # Example: command_args.extend(config.get("extra_aider_args", []))
+
     # Add the working directory itself as an argument for Aider to scan
     command_args.append(shlex.quote(work_dir))
     # Construct the command string carefully
