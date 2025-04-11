@@ -111,12 +111,11 @@ class Harness:
              project_dir_path = Path.cwd() / project_dir_path
         config["project_dir"] = str(project_dir_path.resolve()) # Store absolute path
 
-        # Resolve work_dir relative to the loaded/default project_dir
-        # Use the name attribute of the Path object passed in __init__
-        resolved_work_dir = project_dir_path / self.work_dir.name
-        self.work_dir = resolved_work_dir.resolve() # Ensure it's absolute
+        # Resolve work_dir passed from __init__ relative to CWD and ensure it's absolute
+        # This should happen *independently* of the project_dir
+        self.work_dir = self.work_dir.resolve()
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Resolved working directory relative to project dir: {self.work_dir}")
+        logging.info(f"Using working directory (resolved relative to CWD): {self.work_dir}")
 
         # State initialization happens after this method returns in __init__
         return config
