@@ -1,1 +1,44 @@
 .aider*
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+.env/
+*/venv/
+*/.venv/
+*/env/
+*/.env/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Harness specific
+harness_work_dir/
+*.log
+harness_state.json
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets / Config (if sensitive)
+# config.yaml # Consider adding if it contains secrets
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+*.cov

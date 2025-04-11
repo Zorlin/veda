@@ -1,0 +1,11 @@
+# Core dependencies
+aider-chat
+pytest
+requests
+PyYAML
+ollama # Or preferred Ollama client library
+
+# Optional dependencies (uncomment as needed)
+# Flask # For web dashboard
+# Streamlit # For web dashboard
+# textual # For TUI
