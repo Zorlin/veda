@@ -4,13 +4,22 @@ Look for anything missing, any tests that can be added, anything you can do to m
 
 And expand on the concepts used if needed
 
-You should make sure the output from Live Aider Output respects the control codes of Aider,
-and keeps less than 10,000 lines in scrollback to avoid crashing the browser
+You should:
+1. Make Live Aider Output respect Aider's control codes (like \c for cancel)
+2. Ensure scrollback never exceeds 10,000 lines to prevent browser crashes
+3. Prevent text duplication in both the Live Log and Diff Viewers
+4. Keep the Live Log focused on current state and recent activity
+5. Implement a working interrupt system that actually stops Aider
+6. Respect changes to goal.prompt even after initial run if they're edited
 
-You should make sure its displayed correctly and that text isn't being duplicated over and over
+You should make sure:
+- All output follows proper formatting control codes
+- Diffs are displayed with clear syntax highlighting
+- The Live Log only shows relevant, non-duplicated activity
+- Interrupt process sends proper signals and cleans up resources
+- Goal changes trigger reinitialization of Aider with new instructions
 
-You should make sure the Live Log reflects the current state of everything as best as possible
+Expand testing to cover these new requirements and edge cases
+```
 
-You should make sure the Interrupt current Aider process works and that in interruption mode we really interrupt Aider
-
-You should make sure if we edit goal.prompt after an initial run, we take the new goal into account if it changes
+README.md
