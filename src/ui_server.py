@@ -154,20 +154,57 @@ class UIServer:
 
         message_json = json.dumps(message_to_send)
 
-        # Use asyncio.gather to send messages concurrently
-        results = await asyncio.gather(
-            *[client.send(message_json) for client in self.clients],
-            return_exceptions=True # Don't let one failed send stop others
-        )
+        # Create tasks with client references to handle disconnections safely
+        tasks = {
+            asyncio.create_task(client.send(message_json)): client
+            for client in self.clients
+        }
 
-        # Handle clients that disconnected during send
+        if not tasks:
+            return # No clients to send to
+
+        # Wait for all send tasks to complete
+        done, pending = await asyncio.wait(tasks.keys(), return_when=asyncio.ALL_COMPLETED)
+
+        # Process results and handle disconnections
         disconnected_clients = []
-        for i, result in enumerate(results):
-            client = list(self.clients)[i] # Get corresponding client
-            if isinstance(result, websockets.exceptions.ConnectionClosed):
-                logger.warning(f"Client {client.remote_address} disconnected during broadcast. Removing.")
-                disconnected_clients.append(client)
-            elif isinstance(result, Exception):
+        for task in done:
+            client = tasks[task] # Get the client associated with this task
+            try:
+                # Check if the task raised an exception
+                exception = task.exception()
+                if isinstance(exception, websockets.exceptions.ConnectionClosed):
+                    logger.warning(f"Client {client.remote_address} disconnected during broadcast. Removing.")
+                    disconnected_clients.append(client)
+                elif exception:
+                    # Log other exceptions during send
+                    logger.error(f"Error sending message to {client.remote_address}: {exception}")
+                    # Optionally remove clients with persistent errors
+                    # disconnected_clients.append(client)
+            except asyncio.CancelledError:
+                 logger.warning(f"Send task for client {client.remote_address} was cancelled.")
+            except Exception as e:
+                 # Catch any unexpected error during result processing
+                 logger.error(f"Unexpected error processing send result for {client.remote_address}: {e}")
+
+        # Ensure pending tasks (shouldn't happen with ALL_COMPLETED) are cancelled
+        for task in pending:
+            task.cancel()
+            client = tasks[task]
+            logger.warning(f"Cancelled pending send task for client {client.remote_address}")
+
+        # Remove disconnected clients after iteration
+        for client in disconnected_clients:
+            if client in self.clients:
+                 # Use await here as _unregister might perform async operations
+                 await self._unregister(client)
+        # --- Old code removed ---
+        # results = await asyncio.gather(...)
+        # for i, result in enumerate(results): ...
+        # --- End Old code removed ---
+
+    async def _update_listener(self):
+        """Listen for updates from the Harness via the receive stream."""
                 logger.error(f"Error sending message to {client.remote_address}: {result}")
                 # Optionally remove clients with persistent errors
                 # disconnected_clients.append(client)
