@@ -244,12 +244,12 @@ class Harness:
                 else: # This corresponds to 'if config_path.is_file():'
                     logging.warning(f"Config file {self.config_file} not found. Using default configuration.")
                     # Optionally create a default config file here
-                 # try:
-                 #     with open(config_path, 'w') as f:
-                 #         yaml.dump(default_config, f, default_flow_style=False)
-                 #     logging.info(f"Created default config file at {self.config_file}")
-                 # except IOError as e_write:
-                     #     logging.error(f"Could not write default config file {config_path}: {e_write}")
+                    # try:
+                    #     with open(config_path, 'w') as f:
+                    #         yaml.dump(default_config, f, default_flow_style=False)
+                    #     logging.info(f"Created default config file at {self.config_file}")
+                    # except IOError as e_write:
+                    #     logging.error(f"Could not write default config file {config_path}: {e_write}")
 
             except yaml.YAMLError as e:
                 logging.error(f"Error parsing config file {config_path}: {e}. Using default configuration.")
