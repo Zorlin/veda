@@ -21,7 +21,8 @@ def check_ollama_model_availability(model_name: str) -> bool:
     try:
         client = ollama.Client() # Uses default host or OLLAMA_HOST env var
         # ollama.show() raises ResponseError if the model doesn't exist
-        client.show(model_name=model_name)
+        # Pass the model name positionally, not as a keyword argument
+        client.show(model_name)
         logger.debug(f"Model '{model_name}' confirmed available via ollama.show().")
         return True
     except ResponseError as e:

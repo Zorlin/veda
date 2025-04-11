@@ -158,7 +158,9 @@ async def test_ui_server_receives_interrupt_command(test_server, anyio_backend):
 @pytest.mark.anyio
 async def test_ui_server_relays_stream_updates(test_server, anyio_backend):
     """Test that the server receives updates via its stream and broadcasts them."""
-    uri = f"ws://{test_server.host}:{test_server.port}"
+    # Unpack the server and send_stream from the fixture's yielded tuple
+    server, send_stream = test_server
+    uri = f"ws://{server.host}:{server.port}" # Use the unpacked 'server' variable
 
     # Get the send stream associated with the server's receive stream
     # Note: This assumes the fixture setup correctly links the streams.
