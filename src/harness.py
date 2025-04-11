@@ -180,12 +180,20 @@ class Harness:
             last_message = self.state["prompt_history"][-1]
             if last_message.get("role") == "user":
                 current_prompt = last_message["content"]
+                # Last run stopped waiting for Aider, resume normally.
+                current_prompt = last_message["content"]
                 logging.info(f"Resuming run from iteration {self.state['current_iteration'] + 1}. Last user prompt retrieved from history.")
-            else:
-                logging.error("Cannot resume: Last message in history is not from 'user'. Starting with initial goal.")
-                # Fallback to initial goal if history state is unexpected
+            else: # Last message is from assistant
+                # This means the previous iteration's Aider run completed, but didn't generate a new user prompt.
+                # This happens on SUCCESS, FAILURE, max_retries, or error *after* Aider ran.
+                # Treat this as a completed run and start fresh.
+                logging.info("Previous run concluded (last message was from assistant). Starting a fresh run with the initial goal.")
                 current_prompt = initial_goal_prompt
-                self.state["prompt_history"].append({"role": "user", "content": current_prompt})
+                # Reset state for a fresh run
+                self.state["current_iteration"] = 0
+                self.state["prompt_history"] = [{"role": "user", "content": current_prompt}]
+                self.state["converged"] = False
+                self.state["last_error"] = None
         else:
             # Should not happen if initialization is correct, but handle defensively
             logging.warning("State indicates resumption but history is empty. Starting with initial goal.")
