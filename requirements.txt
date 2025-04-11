@@ -1,12 +1,12 @@
 # Core dependencies
 aider-chat
 pytest
-requests
 PyYAML
-ollama # Or preferred Ollama client library
+ollama # Official Ollama client library
 pexpect # For interactive subprocess control
 
 # Optional dependencies (uncomment as needed)
+# requests # May be needed if not using ollama library directly, or as a dependency
 # Flask # For web dashboard
 # Streamlit # For web dashboard
 # textual # For TUI
