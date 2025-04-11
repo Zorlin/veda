@@ -9,7 +9,10 @@ from rich.logging import RichHandler
 import threading # For running UI server in background
 import asyncio # For running async UI server
 import yaml # For loading config early
-
+import http.server
+import socketserver
+from functools import partial
+ 
 from src.harness import Harness
 from src.ui_server import UIServer # Import UI Server
 
@@ -17,6 +20,7 @@ from src.ui_server import UIServer # Import UI Server
 DEFAULT_CONFIG = {
     "websocket_host": "localhost",
     "websocket_port": 8765,
+    "http_port": 8766, # Default HTTP port
     "enable_ui": False,
     # Add other essential defaults if needed for early access
 }
@@ -114,8 +118,14 @@ def main():
         default=None, # Default comes from config
         help="WebSocket port for the UI (overrides config).",
     )
-
-
+    parser.add_argument(
+        "--ui-http-port",
+        type=int,
+        default=None, # Default comes from config
+        help="HTTP port for serving the UI static files (overrides config).",
+    )
+ 
+ 
     args = parser.parse_args()
 
     # Ensure work directory exists
@@ -187,10 +197,30 @@ This harness must be able to work on any project with a `pytest`-compatible test
 
     # Determine final UI settings (CLI args override config)
     ui_enabled = args.enable_ui or config.get("enable_ui", False)
-    ui_host = args.ui_host or config.get("websocket_host", "localhost")
-    ui_port = args.ui_port or config.get("websocket_port", 8765)
+    # WebSocket settings
+    ws_host = args.ui_host or config.get("websocket_host", "localhost")
+    ws_port = args.ui_port or config.get("websocket_port", 8765)
+    # HTTP settings
+    http_host = args.ui_host or config.get("websocket_host", "localhost") # Usually same host
+    http_port = args.ui_http_port or config.get("http_port", ws_port + 1) # Default to ws_port + 1
 
-    # --- Start UI Server Early (if enabled) ---
+    # --- Define HTTP Server Function ---
+    def start_http_server(host: str, port: int, directory: Path):
+        """Starts a simple HTTP server in the current thread."""
+        handler_class = partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
+        try:
+            with socketserver.TCPServer((host, port), handler_class) as httpd:
+                logger.info(f"HTTP server serving '{directory}' started on http://{host}:{port}")
+                httpd.serve_forever()
+        except OSError as e:
+            logger.error(f"Failed to start HTTP server on {host}:{port}: {e}")
+        except Exception as e:
+            logger.error(f"HTTP server thread encountered an error: {e}", exc_info=True)
+        finally:
+            logger.info(f"HTTP server on {host}:{port} stopped.")
+
+
+    # --- Start UI Servers Early (if enabled) ---
     ui_server = None
     ui_server_thread = None
     if ui_enabled:
@@ -201,12 +231,23 @@ This harness must be able to work on any project with a `pytest`-compatible test
             try:
                 asyncio.run(ui_server.start())
             except Exception as e:
-                logger.error(f"UI server thread encountered an error: {e}", exc_info=True)
+                logger.error(f"WebSocket server thread encountered an error: {e}", exc_info=True)
+ 
+        ws_server_thread = threading.Thread(target=run_ws_server, daemon=True, name="WebSocketServerThread")
+        ws_server_thread.start()
+        logger.info(f"WebSocket server starting in background thread on ws://{ws_host}:{ws_port}")
 
-        ui_server_thread = threading.Thread(target=run_server, daemon=True)
-        ui_server_thread.start()
-        logger.info(f"UI WebSocket server starting in background thread on ws://{ui_host}:{ui_port}")
-        # Removed time.sleep(1) - let it start concurrently
+        # Start HTTP Server
+        http_server_thread = threading.Thread(
+            target=start_http_server, 
+            args=(http_host, http_port, ui_dir_path), 
+            daemon=True,
+            name="HttpServerThread"
+        )
+        http_server_thread.start()
+        # Note: We don't have a direct handle to the httpd object to call shutdown cleanly from here.
+        # Daemon threads will exit when the main thread exits. For cleaner shutdown, 
+        # start_http_server would need modification (e.g., using httpd.shutdown() via another thread/signal).
 
     # Initialize and run the harness
     try:
@@ -223,8 +264,9 @@ This harness must be able to work on any project with a `pytest`-compatible test
             # Pass the final determined UI settings to Harness constructor
             # These might override what Harness loads from its config again, which is fine.
             enable_ui=ui_enabled,
-            websocket_host=ui_host,
-            websocket_port=ui_port
+            websocket_host=ws_host, # Pass WS host/port
+            websocket_port=ws_port,
+            # http_port=http_port # Harness doesn't need the HTTP port directly
         )
 
         # Link the already running UI server instance to the harness
@@ -262,13 +304,13 @@ This harness must be able to work on any project with a `pytest`-compatible test
         logger.exception(f"Harness execution failed: {e}")
         console.print(f"\n[bold red]Error:[/bold red] {str(e)}")
     finally:
-        # Stop the UI server if it was started (using variables from the outer scope)
-        if ui_server and ui_server_thread and ui_server_thread.is_alive():
-            logger.info("Stopping UI WebSocket server...")
+        # Stop the WebSocket server if it was started
+        if ui_server and ws_server_thread and ws_server_thread.is_alive():
+            logger.info("Stopping WebSocket server...")
             ui_server.stop() # Signal the server loop to stop
-            ui_server_thread.join(timeout=5) # Wait for thread to finish
-            if ui_server_thread.is_alive():
-                 logger.warning("UI server thread did not stop cleanly.")
+            ws_server_thread.join(timeout=5) # Wait for thread to finish
+            if ws_server_thread.is_alive():
+                 logger.warning("WebSocket server thread did not stop cleanly.")
             else:
                  logger.info("UI WebSocket server stopped.")
 

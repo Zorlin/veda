@@ -30,35 +30,11 @@ class UIServer:
         if not self.ui_dir.is_dir():
              # Fallback if running from a different structure (e.g., tests)
              self.ui_dir = Path.cwd() / "ui"
-        logger.info(f"UI Server initialized (host={host}, port={port}), serving UI from {self.ui_dir}")
+        # Note: UI serving path is still relevant for finding index.html in main.py's HTTP server
+        logger.info(f"WebSocket Server initialized (host={host}, port={port})") 
+        # Removed reference to serving UI from here
 
-
-    async def _process_request(
-        self, path: str, request_headers: websockets.Headers
-    ) -> Optional[Tuple[HTTPStatus, List[Tuple[str, str]], bytes]]:
-        """Handle HTTP requests before WebSocket handshake."""
-        logger.debug(f"Processing HTTP request for path: {path}")
-        if path == "/" or path == "/index.html":
-            logger.info(f"Serving index.html for path: {path}")
-            html_file = self.ui_dir / "index.html"
-            if html_file.is_file():
-                try:
-                    content = html_file.read_bytes()
-                    headers = [("Content-Type", "text/html")]
-                    return HTTPStatus.OK, headers, content
-                except Exception as e:
-                    logger.error(f"Error reading {html_file}: {e}")
-                    body = b"Internal Server Error"
-                    headers = [("Content-Type", "text/plain")]
-                    return HTTPStatus.INTERNAL_SERVER_ERROR, headers, body
-            else:
-                logger.warning(f"UI file not found: {html_file}")
-                body = b"Not Found"
-                headers = [("Content-Type", "text/plain")]
-                return HTTPStatus.NOT_FOUND, headers, body
-        # Let websockets handle other paths (potential WebSocket connections)
-        logger.debug(f"Path '{path}' not handled by HTTP server, passing to WebSocket.")
-        return None
+    # Removed _process_request method as this server will only handle WebSockets
 
     async def _register(self, websocket: ServerProtocol): # Updated type hint
         """Register a new client WebSocket connection."""
@@ -153,17 +129,17 @@ class UIServer:
         for attempt in range(max_attempts):
             try:
                 logger.info(f"Attempting to start server on ws://{self.host}:{current_port} (Attempt {attempt + 1}/{max_attempts})")
-                # Pass the HTTP request processor
+                # Start WebSocket server without HTTP request processing
                 server = await websockets.serve(
                     self._handler,
                     self.host,
                     current_port,
-                    process_request=self._process_request,
+                    # process_request=_process_request, # Removed HTTP handling
                     ping_interval=20, # Keep connections alive
                     ping_timeout=20
                 )
                 self.port = current_port # Update port if successful
-                logger.info(f"HTTP/WebSocket server started successfully on ws://{self.host}:{self.port}")
+                logger.info(f"WebSocket server started successfully on ws://{self.host}:{self.port}")
                 break # Exit loop on success
             except OSError as e:
                 if "Address already in use" in str(e) and attempt < max_attempts - 1:
@@ -188,7 +164,7 @@ class UIServer:
         try:
             await self.stop_event.wait()
         finally:
-            logger.info("Stop event received or server task cancelled, shutting down server...")
+            logger.info("Stop event received or server task cancelled, shutting down WebSocket server...")
             server.close()
             await server.wait_closed()
             logger.info("WebSocket server stopped.")
