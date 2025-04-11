@@ -21,7 +21,8 @@
         <!-- Connection Status -->
         <div class="mb-4 p-2 rounded" :class="wsStatus === 'Connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'">
             WebSocket Status: <span x-text="wsStatus">Connecting...</span>
-            <span x-show="wsStatus !== 'Connected'" class="ml-2 text-sm">(Attempting to connect to ws://<span x-text="websocketHost"></span>:<span x-text="websocketPort"></span>)</span>
+            <span x-show="wsStatus !== 'Connected' && wsStatus !== 'Error'" class="ml-2 text-sm">(Attempting to connect to ws://<span x-text="websocketHost"></span>:<span x-text="websocketPort"></span><span x-show="retrying">, retrying...</span>)</span>
+            <span x-show="wsStatus === 'Error'" class="ml-2 text-sm">(Connection failed. Check console or server logs. Retrying...)</span>
         </div>
 
         <!-- Run Status -->
@@ -34,6 +35,14 @@
             </div>
             <div class="bg-blue-50 p-3 rounded">
                 <strong>Status:</strong> <span x-text="status.status || 'Idle'"></span>
+            </div>
+        </div>
+
+        <!-- Live Aider Output -->
+        <div class="mb-4">
+            <h2 class="text-xl font-semibold mb-2">Live Aider Output</h2>
+            <div class="bg-gray-900 text-green-400 p-4 rounded h-96 overflow-y-auto text-xs font-mono" x-ref="aiderLogContainer">
+                <pre class="log-entry" x-text="liveAiderOutput"></pre>
             </div>
         </div>
 
@@ -50,8 +59,15 @@
         <!-- Interaction Area (Placeholder) -->
         <div class="mb-4">
             <h2 class="text-xl font-semibold mb-2">Interaction</h2>
-            <textarea class="w-full p-2 border rounded mb-2" rows="3" placeholder="Inject thoughts or commands (future feature)..." disabled></textarea>
-            <button class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50" disabled>Send</button>
+            <textarea x-model="userInput" class="w-full p-2 border rounded mb-2" rows="3" placeholder="Provide guidance or ask Aider to change course..."></textarea>
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                     <input type="checkbox" id="interrupt-checkbox" x-model="interruptAider" class="mr-2">
+                     <label for="interrupt-checkbox" class="text-sm text-gray-700">Interrupt current Aider process</label>
+                </div>
+                <button @click="sendMessage" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50" :disabled="!userInput.trim()">Send</button>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">If unchecked, guidance will be added before the next iteration starts. If checked, the current Aider process will be stopped first.</p>
         </div>
 
     </div>
@@ -71,6 +87,10 @@
                     log: ["UI Initialized. Waiting for connection..."]
                 },
                 retryTimeout: null,
+                retrying: false, // Flag to indicate if a retry is scheduled
+                userInput: '', // For the textarea
+                interruptAider: false, // For the checkbox
++               liveAiderOutput: '', // To store live output from Aider
 
                 init() {
                     console.log('Initializing Harness UI...');
@@ -92,26 +112,35 @@
                         console.log('WebSocket connected');
                         this.wsStatus = 'Connected';
                         this.status.log.push('WebSocket connection established.');
+                        this.retrying = false; // Reset retry flag
                         // Reset retry timeout on successful connection
-                        if (this.retryTimeout) clearTimeout(this.retryTimeout);
+                        if (this.retryTimeout) {
+                            clearTimeout(this.retryTimeout);
+                            this.retryTimeout = null;
+                        }
                     };
 
                     this.ws.onmessage = (event) => {
                         // console.log('Message received:', event.data);
                         try {
                             const data = JSON.parse(event.data);
-                            this.status = { ...this.status, ...data }; // Merge new data
-                            // Ensure log is always an array
-                            if (!Array.isArray(this.status.log)) {
-                                this.status.log = [JSON.stringify(this.status.log)];
-                            }
-                            // Scroll log container to bottom
-                            this.$nextTick(() => {
-                                const logContainer = this.$refs.logContainer;
-                                if(logContainer) {
-                                    logContainer.scrollTop = logContainer.scrollHeight;
+
+                            // Check message type
+                            if (data.type === 'aider_output') {
+                                this.liveAiderOutput += data.chunk;
+                                this.scrollToBottom('aiderLogContainer');
+                            } else if (data.type === 'aider_output_clear') {
+                                this.liveAiderOutput = ''; // Clear the live output
+                            } else {
+                                // Assume it's a general status update
+                                this.status = { ...this.status, ...data }; // Merge new data
+                                // Ensure log is always an array
+                                if (!Array.isArray(this.status.log)) {
+                                    this.status.log = [JSON.stringify(this.status.log)];
                                 }
-                            });
+                                // Scroll main log container to bottom
+                                this.scrollToBottom('logContainer');
+                            }
                         } catch (e) {
                             console.error('Failed to parse message:', e);
                             this.status.log.push(`Error parsing message: ${event.data}`);
@@ -121,38 +150,65 @@
                     this.ws.onerror = (error) => {
                         console.error('WebSocket error:', error);
                         this.wsStatus = 'Error';
-                        this.status.log.push(`WebSocket error occurred. Check console.`);
-                        // Attempt to reconnect after a delay
-                        this.scheduleReconnect();
+                        this.status.log.push(`WebSocket error occurred. Check console or server logs.`);
+                        // Attempt to reconnect after a delay only if not already retrying
+                        if (!this.retrying) {
+                            this.scheduleReconnect();
+                        }
                     };
 
                     this.ws.onclose = (event) => {
                         console.log('WebSocket disconnected:', event.code, event.reason);
-                        this.wsStatus = `Disconnected (Code: ${event.code})`;
-                        this.status.log.push(`WebSocket disconnected. Attempting to reconnect...`);
-                        // Attempt to reconnect
-                        this.scheduleReconnect();
+                        // Avoid showing 'Disconnected' if an error already occurred and is triggering reconnect
+                        if (this.wsStatus !== 'Error') {
+                             this.wsStatus = `Disconnected (Code: ${event.code})`;
+                        }
+                        this.status.log.push(`WebSocket disconnected (Code: ${event.code}, Reason: ${event.reason || 'N/A'}). Attempting to reconnect...`);
+                        // Attempt to reconnect only if not already retrying
+                        if (!this.retrying) {
+                            this.scheduleReconnect();
+                        }
                     };
                 },
 
                 scheduleReconnect() {
-                    // Don't schedule if already scheduled
-                    if (this.retryTimeout) return;
-                    
+                    // Don't schedule if already scheduled/retrying
+                    if (this.retrying || this.retryTimeout) return;
+
+                    this.retrying = true; // Set retry flag
                     const delay = 5000; // 5 seconds
+                    this.status.log.push(`Scheduling WebSocket reconnect in ${delay / 1000} seconds...`);
                     console.log(`Scheduling WebSocket reconnect in ${delay / 1000} seconds...`);
+                    
                     this.retryTimeout = setTimeout(() => {
-                        this.retryTimeout = null; // Clear the timeout ID before retrying
-                        this.connectWebSocket();
+                        this.retryTimeout = null; // Clear the timeout ID
+                        this.retrying = false; // Clear the flag before attempting connection
+                        // Only attempt reconnect if not already connected
+                        if (this.wsStatus !== 'Connected') {
+                             this.connectWebSocket();
+                        }
                     }, delay);
                 },
 
-                // Placeholder for sending messages
                 sendMessage() {
-                    console.log('Sending message (not implemented)');
-                    // if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                    //     this.ws.send(JSON.stringify({ command: 'userInput', data: '...' }));
-                    // }
+                    if (!this.userInput.trim()) return; // Don't send empty messages
+
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        const messagePayload = {
+                            command: 'interrupt', // Use the 'interrupt' command
+                            message: this.userInput,
+                            interrupt_now: this.interruptAider // Send checkbox state
+                        };
+                        console.log('Sending message:', messagePayload);
+                        this.ws.send(JSON.stringify(messagePayload));
+                        this.status.log.push(`Sent guidance (Interrupt: ${this.interruptAider}): ${this.userInput.substring(0, 50)}...`);
+                        this.userInput = ''; // Clear input after sending
+                        // Optionally uncheck interrupt after sending? User might want it checked for next message.
+                        // this.interruptAider = false;
+                    } else {
+                        console.error('WebSocket not connected. Cannot send message.');
+                        this.status.log.push('Error: WebSocket not connected. Cannot send guidance.');
+                    }
                 }
             }
         }

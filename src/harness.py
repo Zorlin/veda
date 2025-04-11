@@ -15,6 +15,7 @@ from .ledger import Ledger
 from .vesper_mind import VesperMind
 from .ui_server import UIServer # Import UI Server
 import re
+import threading # Import threading
 
 
 class Harness:
@@ -94,7 +95,14 @@ class Harness:
         
         # Initialize UI Server reference (will be set if started externally)
         self.ui_server: Optional[UIServer] = None
-        
+
+        # Interrupt handling state
+        self._interrupt_requested: bool = False # Flag indicating a user message is pending
+        self._force_interrupt: bool = False # Flag indicating the *current* Aider run should be stopped
+        self._interrupt_message: Optional[str] = None # The pending user message
+        self._aider_thread: Optional[threading.Thread] = None # Reference to the Aider thread
+        self._aider_interrupt_event: Optional[threading.Event] = None # Event to signal Aider thread
+
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
         logging.info(f"Working directory: {self.work_dir.resolve()}")
         logging.info(f"Storage type: {storage_type}")
@@ -118,6 +126,43 @@ class Harness:
             self.ui_server.send_update(update)
         # else:
             # logger.debug("UI update skipped (UI disabled or server not linked).")
+
+    def request_interrupt(self, message: str, interrupt_now: bool = False):
+        """
+        Called by the UI Server to queue user guidance or signal an immediate interrupt.
+
+        Args:
+            message: The guidance message from the user.
+            interrupt_now: If True, signal the current Aider process to stop.
+                           If False, queue the message for the next iteration.
+        """
+        log_level = logging.WARNING if interrupt_now else logging.INFO
+        log_prefix = "Interrupt & Stop Aider" if interrupt_now else "Queue Guidance"
+
+        # Log the request type and message
+        logging.log(log_level, f"{log_prefix} requested by user. Message: '{message[:100]}...'")
+
+        # Always store the message and set the requested flag
+        self._interrupt_message = message
+        self._interrupt_requested = True # Indicates a message is pending injection
+
+        # Only set force_interrupt and signal the thread if interrupt_now is True
+        if interrupt_now:
+            self._force_interrupt = True # Indicates the *current* Aider run should stop
+            if self._aider_thread and self._aider_thread.is_alive() and self._aider_interrupt_event:
+                logging.warning("Signaling running Aider thread to terminate due to user request.")
+                self._aider_interrupt_event.set() # Signal the event
+            else:
+                logging.info("Aider thread not running or already signaled.")
+        else:
+             # If just queuing, ensure force_interrupt is False for this specific request
+             # (though it might already be True from a previous request)
+             # We don't reset self._force_interrupt here, only set it if interrupt_now is true.
+             pass
+
+        # Send UI update acknowledging the request
+        status_msg = "Interrupting Aider & Queuing Guidance" if interrupt_now else "Guidance Queued for Next Iteration"
+        self._send_ui_update({"status": status_msg, "log_entry": f"{status_msg}: '{message[:50]}...'"})
 
 
     def _load_config(self) -> Dict[str, Any]:
@@ -322,9 +367,45 @@ class Harness:
         ):
             iteration = self.state["current_iteration"]
             iteration_num_display = iteration + 1
+            iteration_interrupted = False # Flag specific to this iteration
+
+            # --- Check for Pending User Guidance (Inject before starting Aider) ---
+            if self._interrupt_requested and self._interrupt_message is not None:
+                logging.warning(f"--- Injecting User Guidance before Iteration {iteration_num_display} ---")
+                self._send_ui_update({"status": "Injecting Guidance", "log_entry": f"Injecting user guidance into prompt for Iteration {iteration_num_display}."})
+
+                interrupt_msg = self._interrupt_message
+                guidance_prefix = "[User Guidance]" # Prefix to clearly mark user input in history
+
+                # Modify the current prompt based on the guidance
+                # Place guidance *before* the previous prompt content for priority
+                current_prompt = f"{guidance_prefix}\n{interrupt_msg}\n\n---\n(Continuing previous task with this guidance)\n---\n\n{current_prompt}"
+
+                logging.info(f"Updated prompt after injecting guidance:\n{current_prompt}")
+                self._send_ui_update({"status": "Prompt Updated", "log_entry": "Prompt updated with user guidance."})
+
+                # Add guidance message to history and ledger (associated with the *upcoming* iteration)
+                # Use a distinct role or prefix for clarity
+                guidance_history_entry = {"role": "user", "content": f"{guidance_prefix} {interrupt_msg}"}
+                self.state["prompt_history"].append(guidance_history_entry)
+                # Associate with the run, but not a specific completed iteration yet
+                self.ledger.add_message(self.current_run_id, None, "user", f"{guidance_prefix} {interrupt_msg}")
+
+                # Reset flags now that the message has been incorporated
+                self._interrupt_requested = False
+                self._interrupt_message = None
+                # Also reset force_interrupt here. The *reason* for the force (the user message)
+                # has been handled by injecting it. The Aider thread might still be stopping
+                # from a signal sent earlier, but we don't want the harness loop logic
+                # to think it's *still* under a forced condition unless another interrupt(force=True) comes in.
+                self._force_interrupt = False
+                logging.info("User guidance injected and flags reset.")
+
+
+            # --- Start Iteration ---
             logging.info(f"--- Starting Iteration {iteration_num_display} ---")
             self._send_ui_update({"status": f"Starting Iteration {iteration_num_display}", "iteration": iteration_num_display, "log_entry": f"Starting Iteration {iteration_num_display}"})
-            
+
             # Start iteration in ledger
             iteration_id = self.ledger.start_iteration(
                 self.current_run_id,
@@ -333,17 +414,84 @@ class Harness:
             )
 
             try:
-                # 1. Run Aider
-                logging.info("Running Aider...")
+                # --- 1. Run Aider (in a separate thread) ---
+                logging.info("Starting Aider thread...")
+                # Send message to clear previous Aider output in UI
+                self._send_ui_update({"type": "aider_output_clear"})
+                # Update status
                 self._send_ui_update({"status": "Running Aider", "log_entry": "Invoking Aider..."})
-                aider_diff, aider_error = run_aider(
-                    prompt=current_prompt,
-                    config=self.config,
-                    history=self.state["prompt_history"][:-1],
-                    work_dir=self.config["project_dir"]
-                )
 
-                if aider_error:
+                self._aider_interrupt_event = threading.Event() # Create event for this run
+                aider_result = {"diff": None, "error": None} # Dictionary to store result from thread
+
+                # Define the callback for streaming Aider output to the UI
+                def ui_output_callback(chunk: str):
+                    # Send output chunk with a specific type identifier
+                    self._send_ui_update({"type": "aider_output", "chunk": chunk})
+
+                def aider_thread_target():
+                    """Target function for the Aider thread."""
+                    try:
+                        diff, error = run_aider(
+                            prompt=current_prompt,
+                            config=self.config,
+                            history=self.state["prompt_history"][:-1], # History up to the current prompt
+                            work_dir=self.config["project_dir"],
+                            interrupt_event=self._aider_interrupt_event, # Pass the event
+                            output_callback=ui_output_callback # Pass the callback
+                        )
+                        aider_result["diff"] = diff
+                        aider_result["error"] = error
+                    except Exception as e:
+                        logging.exception("Exception in Aider thread")
+                        aider_result["error"] = f"Aider thread exception: {e}"
+
+                self._aider_thread = threading.Thread(target=aider_thread_target)
+                self._aider_thread.start()
+
+                # Monitor the thread and check for forced interrupts
+                while self._aider_thread.is_alive():
+                    # Check frequently for forced interrupt signal
+                    if self._force_interrupt and self._aider_interrupt_event and not self._aider_interrupt_event.is_set():
+                         logging.warning("Forced interrupt detected while Aider running. Signaling thread.")
+                         self._aider_interrupt_event.set() # Signal the thread to stop
+
+                    # Wait for a short period before checking again
+                    self._aider_thread.join(timeout=0.2) # Check every 200ms
+
+                # Aider thread finished or was interrupted
+                self._aider_thread = None # Clear thread reference
+                self._aider_interrupt_event = None # Clear event reference
+
+                aider_diff = aider_result["diff"]
+                aider_error = aider_result["error"]
+
+                # Check if Aider was forcefully interrupted (error is "INTERRUPTED")
+                if aider_error == "INTERRUPTED":
+                    logging.warning(f"Aider run for Iteration {iteration_num_display} was stopped by user interrupt signal.")
+                    self._send_ui_update({"status": "Aider Interrupted", "log_entry": "Aider process stopped by user interrupt signal."})
+                    iteration_interrupted = True # Mark iteration as interrupted
+
+                    # The user's guidance message (if any) was already stored in self._interrupt_message
+                    # and will be injected at the *start* of the next loop cycle by the logic above.
+                    # No need to modify the prompt or history here.
+
+                    # Complete the iteration record in the ledger, noting the interruption
+                    self.ledger.complete_iteration(
+                        self.current_run_id,
+                        iteration_id,
+                        aider_diff, # Diff might be partial or None
+                        "[No tests run due to interrupt]",
+                        False, # Assume tests didn't pass
+                        "INTERRUPTED", # Special verdict
+                        "Aider process stopped by user signal."
+                    )
+
+                    # Skip the rest of the loop (pytest, eval) for this iteration
+                    continue # Go to the next iteration immediately
+
+                # Handle other Aider errors
+                elif aider_error:
                     logging.error(f"Aider failed: {aider_error}")
                     self.state["last_error"] = f"Aider failed: {aider_error}"
                     self._send_ui_update({"status": "Error", "log_entry": f"Aider failed: {aider_error}"})
@@ -375,6 +523,7 @@ class Harness:
                     )
                     break
 
+                # --- Aider finished normally (not interrupted forcefully) ---
                 log_diff_summary = (aider_diff[:200] + '...' if len(aider_diff) > 200 else aider_diff) if aider_diff else '[No changes detected]'
                 logging.info(f"Aider finished. Diff summary:\n{log_diff_summary}")
                 self._send_ui_update({"status": "Aider Finished", "aider_diff": aider_diff, "log_entry": f"Aider finished. Diff:\n{log_diff_summary}"})
@@ -403,7 +552,7 @@ class Harness:
                         )
                         break # Exit the main loop
 
-                # 2. Run Pytest
+                # --- 2. Run Pytest ---
                 logging.info("Running pytest...")
                 self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."})
                 pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
@@ -536,6 +685,15 @@ class Harness:
                     break
 
             except Exception as e:
+                # Ensure thread cleanup even if other parts of the loop fail
+                if self._aider_thread and self._aider_thread.is_alive():
+                    logging.error("Cleaning up Aider thread due to main loop exception.")
+                    if self._aider_interrupt_event:
+                        self._aider_interrupt_event.set()
+                    self._aider_thread.join(timeout=1.0) # Brief wait
+                self._aider_thread = None
+                self._aider_interrupt_event = None
+
                 logging.exception(f"Critical error during iteration {iteration + 1}: {e}")
                 self.state["last_error"] = str(e)
                 self._send_ui_update({"status": "Critical Error", "log_entry": f"Critical error: {e}"})
@@ -557,9 +715,14 @@ class Harness:
                 break
 
             finally:
+                # Only increment iteration if it wasn't interrupted,
+                # otherwise, the 'continue' statement handles moving to the next loop cycle
+                # which effectively retries the *same* iteration number with the new prompt.
+                # Let's adjust this: Always increment, but the prompt carries the context.
                 self.state["current_iteration"] += 1
                 # State is saved implicitly via ledger updates and end_run below
-                time.sleep(1) # Keep delay if needed for external processes
+                # No need for sleep here unless debugging rate limiting issues
+                # time.sleep(1)
 
         # End of loop
         final_log_entry = ""

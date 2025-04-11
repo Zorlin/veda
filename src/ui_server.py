@@ -61,11 +61,29 @@ class UIServer:
         try:
             # Keep the WebSocket connection open and listen for messages
             async for message in websocket:
-                # Handle incoming messages if needed in the future
-                logger.info(f"Received message from {websocket.remote_address}: {message}")
-                # Example: Process commands from UI
-                # data = json.loads(message)
-                # if data.get("command") == "pause": ...
+                # Handle incoming messages
+                try:
+                    data = json.loads(message)
+                    command = data.get("command")
+
+                    # Handle interrupt command from UI
+                    if command == "interrupt" and hasattr(self, 'harness_instance') and self.harness_instance:
+                        user_message = data.get("message", "")
+                        interrupt_now = data.get("interrupt_now", False) # Get the interrupt flag from UI
+                        log_level = logging.WARNING if interrupt_now else logging.INFO
+                        logger.log(log_level, f"Received guidance from UI (Interrupt: {interrupt_now}): '{user_message[:100]}...'")
+                        # Call the harness method, passing the message and the interrupt flag
+                        self.harness_instance.request_interrupt(user_message, interrupt_now=interrupt_now)
+                    elif command: # Log other commands if received
+                         logger.info(f"Received command '{command}' from {websocket.remote_address}: {message}")
+                    else: # Log non-command messages
+                         logger.info(f"Received message from {websocket.remote_address}: {message}")
+
+                except json.JSONDecodeError:
+                    logger.error(f"Received invalid JSON from {websocket.remote_address}: {message}")
+                except Exception as e:
+                    logger.error(f"Error processing message from {websocket.remote_address}: {e}")
+
         except websockets.exceptions.ConnectionClosedError as e:
              logger.warning(f"Connection closed uncleanly with {websocket.remote_address}: {e}")
         except websockets.exceptions.ConnectionClosedOK:
@@ -80,16 +98,32 @@ class UIServer:
         if not self.clients:
             return
 
-        # Update latest status
-        self.latest_status.update(message)
-        # Keep log history manageable (e.g., last 100 entries)
-        if "log_entry" in message:
-            self.latest_status["log"].append(message["log_entry"])
-            self.latest_status["log"] = self.latest_status["log"][-100:] # Keep last 100 log entries
-            del self.latest_status["log_entry"] # Don't keep the temporary key
+        # Determine message content based on type
+        message_type = message.get("type")
+        if message_type in ["aider_output", "aider_output_clear"]:
+            # For specific types, send the message dictionary directly
+            message_to_send = message
+            log_preview = f"type={message_type}, chunk={message.get('chunk', '')[:50]}..." if message_type == "aider_output" else f"type={message_type}"
+            logger.debug(f"Broadcasting specific message type to {len(self.clients)} clients: {log_preview}")
+        else:
+            # For general status updates, update latest_status and send that
+            self.latest_status.update(message)
+            # Keep log history manageable
+            if "log_entry" in message:
+                self.latest_status["log"].append(message["log_entry"])
+                self.latest_status["log"] = self.latest_status["log"][-100:]
+                # Remove temporary key if it exists in the original message,
+                # but don't delete from latest_status as it's part of the log array now.
+                # del message["log_entry"] # No, don't delete from original message dict
+            # Ensure log_entry key doesn't persist at the top level of latest_status if it came in message
+            if "log_entry" in self.latest_status:
+                 del self.latest_status["log_entry"]
 
-        message_json = json.dumps(self.latest_status)
-        logger.debug(f"Broadcasting update to {len(self.clients)} clients: {message_json[:200]}...")
+            message_to_send = self.latest_status
+            log_preview = json.dumps(message_to_send)[:200]
+            logger.debug(f"Broadcasting status update to {len(self.clients)} clients: {log_preview}...")
+
+        message_json = json.dumps(message_to_send)
 
         # Use asyncio.gather to send messages concurrently
         results = await asyncio.gather(

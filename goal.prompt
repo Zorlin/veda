@@ -18,6 +18,9 @@ This harness must be able to work on any project with a `pytest`-compatible test
 
 You are to make as many useful tests as possible all the time and run them constantly
 
+# WebUI
+I should be able to interrupt Aider, as well as watch Aider's output in realtime, from the WebUI
+
 # Part II
 Implement as much of the below as you can, if you run into missing models let us know
 

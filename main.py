@@ -20,7 +20,7 @@ from src.ui_server import UIServer # Import UI Server
 DEFAULT_CONFIG = {
     "websocket_host": "localhost",
     "websocket_port": 8765,
-    "http_port": 8766, # Default HTTP port
+    "http_port": 8676, # Default HTTP port
     "enable_ui": False,
     # Add other essential defaults if needed for early access
 }
@@ -225,7 +225,8 @@ This harness must be able to work on any project with a `pytest`-compatible test
     ws_server_thread = None # Renamed from ui_server_thread
     http_server = None # Added for HTTP server handle (though not used for shutdown here)
     http_server_thread = None # Added for HTTP server thread
-    ui_dir_path = Path(__file__).parent.parent / "ui" # Determine UI dir path
+    # Determine UI dir path relative to main.py's location
+    ui_dir_path = Path(__file__).parent / "ui" 
 
     if ui_enabled:
         logger.info("UI is enabled. Starting WebSocket and HTTP servers...")

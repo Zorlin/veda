@@ -1,9 +1,13 @@
 import logging
+import logging
 import pexpect # Use pexpect for interactive control
 import re
 import shlex # Import shlex for quoting
+import signal
 import sys
-from typing import List, Dict, Tuple, Optional, Any
+import threading
+import time
+from typing import List, Dict, Tuple, Optional, Any, Callable # Add Callable
 
 # Import the LLM interaction function
 from .llm_interaction import get_llm_response
@@ -16,16 +20,12 @@ logger = logging.getLogger(__name__)
 # Adjust these based on the exact prompts Aider uses
 APPLY_PROMPT_PATTERN = r"Apply changes\? \[y/n/q/a/v\]"
 PROCEED_PROMPT_PATTERN = r"Proceed\? \[y/n\]"
-# Pattern for the "Add file to chat?" prompt
-ADD_FILE_PROMPT_PATTERN = r"Add file .* to the chat\? \(Y\)es/\(N\)o/\(A\)ll/\(S\)kip all/\(D\)on't ask again"
-# Pattern for the "Add file to chat?" prompt
-ADD_FILE_PROMPT_PATTERN = r"Add file .* to the chat\? \(Y\)es/\(N\)o/\(A\)ll/\(S\)kip all/\(D\)on't ask again"
-
+# Note: ADD_FILE_PROMPT_PATTERN removed as --yes should handle it.
+# If issues arise, it might need to be re-added.
 AIDER_PROMPT_PATTERNS = [
     APPLY_PROMPT_PATTERN,
     PROCEED_PROMPT_PATTERN,
-    ADD_FILE_PROMPT_PATTERN, # Handle add file prompt
-    # Add other patterns if Aider has more interactive prompts
+    # Add other patterns if Aider has more interactive prompts that --yes doesn't cover
 ]
 # Default timeout for waiting for Aider output
 AIDER_TIMEOUT = 600 # seconds (10 minutes)
@@ -39,20 +39,26 @@ def run_aider(
     config: Dict[str, Any],
     history: List[Dict[str, str]],
     work_dir: str,
+    interrupt_event: Optional[threading.Event] = None,
+    output_callback: Optional[Callable[[str], None]] = None, # Add output callback
 ) -> Tuple[Optional[str], Optional[str]]:
     """
-    Runs the Aider subprocess interactively using pexpect.
+    Runs the Aider subprocess interactively using pexpect, allowing for interruption
+    and streaming output via callback.
 
     Args:
         prompt: The user prompt for *this specific* Aider run.
         config: The harness configuration dictionary.
         history: The conversation history *prior* to this prompt (list of dicts).
         work_dir: The directory where Aider should run.
+        interrupt_event: A threading.Event to signal interruption. If set, the function
+                         will attempt to terminate Aider and return (None, "INTERRUPTED").
 
     Returns:
         A tuple containing:
         - The final extracted diff string (if successful).
         - An error message string (if an error occurred).
+          Returns "INTERRUPTED" if stopped by interrupt_event.
     """
     aider_command = config.get("aider_command", "aider")
     ollama_model = config.get("ollama_model") # Get the model from harness config
@@ -102,57 +108,79 @@ def run_aider(
             cwd=work_dir,
             encoding='utf-8',
             timeout=AIDER_TIMEOUT, # Overall timeout for the whole command
-            # logfile=None, # Set to sys.stdout to see Aider's full output during run
-            logfile=sys.stdout, # Uncomment for debugging Aider interaction
+            logfile=None, # Disable direct logging, use callback instead
+            # Use echo=False to prevent command input from being echoed back into the output buffer
+            echo=False, # Ensure echo is False
         )
 
-        # Interaction loop - primarily waiting for Add File or completion/error
-        while True:
-            try:
-                # Wait for Add File prompt, EOF, or Timeout.
-                # The --yes flag should handle other prompts like Apply changes?
-                logger.debug(f"Waiting for Aider output (expecting Add File prompt, EOF, or timeout={AIDER_TIMEOUT}s)...")
-                # Define patterns to expect
-                patterns_to_expect = [
-                    ADD_FILE_PROMPT_PATTERN,    # Index 0
-                    pexpect.EOF,                # Index 1
-                    pexpect.TIMEOUT             # Index 2
-                ]
-                index = child.expect(patterns_to_expect, timeout=AIDER_TIMEOUT)
+        # Interaction loop - wait for output, completion, error, or interrupt
+        # Use a shorter timeout in the loop to check the interrupt event frequently
+        # and stream output promptly.
+        loop_timeout = 0.5 # seconds (Reduced for responsiveness)
 
-                # Accumulate output that came *before* the matched pattern
-                output_before = child.before
-                if output_before:
-                    full_output += output_before
-                    # Log the chunk received before the match
-                    # logger.debug(f"Output chunk before match:\n>>>\n{output_before}\n<<<")
+        while True:
+            # --- Check for Interrupt Signal ---
+            if interrupt_event and interrupt_event.is_set():
+                logger.warning("Interrupt signal received. Terminating Aider process.")
+                full_output += "\n[Harness: Aider process interrupted by user signal]\n"
+                try:
+                    # Try sending SIGINT first (like Ctrl+C)
+                    child.sendintr()
+                    time.sleep(0.5) # Give it a moment to react
+                    if child.isalive():
+                        logger.warning("Aider did not exit after SIGINT, sending SIGTERM.")
+                        child.terminate(force=False) # Try graceful termination
+                        time.sleep(0.5)
+                    if child.isalive():
+                         logger.warning("Aider still alive after SIGTERM, forcing kill (SIGKILL).")
+                         child.terminate(force=True) # Force kill
+                except Exception as term_exc:
+                     logger.error(f"Error while trying to terminate Aider: {term_exc}")
+                finally:
+                     if not child.closed:
+                         child.close()
+                return None, "INTERRUPTED" # Special return value
+
+            try:
+                # Wait for EOF or Timeout. We handle output streaming directly.
+                # logger.debug(f"Waiting for Aider event (timeout={loop_timeout}s)...")
+                patterns_to_expect = [
+                    pexpect.EOF,                # Index 0: End of file (process finished)
+                    pexpect.TIMEOUT             # Index 1: Timeout (means process is likely still running)
+                ]
+                # We don't explicitly expect known prompts anymore, as --yes handles them.
+                # Output is captured via child.before on TIMEOUT or EOF.
+
+                index = child.expect(patterns_to_expect, timeout=loop_timeout)
+
+                # Capture output that came *before* the matched pattern (EOF or TIMEOUT)
+                output_chunk = child.before
+                if output_chunk:
+                    # logger.debug(f"Output chunk received:\n>>>\n{output_chunk}\n<<<")
+                    full_output += output_chunk
+                    if output_callback:
+                        try:
+                            output_callback(output_chunk)
+                        except Exception as cb_err:
+                            # Log callback error but don't crash the interaction
+                            logger.error(f"Error in output_callback: {cb_err}")
 
                 # Process based on which pattern matched
-                if index == 0: # Matched ADD_FILE_PROMPT_PATTERN
-                    matched_prompt = child.after # The matched prompt text
-                    full_output += matched_prompt
-                    logger.info(f"Detected 'Add file' prompt: '{matched_prompt.strip()}'. Automatically responding 'n'.")
-                    child.sendline('n') # Send 'n' automatically
-                    # Continue waiting for next output
-                elif index == 1: # EOF
+                if index == 0: # EOF
                     logger.info("Aider process finished (EOF detected).")
-                    # Output after the last match (if any) is in child.before upon EOF
-                    output_before_eof = child.before
-                    if output_before_eof:
-                        full_output += output_before_eof
-                        # logger.debug(f"Final output chunk before EOF:\n>>>\n{output_before_eof}\n<<<")
+                    # Any final output before EOF was captured in output_chunk above
                     child.close() # Close explicitly now that EOF is reached
                     break # Exit interaction loop, process finished normally
-                elif index == 2: # Timeout
-                    logger.error(f"Timeout waiting for Aider output after {AIDER_TIMEOUT} seconds.")
-                    # Output before timeout is already accumulated in full_output
-                    child.close(force=True) # Force close on timeout
-                    return None, f"Timeout waiting for Aider after {AIDER_TIMEOUT}s"
+                elif index == 1: # Timeout
+                    # This is the normal case when Aider is running/thinking.
+                    # Output up to this point was captured in output_chunk.
+                    # Loop continues to check interrupt and wait for more output/EOF.
+                    pass # Continue the loop
 
             except pexpect.exceptions.ExceptionPexpect as e:
-                 # Catch specific pexpect errors during the expect() call
+                 # Catch specific pexpect errors during the expect() call (other than Timeout/EOF)
                  logger.error(f"Pexpect error during Aider interaction: {e}")
-                 logger.debug(f"Output before error:\n{full_output}")
+                 logger.debug(f"Accumulated output before error:\n{full_output}")
                  if child.isalive():
                      child.close(force=True)
                  return None, f"Pexpect error: {e}"
