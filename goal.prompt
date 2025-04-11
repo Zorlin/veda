@@ -1,25 +1,10 @@
 (You can rewrite this prompt for clarity if you're really sure, too!)
 
-Your task is to build a Python-based test harness that:
-
-1. Launches an Aider subprocess to apply a code or test change.
-2. Runs pytest against the updated project.
-3. Evaluates the outcome using a local LLM (via Ollama) that decides if the result was:
-   - Successful
-   - Retry-worthy with suggestions
-   - A structural failure
-4. Logs diffs, outcomes, and retry metadata in a stateful SQLite or JSON ledger.
-5. Supports a prompt history chain so Aider can reason over its own history.
-6. Continues looping until a 'converged' verdict is reached or max attempts.
-7. Optionally allows another Aider process to act as a code reviewer.
-
-You are allowed to modify files, install packages, and manage subprocesses.
-This harness must be able to work on any project with a `pytest`-compatible test suite.
-
-You are to make as many useful tests as possible all the time and run them constantly
-
 # WebUI
 I should be able to interrupt Aider, as well as watch Aider's output in realtime, from the WebUI
+
+# Models
+Replace any example open source models with the below ones
 
 # Part II
 Implement as much of the below as you can, if you run into missing models let us know

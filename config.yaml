@@ -40,5 +40,5 @@ websocket_port: 8765
 http_port: 8766 # Port for serving index.html
 
 # Convergence Settings
-max_iterations: 10
+max_iterations: 100
 stuck_cycle_threshold: 2

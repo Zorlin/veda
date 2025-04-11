@@ -4,7 +4,7 @@ pytest
 PyYAML
 ollama # Official Ollama client library
 pexpect # For interactive subprocess control
-sqlite3 # For SQLite database support
+pysqlite3 # For SQLite database support
 requests # For API interactions
 rich # For better console output
 tqdm # For progress bars
