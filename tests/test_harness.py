@@ -221,8 +221,7 @@ def test_initialize_state_fresh_start(temp_work_dir, default_config): # Add defa
     assert harness.state["current_iteration"] == 0
     assert harness.state["prompt_history"] == []
     assert not harness.state["converged"]
-    # Optionally, assert that the state file *was* created by the init
-    assert resolved_state_file.exists()
+    # State file is only created on _save_state, not during init, so we don't assert its existence here.
 
 def test_initialize_state_reset_flag(temp_work_dir, sample_state_path):
     """Test initializing state with reset_state=True ignores existing file."""
