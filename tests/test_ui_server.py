@@ -10,10 +10,6 @@ from src.ui_server import UIServer
 @pytest.fixture
 async def test_server(anyio_backend):
     """Fixture to start and stop the UIServer within the test's anyio event loop."""
-    # Skip trio tests if they're causing issues with websockets
-    if anyio_backend == "trio":
-        pytest.skip("Skipping trio tests - websockets library has compatibility issues with trio")
-        
     # Use a different port for testing
     server = UIServer(host="127.0.0.1", port=8766) 
     
@@ -38,37 +34,57 @@ async def test_server(anyio_backend):
         tg.cancel_scope.cancel()
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
-async def test_ui_server_connection(test_server):
+async def test_ui_server_connection(test_server, anyio_backend):
     """Test that a client can connect to the server."""
     uri = f"ws://{test_server.host}:{test_server.port}"
-    async with websockets.connect(uri) as websocket:
-        # Connection success is verified by reaching this point without error.
-        # Check if initial status is received
-        initial_status_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
-        initial_status = json.loads(initial_status_str)
-        assert "status" in initial_status
-        assert initial_status["status"] == "Initializing"
+    
+    try:
+        async with websockets.connect(uri) as websocket:
+            # Connection success is verified by reaching this point without error.
+            # Check if initial status is received
+            if anyio_backend == "asyncio":
+                initial_status_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
+            else:  # trio
+                initial_status_str = await anyio.fail_after(1.0, websocket.recv)
+                
+            initial_status = json.loads(initial_status_str)
+            assert "status" in initial_status
+            assert initial_status["status"] == "Initializing"
+    except RuntimeError as e:
+        if anyio_backend == "trio" and "no running event loop" in str(e):
+            pytest.skip(f"Skipping due to websockets compatibility issue with trio: {e}")
+        else:
+            raise
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
-async def test_ui_server_broadcast(test_server):
+async def test_ui_server_broadcast(test_server, anyio_backend):
     """Test that the server broadcasts messages to connected clients."""
     uri = f"ws://{test_server.host}:{test_server.port}"
     
-    # Connect two clients
-    async with websockets.connect(uri) as ws1, websockets.connect(uri) as ws2:
-        # Receive initial status for both
-        await asyncio.wait_for(ws1.recv(), timeout=1.0)
-        await asyncio.wait_for(ws2.recv(), timeout=1.0)
-        
-        # Broadcast an update - await directly since we're in the same loop
-        update_data = {"status": "Testing Broadcast", "iteration": 5, "log_entry": "Test log"}
-        await test_server.broadcast(update_data)
-        # Increase sleep slightly to allow broadcast processing time
-        await anyio.sleep(0.1) 
+    try:
+        # Connect two clients
+        async with websockets.connect(uri) as ws1, websockets.connect(uri) as ws2:
+            # Receive initial status for both
+            if anyio_backend == "asyncio":
+                await asyncio.wait_for(ws1.recv(), timeout=1.0)
+                await asyncio.wait_for(ws2.recv(), timeout=1.0)
+            else:  # trio
+                await anyio.fail_after(1.0, ws1.recv)
+                await anyio.fail_after(1.0, ws2.recv)
+            
+            # Broadcast an update - await directly since we're in the same loop
+            update_data = {"status": "Testing Broadcast", "iteration": 5, "log_entry": "Test log"}
+            await test_server.broadcast(update_data)
+            # Increase sleep slightly to allow broadcast processing time
+            await anyio.sleep(0.1) 
 
-        # Check if both clients received the update
-        update1_str = await asyncio.wait_for(ws1.recv(), timeout=1.0)
-        update2_str = await asyncio.wait_for(ws2.recv(), timeout=1.0)
+            # Check if both clients received the update
+            if anyio_backend == "asyncio":
+                update1_str = await asyncio.wait_for(ws1.recv(), timeout=1.0)
+                update2_str = await asyncio.wait_for(ws2.recv(), timeout=1.0)
+            else:  # trio
+                update1_str = await anyio.fail_after(1.0, ws1.recv)
+                update2_str = await anyio.fail_after(1.0, ws2.recv)
         
         update1 = json.loads(update1_str)
         update2 = json.loads(update2_str)
@@ -82,7 +98,7 @@ async def test_ui_server_broadcast(test_server):
         assert "Test log" in update2["log"]
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
-async def test_ui_server_latest_status_on_connect(test_server):
+async def test_ui_server_latest_status_on_connect(test_server, anyio_backend):
     """Test that a new client receives the *latest* status upon connection."""
     uri = f"ws://{test_server.host}:{test_server.port}"
 
@@ -95,11 +111,16 @@ async def test_ui_server_latest_status_on_connect(test_server):
     }
     # No need to call broadcast or sleep if we set the state directly for the test
 
-    # Connect a new client
-    async with websockets.connect(uri) as websocket:
-        # Check if the received status matches the latest update
-        latest_status_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
-        latest_status = json.loads(latest_status_str)
+    try:
+        # Connect a new client
+        async with websockets.connect(uri) as websocket:
+            # Check if the received status matches the latest update
+            if anyio_backend == "asyncio":
+                latest_status_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
+            else:  # trio
+                latest_status_str = await anyio.fail_after(1.0, websocket.recv)
+                
+            latest_status = json.loads(latest_status_str)
         
         assert latest_status["status"] == "Pre-Connection Update"
         assert latest_status["run_id"] == 123
