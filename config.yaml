@@ -40,8 +40,8 @@ storage_type: "sqlite"  # "sqlite" or "json"
 # UI Configuration
 enable_ui: true # Defaulting to true now as we're setting it up
 websocket_host: "localhost"
-websocket_port: 8765
-http_port: 8766 # Port for serving index.html
+websocket_port: 9940
+http_port: 9950 # Port for serving index.html
 
 # Convergence Settings
 max_iterations: 100
