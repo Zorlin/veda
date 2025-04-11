@@ -14,11 +14,15 @@ logger = logging.getLogger(__name__)
 # --- Constants for Interaction ---
 # Regex patterns to detect common Aider prompts requiring a response
 # Adjust these based on the exact prompts Aider uses
-APPLY_PROMPT_PATTERN = r"Apply changes\? \[y/n/q/a/v\]" # Example, adjust as needed
-PROCEED_PROMPT_PATTERN = r"Proceed\? \[y/n\]" # Example
+APPLY_PROMPT_PATTERN = r"Apply changes\? \[y/n/q/a/v\]"
+PROCEED_PROMPT_PATTERN = r"Proceed\? \[y/n\]"
+# Pattern for the "Add file to chat?" prompt
+ADD_FILE_PROMPT_PATTERN = r"Add file .* to the chat\? \(Y\)es/\(N\)o/\(A\)ll/\(S\)kip all/\(D\)on't ask again"
+
 AIDER_PROMPT_PATTERNS = [
     APPLY_PROMPT_PATTERN,
     PROCEED_PROMPT_PATTERN,
+    ADD_FILE_PROMPT_PATTERN, # Handle add file prompt
     # Add other patterns if Aider has more interactive prompts
 ]
 # Default timeout for waiting for Aider output
@@ -64,6 +68,10 @@ Response:"""
         allowed_chars = set()
         if allowed_chars_match:
             allowed_chars = set(c for c in allowed_chars_match.group(1) if c != '/')
+        # Handle specific allowed characters for the Add File prompt
+        elif prompt_pattern == ADD_FILE_PROMPT_PATTERN:
+            allowed_chars = {'y', 'n', 'a', 's', 'd'}
+            logger.debug(f"Using predefined allowed chars for Add File prompt: {allowed_chars}")
 
         logger.debug(f"Raw LLM response for Aider prompt: '{response}'")
         # Basic validation: take the first character, lowercased
@@ -72,8 +80,8 @@ Response:"""
         if allowed_chars and llm_choice not in allowed_chars:
             logger.warning(f"LLM proposed invalid response '{llm_choice}' (from raw: '{response}'). Allowed: {allowed_chars}. Defaulting to 'n'.")
             return 'n' # Default to 'no' if LLM response is invalid
-        elif not allowed_chars and llm_choice not in ('y', 'n', 'q', 'a', 'v'): # Fallback validation if pattern parsing failed
-             logger.warning(f"LLM proposed potentially invalid response '{llm_choice}' (from raw: '{response}'). Could not determine allowed chars. Defaulting to 'n'.")
+        elif not allowed_chars: # Fallback validation if pattern parsing failed AND it's not a known pattern with hardcoded chars
+             logger.warning(f"LLM proposed potentially invalid response '{llm_choice}' (from raw: '{response}'). Could not determine allowed chars for pattern '{prompt_pattern}'. Defaulting to 'n'.")
              return 'n'
 
         logger.info(f"LLM decided valid response to '{aider_question}' is: '{llm_choice}'")
