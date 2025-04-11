@@ -225,8 +225,7 @@ def run_aider(
             else:
                  # This case should be less likely now after explicit close()
                  error_message = f"Aider command failed with unknown status (exit={child.exitstatus}, signal={child.signalstatus}).\nOutput:\n{full_output}"
-            else:
-                 error_message = f"Aider command failed with exit code {child.exitstatus}.\nOutput:\n{full_output}"
+            # Removed redundant else block here
             logger.error(error_message)
             return None, error_message
 
