@@ -151,7 +151,7 @@ class Harness:
            except Exception as e:
                 # Log other errors during UI update without crashing the harness
                 logging.error(f"Error sending UI update via stream: {e}", exc_info=True)
-        # else:
+       # else:
              # logging.debug("UI update skipped (UI disabled or stream not available).")
 
     def request_interrupt(self, message: str, interrupt_now: bool = False):
