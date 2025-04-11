@@ -217,7 +217,7 @@ class UIServer:
 
         async def serve_websocket(task_status=anyio.TASK_STATUS_IGNORED):
             """Inner function to start the websocket server."""
-            nonlocal websocket_server # Allow modification of outer scope variable
+            nonlocal websocket_server, current_port # Allow modification of outer scope variables
             srv = None
             for attempt in range(max_attempts):
                 try:
