@@ -31,7 +31,7 @@ async def test_ui_server_connection(test_server):
     """Test that a client can connect to the server."""
     uri = f"ws://{test_server.host}:{test_server.port}"
     async with websockets.connect(uri) as websocket:
-        # Successful connection is implicitly checked by the context manager not raising an error.
+        assert websocket.open # Check the connection is open using the 'open' attribute
         # Check if initial status is received
         initial_status_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
         initial_status = json.loads(initial_status_str)
@@ -52,8 +52,8 @@ async def test_ui_server_broadcast(test_server):
         # Broadcast an update - await directly since we're in the same loop
         update_data = {"status": "Testing Broadcast", "iteration": 5, "log_entry": "Test log"}
         await test_server.broadcast(update_data)
-        # Add a small sleep to allow broadcast processing if needed, though often not required
-        await anyio.sleep(0.05) 
+        # Increase sleep slightly to allow broadcast processing time
+        await anyio.sleep(0.1) 
 
         # Check if both clients received the update
         update1_str = await asyncio.wait_for(ws1.recv(), timeout=1.0)
@@ -78,7 +78,8 @@ async def test_ui_server_latest_status_on_connect(test_server):
     # Send an update before the client connects - await directly
     update_data = {"status": "Pre-Connection Update", "run_id": 123, "log_entry": "Status before connect"}
     await test_server.broadcast(update_data)
-    await anyio.sleep(0.05) # Allow broadcast to process
+    # Increase sleep slightly to allow broadcast processing time
+    await anyio.sleep(0.1) 
 
     # Connect a new client
     async with websockets.connect(uri) as websocket:
