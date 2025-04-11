@@ -40,8 +40,8 @@ async def test_server(anyio_backend): # Add anyio_backend fixture back
         tg.cancel_scope.cancel()
         server.stop()
         await send_stream.aclose()
-        # Add a small delay to allow the OS to release the socket
-        await anyio.sleep(0.1) 
+        # Increase delay to allow the OS more time to release the socket
+        await anyio.sleep(0.5) 
 
 # Removed pytestmark skip logic
 
