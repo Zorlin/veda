@@ -540,36 +540,19 @@ class Harness:
                 aider_result = {"diff": None, "error": None} # Dictionary to store result from thread
 
                 # Define the callback for streaming Aider output to the UI
-                ansi_escape_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                # Removed ANSI stripping pattern
                 def ui_output_callback(chunk: str):
                     """
-                    Callback function to process and send Aider output chunks to the UI.
-                    Strips ANSI codes and prevents sending duplicate consecutive chunks.
+                    Callback function to send raw Aider output chunks to the UI.
+                    Frontend (ansi_up) will handle ANSI conversion.
+                    Frontend (processOutputBuffer) will handle \r, \b, and duplicates.
                     """
-                    # Strip ANSI escape codes
-                    stripped_chunk = ansi_escape_pattern.sub('', chunk)
-
-                    # Basic handling of backspaces and carriage returns for cleaner output
-                    # This is a simple approach; full terminal emulation is complex.
-                    # Replace backspace + char with nothing, handle standalone backspace/CR
-                    processed_chunk = re.sub(r'.\b', '', stripped_chunk) # Remove char before backspace
-                    processed_chunk = processed_chunk.replace('\b', '') # Remove remaining backspaces
-                    # Consider replacing \r with \n or removing based on UI needs
-                    # For now, let's keep \r if it might be used for progress bars,
-                    # but be aware it can cause overwriting issues in simple text logs.
-                    # processed_chunk = processed_chunk.replace('\r', '\n')
-
-                    # Only send if the processed chunk is non-empty and different from the last one
-                    if processed_chunk and processed_chunk != self._last_aider_output_chunk:
+                    # Send the raw chunk directly if it's not empty
+                    if chunk:
                         # Send output chunk with a specific type identifier
-                        self._send_ui_update({"type": "aider_output", "chunk": processed_chunk})
-                        self._last_aider_output_chunk = processed_chunk # Update last sent chunk tracker
-                    elif not processed_chunk:
-                        # Log if the chunk becomes empty after processing, but don't send
-                        logging.debug("Skipping empty chunk after ANSI/control code processing.")
-                    else:
-                        # Log skipped duplicate chunk for debugging
-                        logging.debug(f"Skipping duplicate Aider output chunk: {processed_chunk[:50]}...")
+                        self._send_ui_update({"type": "aider_output", "chunk": chunk})
+                    # else: # Optional: log skipped empty chunks if needed
+                        # logging.debug("Skipping empty chunk from Aider.")
 
 
                 def aider_thread_target():
@@ -605,7 +588,7 @@ class Harness:
                 # Aider thread finished or was interrupted
                 self._aider_thread = None # Clear thread reference
                 self._aider_interrupt_event = None # Clear event reference
-                self._last_aider_output_chunk = None # Reset last chunk tracker after Aider finishes
+                # Removed _last_aider_output_chunk reset as it's no longer used here
 
                 aider_diff = aider_result["diff"]
                 aider_error = aider_result["error"]
