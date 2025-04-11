@@ -126,24 +126,30 @@ def run_aider(
         while True:
             # --- Check for Interrupt Signal ---
             if interrupt_event and interrupt_event.is_set():
-                logger.warning("Interrupt signal received. Terminating Aider process.")
+                logger.warning("Interrupt signal received. Attempting to terminate Aider process forcefully.")
                 full_output += "\n[Harness: Aider process interrupted by user signal]\n"
+                # Send callback immediately to indicate interruption attempt
+                if output_callback:
+                    try:
+                        output_callback("\n[Harness: Interrupt signal received. Terminating Aider...]\n")
+                    except Exception as cb_err:
+                        logger.error(f"Error in output_callback during interrupt: {cb_err}")
+
                 try:
-                    # Try sending SIGINT first (like Ctrl+C)
-                    child.sendintr()
-                    time.sleep(0.5) # Give it a moment to react
                     if child.isalive():
-                        logger.warning("Aider did not exit after SIGINT, sending SIGTERM.")
-                        child.terminate(force=False) # Try graceful termination
-                        time.sleep(0.5)
-                    if child.isalive():
-                         logger.warning("Aider still alive after SIGTERM, forcing kill (SIGKILL).")
-                         child.terminate(force=True) # Force kill
+                        # Go straight to SIGKILL for more reliable termination in this context
+                        logger.warning("Sending SIGKILL to Aider process.")
+                        child.terminate(force=True)
+                        time.sleep(0.1) # Short pause after kill
+                    else:
+                        logger.info("Aider process already terminated before explicit kill.")
                 except Exception as term_exc:
-                     logger.error(f"Error while trying to terminate Aider: {term_exc}")
+                    logger.error(f"Error while trying to terminate Aider: {term_exc}")
                 finally:
-                     if not child.closed:
-                         child.close()
+                    # Ensure the child is closed, regardless of termination success
+                    if not child.closed:
+                        logger.info("Closing pexpect child process after interrupt.")
+                        child.close() # Close the pexpect object itself
                 return None, "INTERRUPTED" # Special return value
 
             try:
@@ -161,14 +167,16 @@ def run_aider(
                 # Capture output that came *before* the matched pattern (EOF or TIMEOUT)
                 output_chunk = child.before
                 if output_chunk:
-                    # logger.debug(f"Output chunk received:\n>>>\n{output_chunk}\n<<<")
+                    # logger.debug(f"Raw output chunk received (len={len(output_chunk)}):\n>>>\n{output_chunk}\n<<<")
                     full_output += output_chunk
                     if output_callback:
                         try:
+                            # Log before sending for debugging potential UI duplication
+                            logger.debug(f"Sending chunk to UI callback (len={len(output_chunk)}): {output_chunk[:100].replace(chr(27), '[ESC]')}{'...' if len(output_chunk)>100 else ''}")
                             # Send the chunk to the callback for real-time UI updates
                             output_callback(output_chunk)
-                            # Small sleep to allow UI to process the chunk
-                            time.sleep(0.01)
+                            # Small sleep to allow UI to process the chunk - maybe remove if causing issues?
+                            # time.sleep(0.01)
                         except Exception as cb_err:
                             # Log callback error but don't crash the interaction
                             logger.error(f"Error in output_callback: {cb_err}")
