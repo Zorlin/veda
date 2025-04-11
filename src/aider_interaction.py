@@ -85,8 +85,8 @@ def run_aider(
     command_args.append(f"--test-cmd {quoted_test_command}")
     logger.info(f"Adding --test-cmd {quoted_test_command} flag to Aider command.")
 
-    # Add the message argument
-    command_args.append(f"--message {quoted_prompt}")
+    # Prompt will be sent via stdin, not as an argument
+    # command_args.append(f"--message {quoted_prompt}") # Removed
 
     # Add other necessary aider flags from config if needed (ensure they don't conflict)
     # Example: command_args.extend(config.get("extra_aider_args", []))
@@ -96,9 +96,9 @@ def run_aider(
     # Construct the full command string
     full_command = ' '.join(command_args)
 
-    logger.info(f"Spawning Aider command: {full_command} in {work_dir}")
-    # Log the prompt separately for clarity, avoiding potential quoting issues in logs
-    logger.debug(f"Aider initial prompt content:\n{prompt}")
+    logger.info(f"Spawning Aider command (prompt via stdin): {' '.join(command_args)} in {work_dir}")
+    # Log the prompt separately for clarity
+    logger.debug(f"Aider initial prompt content (to be sent via stdin):\n{prompt}")
     full_output = "" # Accumulate all output from the session
 
     try:
@@ -112,6 +112,13 @@ def run_aider(
             # Use echo=False to prevent command input from being echoed back into the output buffer
             echo=False, # Ensure echo is False
         )
+
+        # --- Send the prompt via stdin ---
+        # Aider expects the prompt on stdin after startup
+        logger.debug("Sending prompt to Aider via stdin...")
+        child.sendline(prompt)
+        # No need to explicitly wait for a prompt *from* Aider here,
+        # as it should start processing the stdin prompt immediately.
 
         # Interaction loop - wait for output, completion, error, or interrupt
         # Use a shorter timeout in the loop to check the interrupt event frequently
