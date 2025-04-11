@@ -391,6 +391,15 @@
                             if (currentOutput.length > 0) {
                                 currentOutput = currentOutput.slice(0, -1);
                             }
+                        } else if (char === '\c') { // Handle Aider's cancel code
+                            // Clear the current line (text after the last newline)
+                            const lastNewline = currentOutput.lastIndexOf('\n');
+                            if (lastNewline !== -1) {
+                                currentOutput = currentOutput.substring(0, lastNewline + 1);
+                            } else {
+                                currentOutput = ''; // If no newline, clear everything
+                            }
+                            // Optionally add a marker? e.g., currentOutput += '[Cancelled]\n';
                         } else {
                             // Append normal characters
                             currentOutput += char;
