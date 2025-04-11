@@ -87,6 +87,12 @@ class UIServer:
                         logger.log(log_level, f"Received guidance from UI (Interrupt: {interrupt_now}): '{user_message[:100]}...'")
                         # Call the harness method, passing the message and the interrupt flag
                         self.harness_instance.request_interrupt(user_message, interrupt_now=interrupt_now)
+                        # Send acknowledgment back to UI
+                        await websocket.send(json.dumps({
+                            "type": "interrupt_ack",
+                            "message": f"Interrupt {'requested' if interrupt_now else 'scheduled'} successfully",
+                            "interrupt_now": interrupt_now
+                        }))
                     elif command: # Log other commands if received
                          logger.info(f"Received command '{command}' from {websocket.remote_address}: {message}")
                     else: # Log non-command messages

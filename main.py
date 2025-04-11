@@ -224,6 +224,10 @@ This harness must be able to work on any project with a `pytest`-compatible test
     # Create the communication stream for UI updates *before* initializing UIServer
     # Use infinite buffer to prevent blocking harness if UI server lags/crashes
     send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size=float('inf'))
+    
+    # Create a directory for the UI if it doesn't exist
+    ui_dir_path = Path(__file__).parent / "ui"
+    ui_dir_path.mkdir(exist_ok=True)
 
     # --- Start UI Servers (if enabled) ---
     ui_server = None

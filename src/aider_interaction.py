@@ -162,6 +162,8 @@ def run_aider(
                         try:
                             # Send the chunk to the callback for real-time UI updates
                             output_callback(output_chunk)
+                            # Small sleep to allow UI to process the chunk
+                            time.sleep(0.01)
                         except Exception as cb_err:
                             # Log callback error but don't crash the interaction
                             logger.error(f"Error in output_callback: {cb_err}")
