@@ -638,7 +638,7 @@ def test_harness_aider_output_callback_processing(
     # Processed chunk4: "Chunk with backspac.\n"
     assert sent_updates[3]["chunk"] == "Chunk with backspac.\n"
     # Check the last sent chunk tracker state (internal detail, but useful)
-    assert last_sent_chunk_test == "Chunk with backspac.\n"
+    assert last_sent_chunk_test == "OK" # The last successfully processed and sent chunk was "OK"
 
 
 # Removed tests:
