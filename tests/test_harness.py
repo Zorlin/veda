@@ -220,10 +220,10 @@ def test_run_code_review_generates_review(mock_get_llm, temp_work_dir):
     initial_goal = "Implement feature X"
     aider_diff = "```diff\n+ new code\n```"
     pytest_output = "All tests passed."
-
+ 
     # Call the method
-    review_result = harness._run_code_review(initial_goal, aider_diff, pytest_output)
-
+    review_result = harness.run_code_review(initial_goal, aider_diff, pytest_output)
+ 
     # Assert LLM was called once
     mock_get_llm.assert_called_once()
     call_args, call_kwargs = mock_get_llm.call_args
