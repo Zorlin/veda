@@ -10,7 +10,8 @@ ollama_options:
   top_k: 40
 
 # Aider Configuration
-aider_command: "aider"
+# Include the desired model directly in the command string
+aider_command: "aider --model gemma3:12b" 
 aider_test_command: "pytest -v" # Command Aider uses with --auto-test
 project_dir: "."
 
