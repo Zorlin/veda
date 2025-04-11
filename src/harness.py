@@ -18,6 +18,7 @@ from .vesper_mind import VesperMind
 # No longer need direct UIServer import here for updates
 import re # Import regex for ANSI stripping
 import threading # Import threading
+import threading # Import threading
 
 
 class Harness:
