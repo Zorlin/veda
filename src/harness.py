@@ -228,10 +228,10 @@ class Harness:
             # Proceed with loading from the specified config file
             logging.info(f"Loading configuration from {self.config_file}...")
             config_path = Path(self.config_file)
-             try:
-                 if config_path.is_file():
-                     with open(config_path, 'r') as f:
-                         user_config = yaml.safe_load(f)
+            try:
+                if config_path.is_file():
+                    with open(config_path, 'r') as f:
+                        user_config = yaml.safe_load(f)
                      # Check user_config *after* the 'with open' block closes the file
                      if user_config: # Ensure file is not empty and is a dict
                          if isinstance(user_config, dict):
