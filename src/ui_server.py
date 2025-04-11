@@ -3,7 +3,9 @@ import json
 import logging
 import websockets
 from websockets.server import WebSocketServerProtocol
-from typing import Set, Dict, Any, Optional
+from typing import Set, Dict, Any, Optional, Tuple, List, Union
+from http import HTTPStatus
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +19,41 @@ class UIServer:
         self.server_task: Optional[asyncio.Task] = None
         self.stop_event = asyncio.Event()
         self.latest_status: Dict[str, Any] = {"status": "Initializing", "run_id": None, "iteration": 0, "log": []}
-        logger.info(f"UI Server initialized (host={host}, port={port})")
+        # Define the path to the UI directory relative to this file's location or project root
+        # Assuming the script runs from the project root or src/ui_server.py location allows finding ui/
+        self.ui_dir = Path(__file__).parent.parent / "ui"
+        if not self.ui_dir.is_dir():
+             # Fallback if running from a different structure (e.g., tests)
+             self.ui_dir = Path.cwd() / "ui"
+        logger.info(f"UI Server initialized (host={host}, port={port}), serving UI from {self.ui_dir}")
+
+
+    async def _process_request(
+        self, path: str, request_headers: websockets.Headers
+    ) -> Optional[Tuple[HTTPStatus, List[Tuple[str, str]], bytes]]:
+        """Handle HTTP requests before WebSocket handshake."""
+        if path == "/" or path == "/index.html":
+            html_file = self.ui_dir / "index.html"
+            if html_file.is_file():
+                try:
+                    content = html_file.read_bytes()
+                    headers = [("Content-Type", "text/html")]
+                    return HTTPStatus.OK, headers, content
+                except Exception as e:
+                    logger.error(f"Error reading {html_file}: {e}")
+                    body = b"Internal Server Error"
+                    headers = [("Content-Type", "text/plain")]
+                    return HTTPStatus.INTERNAL_SERVER_ERROR, headers, body
+            else:
+                logger.warning(f"UI file not found: {html_file}")
+                body = b"Not Found"
+                headers = [("Content-Type", "text/plain")]
+                return HTTPStatus.NOT_FOUND, headers, body
+        # Let websockets handle other paths (potential WebSocket connections)
+        return None
 
     async def _register(self, websocket: WebSocketServerProtocol):
-        """Register a new client connection."""
+        """Register a new client WebSocket connection."""
         self.clients.add(websocket)
         logger.info(f"Client connected: {websocket.remote_address}")
         # Send the latest status immediately upon connection
@@ -38,11 +71,11 @@ class UIServer:
         logger.info(f"Client disconnected: {websocket.remote_address}")
 
     async def _handler(self, websocket: WebSocketServerProtocol, path: str):
-        """Handle incoming connections and messages."""
+        """Handle incoming WebSocket connections and messages."""
+        # Registration is now handled after _process_request returns None
         await self._register(websocket)
         try:
-            # Keep the connection open and listen for messages (e.g., user input)
-            # For now, we just keep it open to send updates.
+            # Keep the WebSocket connection open and listen for messages
             async for message in websocket:
                 # Handle incoming messages if needed in the future
                 logger.info(f"Received message from {websocket.remote_address}: {message}")
@@ -103,14 +136,16 @@ class UIServer:
         logger.info(f"Starting WebSocket server on ws://{self.host}:{self.port}")
         self.stop_event.clear()
         try:
+            # Pass the HTTP request processor
             server = await websockets.serve(
                 self._handler,
                 self.host,
                 self.port,
+                process_request=self._process_request, # Add this line
                 ping_interval=20, # Keep connections alive
                 ping_timeout=20
             )
-            logger.info("WebSocket server started.")
+            logger.info("HTTP/WebSocket server started.")
             # Keep the server running until stop() is called
             await self.stop_event.wait()
             logger.info("Stop event received, shutting down server...")
