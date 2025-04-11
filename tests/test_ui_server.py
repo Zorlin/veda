@@ -12,7 +12,7 @@ async def test_server(anyio_backend):
     """Fixture to start and stop the UIServer within the test's anyio event loop."""
     if anyio_backend == "trio":
         pytest.skip("Skipping UI server test for trio backend - trio package not installed")
-        return None  # Explicitly return None when skipping
+        # No return statement needed after pytest.skip as it raises an exception
         
     server = UIServer(host="127.0.0.1", port=8766) # Use a different port for testing
     
