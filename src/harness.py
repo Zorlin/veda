@@ -251,12 +251,12 @@ class Harness:
                  # except IOError as e_write:
                      #     logging.error(f"Could not write default config file {config_path}: {e_write}")
 
-             except yaml.YAMLError as e:
-                 logging.error(f"Error parsing config file {config_path}: {e}. Using default configuration.")
-             except IOError as e:
-                 logging.error(f"Error reading config file {config_path}: {e}. Using default configuration.")
-             except Exception as e:
-                 logging.error(f"Unexpected error loading config file {config_path}: {e}. Using default configuration.")
+            except yaml.YAMLError as e:
+                logging.error(f"Error parsing config file {config_path}: {e}. Using default configuration.")
+            except IOError as e:
+                logging.error(f"Error reading config file {config_path}: {e}. Using default configuration.")
+            except Exception as e:
+                logging.error(f"Unexpected error loading config file {config_path}: {e}. Using default configuration.")
 
         # This part runs only if config_file was not None
         # Resolve project_dir (relative to CWD if needed)
