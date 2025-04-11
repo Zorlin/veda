@@ -127,15 +127,18 @@ def test_loop_detects_stuck_cycle_and_aborts(mock_get_llm_response, mock_run_pyt
     
     # Assert the loop stopped after detecting the stuck cycle
     # It runs iter 1 (diff_initial), iter 2 (repeated_diff), iter 3 (repeated_diff -> stuck)
-    expected_calls = stuck_cycle_threshold + 1
-    assert mock_run_aider.call_count == expected_calls
-    # Pytest and LLM are called before the stuck check in the loop
-    assert mock_run_pytest.call_count == expected_calls
-    assert mock_get_llm_response.call_count == expected_calls
-    
+    expected_aider_calls = stuck_cycle_threshold + 1
+    expected_pytest_llm_calls = stuck_cycle_threshold # Pytest/LLM not called in the final stuck iteration
+        
+    assert mock_run_aider.call_count == expected_aider_calls
+    # Pytest and LLM are called *before* the stuck check in the loop for the *next* iteration
+    assert mock_run_pytest.call_count == expected_pytest_llm_calls
+    assert mock_get_llm_response.call_count == expected_pytest_llm_calls
+        
     # Assert final state is not converged and indicates stuck cycle
     assert result["converged"] is False
     assert "ERROR" in result["final_status"]
     assert "Stuck cycle detected" in result["final_status"]
     assert "Stuck cycle detected" in harness_converge_instance.state["last_error"]
-    assert result["iterations"] == expected_calls # Iteration count reflects when it stopped
+    # Iteration count reflects when it stopped (after starting the iteration where stuck was detected)
+    assert result["iterations"] == expected_aider_calls 
