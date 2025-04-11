@@ -17,10 +17,16 @@ def main():
         description="Aider Autoloop Harness: Self-Building Agent Framework"
     )
     parser.add_argument(
+        "prompt",
+        nargs="?", # Make the prompt optional
+        default=None,
+        help="The initial goal prompt for Aider (overrides --goal-prompt-file if provided).",
+    )
+    parser.add_argument(
         "--goal-prompt-file",
         type=str,
         default="goal.prompt",
-        help="Path to the file containing the initial goal prompt for Aider.",
+        help="Path to the file containing the initial goal prompt (used if prompt argument is not provided).",
     )
     parser.add_argument(
         "--config-file",
