@@ -30,6 +30,9 @@ redactor_model: "gpt-4-turbo" # Fallback to ollama_model if not available
 
 # Code Review Configuration
 enable_code_review: true
+# Model to use for code review. Falls back to ollama_model if not specified.
+# Example: "ollama/codellama:13b" or "openai/gpt-3.5-turbo" (if integration exists)
+code_review_model: null # Use null to explicitly rely on ollama_model fallback
 
 # Storage Configuration
 storage_type: "sqlite"  # "sqlite" or "json"
