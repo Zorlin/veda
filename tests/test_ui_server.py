@@ -3,12 +3,6 @@ import asyncio
 import json
 import websockets
 import anyio # Import the anyio library
-from unittest.mock import patch, MagicMock
-
-import pytest # Ensure pytest is imported if needed for markers etc.
-import asyncio
-import json
-import websockets
 import anyio # Import the anyio library
 from unittest.mock import patch, MagicMock
 

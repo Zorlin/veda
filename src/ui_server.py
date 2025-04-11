@@ -172,17 +172,11 @@ class UIServer:
         try:
             while not self.stop_event.is_set():
                 try:
-                    # Wait for an update with a timeout to check stop_event periodically
-                    update = await anyio.to_thread.run_sync(
-                        lambda: anyio.run(
-                            self.ui_receive_stream.receive,
-                            abandon_on_cancel=True  # Updated from cancellable=True
-                        ),
-                        abandon_on_cancel=True  # Updated from cancellable=True
-                    )
+                    # Directly await receiving from the stream
+                    update = await self.ui_receive_stream.receive()
                     # Broadcast the update to all connected clients
                     await self.broadcast(update)
-                except anyio.EndOfStream:
+                except (anyio.EndOfStream, anyio.ClosedResourceError): # Handle stream closure gracefully
                     logger.info("End of stream reached. Stopping update listener.")
                     break
                 except Exception as e:
