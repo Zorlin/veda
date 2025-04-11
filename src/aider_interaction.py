@@ -42,9 +42,9 @@ def run_aider(
     Runs the Aider subprocess interactively using pexpect.
 
     Args:
-        prompt: The initial user prompt for Aider.
+        prompt: The user prompt for *this specific* Aider run.
         config: The harness configuration dictionary.
-        history: The conversation history (used for LLM context).
+        history: The conversation history *prior* to this prompt (list of dicts).
         work_dir: The directory where Aider should run.
 
     Returns:
@@ -59,13 +59,11 @@ def run_aider(
     quoted_prompt = shlex.quote(prompt)
 
     # Base command arguments
+    # DO NOT explicitly set --model here. Let Aider use its config or defaults.
+    # The harness uses its configured model for *evaluation*, not for Aider's internal LLM.
     command_args = []
 
-    # Explicitly configure Aider to use the gemini model
-    command_args.append("--model gemini")
-    logger.info("Configuring Aider to use model: gemini")
-
-    # Add --yes to automatically approve actions
+    # Add --yes to automatically approve actions like applying changes
     command_args.append("--yes")
     logger.info("Adding --yes flag to Aider command.")
 
@@ -92,64 +90,85 @@ def run_aider(
             cwd=work_dir,
             encoding='utf-8',
             timeout=AIDER_TIMEOUT, # Overall timeout for the whole command
-            logfile=sys.stdout # Log output to stdout for visibility (optional)
+            logfile=None, # Set to sys.stdout to see Aider's full output during run
+            # logfile=sys.stdout, # Uncomment for debugging Aider interaction
         )
 
-        # Interaction loop
+        # Interaction loop - primarily waiting for Add File or completion/error
         while True:
             try:
-                # Wait for Add File prompt, EOF, or Timeout. --yes handles others.
-                logger.debug(f"Waiting for Aider output (Add File prompt, EOF, or timeout={AIDER_TIMEOUT}s)...")
-                patterns_to_expect = [ADD_FILE_PROMPT_PATTERN, pexpect.EOF, pexpect.TIMEOUT]
+                # Wait for Add File prompt, EOF, or Timeout.
+                # The --yes flag should handle other prompts like Apply changes?
+                logger.debug(f"Waiting for Aider output (expecting Add File prompt, EOF, or timeout={AIDER_TIMEOUT}s)...")
+                # Define patterns to expect
+                patterns_to_expect = [
+                    ADD_FILE_PROMPT_PATTERN, # Index 0
+                    pexpect.EOF,             # Index 1
+                    pexpect.TIMEOUT          # Index 2
+                ]
                 index = child.expect(patterns_to_expect, timeout=AIDER_TIMEOUT)
 
-                # Accumulate output that came before the match
+                # Accumulate output that came *before* the matched pattern
                 output_before = child.before
                 if output_before:
                     full_output += output_before
-                logger.debug(f"Output before match:\n>>>\n{output_before}\n<<<")
+                    # Log the chunk received before the match
+                    # logger.debug(f"Output chunk before match:\n>>>\n{output_before}\n<<<")
 
+                # Process based on which pattern matched
                 if index == 0: # Matched ADD_FILE_PROMPT_PATTERN
-                    logger.info("Detected 'Add file' prompt. Automatically responding 'n'.")
-                    # Accumulate the matched prompt itself if needed
-                    if child.after and isinstance(child.after, str):
-                        full_output += child.after
+                    matched_prompt = child.after # The matched prompt text
+                    full_output += matched_prompt
+                    logger.info(f"Detected 'Add file' prompt: '{matched_prompt.strip()}'. Automatically responding 'n'.")
                     child.sendline('n') # Send 'n' automatically
+                    # Continue waiting for next output
                 elif index == 1: # EOF
                     logger.info("Aider process finished (EOF detected).")
-                    child.close() # Close explicitly
-                    break # Exit loop, process finished normally
+                    # Output after the last match (if any) is in child.before upon EOF
+                    output_before_eof = child.before
+                    if output_before_eof:
+                        full_output += output_before_eof
+                        # logger.debug(f"Final output chunk before EOF:\n>>>\n{output_before_eof}\n<<<")
+                    child.close() # Close explicitly now that EOF is reached
+                    break # Exit interaction loop, process finished normally
                 elif index == 2: # Timeout
                     logger.error(f"Timeout waiting for Aider output after {AIDER_TIMEOUT} seconds.")
-                    # full_output already contains output before timeout
-                    child.close(force=True)
+                    # Output before timeout is already accumulated in full_output
+                    child.close(force=True) # Force close on timeout
                     return None, f"Timeout waiting for Aider after {AIDER_TIMEOUT}s"
 
             except pexpect.exceptions.ExceptionPexpect as e:
+                 # Catch specific pexpect errors during the expect() call
                  logger.error(f"Pexpect error during Aider interaction: {e}")
                  logger.debug(f"Output before error:\n{full_output}")
                  if child.isalive():
                      child.close(force=True)
                  return None, f"Pexpect error: {e}"
 
-        # --- Process finished, analyze output ---
-        # Ensure exitstatus/signalstatus are checked *after* potential close() call in EOF block
-        if child.exitstatus != 0:
-            # Check if closed gracefully or crashed
-            if child.signalstatus is not None: # Check signalstatus first
-                 error_message = f"Aider command terminated unexpectedly by signal: {child.signalstatus}.\nOutput:\n{full_output}"
-            elif child.exitstatus is not None: # Then check exitstatus
-                 error_message = f"Aider command failed with exit code {child.exitstatus}.\nOutput:\n{full_output}"
-            else:
-                 # This case should be less likely now after explicit close()
-                 error_message = f"Aider command failed with unknown status (exit={child.exitstatus}, signal={child.signalstatus}).\nOutput:\n{full_output}"
-            # Removed redundant else block here
+        # --- Process finished (EOF or error), analyze output ---
+        logger.debug(f"Full Aider session output:\n---\n{full_output}\n---")
+
+        # Check exit status *after* the loop finishes or breaks
+        # Ensure child.close() was called before checking status
+        if not child.closed:
+             logger.warning("Child process was not closed before status check, closing now.")
+             child.close() # Ensure it's closed
+
+        # Check for abnormal termination first
+        if child.signalstatus is not None:
+            error_message = f"Aider command terminated unexpectedly by signal: {child.signalstatus}.\nOutput:\n{full_output}"
             logger.error(error_message)
             return None, error_message
+        # Check for non-zero exit code (indicates Aider reported an error)
+        elif child.exitstatus != 0:
+            error_message = f"Aider command failed with exit code {child.exitstatus}.\nOutput:\n{full_output}"
+            logger.error(error_message)
+            return None, error_message
+        # If exit status is 0 and signal is None, it finished "successfully"
+        else:
+             logger.info(f"Aider command finished successfully (exit code {child.exitstatus}).")
 
-        logger.info(f"Aider command finished successfully (exit code {child.exitstatus}).")
-
-        # --- Diff Extraction Logic (applied to full_output) ---
+        # --- Diff Extraction Logic (applied to full_output from successful run) ---
         # Look for the last diff block in the entire session output
         diff_output = None
         last_diff_start = full_output.rfind("```diff")
@@ -161,22 +180,31 @@ def run_aider(
                 logger.info("Extracted last diff block from Aider session output.")
 
         if diff_output is None:
-            # Fallback or alternative strategy if no diff block found
+            # If no diff block is found, check for explicit messages indicating no changes
             logger.warning("Could not find standard ```diff ... ``` block in Aider session output.")
-            # Decide what to return - maybe empty string indicates no changes applied?
-            # Or maybe check for specific "No changes applied" messages from Aider?
-            if "No changes applied." in full_output or "No changes needed." in full_output:
-                 logger.info("Aider indicated no changes were applied.")
-                 return "", None # Success, no changes
+            # Aider typically prints these messages when --yes is used and no changes are made
+            no_changes_messages = [
+                "No changes were applied.",
+                "No changes needed.",
+                "Applied edit.", # Sometimes appears with empty diff? Check context.
+                # Add other potential messages if observed
+            ]
+            # Check if any known "no changes" message exists in the output
+            if any(msg in full_output for msg in no_changes_messages):
+                 logger.info("Aider output indicates no changes were applied or needed.")
+                 return "", None # Success, explicitly no changes (empty diff string)
             else:
-                 # Unclear if changes happened but diff wasn't found
-                 logger.warning("Assuming no changes as diff block wasn't found and no explicit 'no changes' message detected.")
-                 return "", None # Treat as success with no changes for now
+                 # If no diff and no explicit "no changes" message, it's ambiguous
+                 logger.warning("No diff block found and no explicit 'no changes' message detected. Returning empty diff, but this might indicate an issue.")
+                 # Consider if this should be an error or handled differently
+                 return "", None # Treat as success with no changes for now, but log warning
 
+        # If diff_output was extracted but is empty string after stripping
         if not diff_output:
-             logger.warning("Extracted diff block is empty.")
-             return "", None # Success, no changes (empty diff)
+             logger.info("Extracted diff block is empty. Indicating no changes.")
+             return "", None # Success, no changes (empty diff string)
 
+        logger.info(f"Successfully extracted diff (length: {len(diff_output)}).")
         return diff_output, None # Return extracted diff, no error
 
     except pexpect.exceptions.ExceptionPexpect as e:

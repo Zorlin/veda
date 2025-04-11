@@ -4,20 +4,16 @@ import subprocess
 import time
 from pathlib import Path
 import json
-from typing import Dict, Any, Optional
-
-import yaml
-
-from .aider_interaction import run_aider
-import re # Import re for parsing LLM response
 from typing import Dict, Any, Optional, List # Add List
 
 import yaml
 
 from .aider_interaction import run_aider
 from .llm_interaction import get_llm_response # Import the LLM function
+# TODO: Implement persistence layer (e.g., JSON or SQLite logger)
 # from .persistence import Logger
 from .pytest_interaction import run_pytest
+import re # Import re for parsing LLM response
 
 
 class Harness:
@@ -41,10 +37,12 @@ class Harness:
         if ollama_model:
             logging.info(f"Overriding configured Ollama model with command-line argument: {ollama_model}")
             self.config["ollama_model"] = ollama_model
-        self.state: Dict[str, Any] = self._initialize_state(reset_state) # Pass flag
-        # self.logger = Logger(log_dir=self.work_dir / "logs") # Placeholder
+        # Initialize state *after* work_dir is potentially updated by config
+        self.state: Dict[str, Any] = {} # Initialize temporarily
+        # self.logger = Logger(log_dir=self.work_dir / "logs") # Placeholder for future logging/ledger
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
-        logging.info(f"Working directory: {self.work_dir.resolve()}")
+        # State initialization moved after work_dir is finalized
+        # logging.info(f"Working directory: {self.work_dir.resolve()}") # Logged after config load
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads configuration from the YAML file."""
@@ -96,14 +94,19 @@ class Harness:
              project_dir_path = Path.cwd() / project_dir_path
         config["project_dir"] = str(project_dir_path.resolve()) # Store absolute path
 
-        # Resolve work_dir relative to project_dir
-        self.work_dir = project_dir_path / self.work_dir.name # Use name to avoid nesting if work_dir was relative
+        # Resolve work_dir relative to project_dir *before* initializing state
+        # Use the name attribute of the Path object passed in __init__
+        # Ensure work_dir is resolved relative to the project dir from config
+        self.work_dir = project_dir_path / self.work_dir.name
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Using working directory: {self.work_dir.resolve()}")
+        logging.info(f"Resolved working directory: {self.work_dir.resolve()}")
+
+        # Now initialize state using the final work_dir
+        self.state = self._initialize_state(reset_state)
 
         return config
 
-    def _initialize_state(self, reset_state: bool = False) -> Dict[str, Any]:
+    def _initialize_state(self, reset_state: bool) -> Dict[str, Any]:
         """
         Initializes the harness state.
         Loads from file if it exists and reset_state is False.
@@ -135,18 +138,18 @@ class Harness:
         else: # File not found and not resetting
             logging.info(f"State file {state_file} not found. Initializing fresh state.")
 
-        # Default state if no valid state file is found or loading fails
+        # Default state if no valid state file is found, loading fails, or reset requested
         logging.info("Initializing fresh state.")
         return {
             "current_iteration": 0,
             "prompt_history": [], # Stores conversation: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
             "converged": False,
             "last_error": None,
+            # TODO: Add fields for logging diffs, outcomes per iteration if needed beyond history
         }
-        # Placeholder return
 
     def _save_state(self):
-        """Saves the current harness state."""
+        """Saves the current harness state to harness_state.json."""
         state_file = self.work_dir / "harness_state.json"
         logging.info(f"Saving harness state to {state_file}...")
         try:
@@ -167,8 +170,30 @@ class Harness:
     def run(self, initial_goal_prompt: str):
         """Runs the main Aider-Pytest-Ollama loop."""
         logging.info("Starting harness run...")
-        current_prompt = initial_goal_prompt
-        self.state["prompt_history"].append({"role": "user", "content": current_prompt})
+
+        # Initialize prompt history only if starting fresh
+        if self.state["current_iteration"] == 0 and not self.state["prompt_history"]:
+            logging.info("Initializing prompt history with the initial goal.")
+            current_prompt = initial_goal_prompt
+            # Ensure history is clean before adding the first prompt
+            self.state["prompt_history"] = [{"role": "user", "content": current_prompt}]
+        elif self.state["prompt_history"]:
+            # If resuming, the last message should be the user prompt for the current iteration
+            last_message = self.state["prompt_history"][-1]
+            if last_message.get("role") == "user":
+                current_prompt = last_message["content"]
+                logging.info(f"Resuming run from iteration {self.state['current_iteration'] + 1}. Last user prompt retrieved from history.")
+            else:
+                logging.error("Cannot resume: Last message in history is not from 'user'. Starting with initial goal.")
+                # Fallback to initial goal if history state is unexpected
+                current_prompt = initial_goal_prompt
+                self.state["prompt_history"].append({"role": "user", "content": current_prompt})
+        else:
+            # Should not happen if initialization is correct, but handle defensively
+            logging.warning("State indicates resumption but history is empty. Starting with initial goal.")
+            current_prompt = initial_goal_prompt
+            self.state["prompt_history"] = [{"role": "user", "content": current_prompt}]
+
 
         while (
             self.state["current_iteration"] < self.max_retries
@@ -181,9 +206,10 @@ class Harness:
                 # 1. Run Aider
                 logging.info("Running Aider...")
                 aider_diff, aider_error = run_aider(
-                    prompt=current_prompt,
+                    prompt=current_prompt, # Pass the current prompt for this iteration
                     config=self.config,
-                    history=self.state["prompt_history"],
+                    # Pass history *excluding* the current user prompt (Aider adds it)
+                    history=self.state["prompt_history"][:-1],
                     work_dir=self.config["project_dir"] # Run aider in the target project dir
                 )
 
@@ -201,10 +227,15 @@ class Harness:
                 logging.info(f"Aider finished. Diff:\n{aider_diff if aider_diff else '[No changes detected]'}")
                 # self.logger.log_iteration(iteration, "aider_diff", aider_diff) # Placeholder
 
-                # Add Aider's response (diff) to history for context
-                # Use the diff as the assistant's message. If no diff, maybe add a note?
-                assistant_message = aider_diff if aider_diff else "[Aider made no changes]"
+                # Add Aider's response (diff or status message) to history for context
+                # Use the diff as the assistant's message. If no diff, use a status message.
+                assistant_message = aider_diff if aider_diff is not None else "[Aider encountered an error or produced no output]"
+                # Ensure assistant message is added even if empty (indicates no changes)
+                if aider_diff == "":
+                    assistant_message = "[Aider made no changes]"
                 self.state["prompt_history"].append({"role": "assistant", "content": assistant_message})
+                # Save state immediately after Aider finishes and history is updated
+                self._save_state()
 
                 # 2. Run Pytest
                 logging.info("Running pytest...")
@@ -215,76 +246,63 @@ class Harness:
                 # self.logger.log_iteration(iteration, "pytest_output", pytest_output) # Placeholder
                 # self.logger.log_iteration(iteration, "pytest_passed", pytest_passed) # Placeholder
 
-                # --- Removed duplicate pytest run ---
+                # 3. Check for Convergence (Simple check: tests passed and Aider made changes)
+                # More sophisticated check using LLM evaluation comes next
+                if pytest_passed and aider_diff: # Simple convergence: tests pass AND aider made changes
+                    logging.info("Initial check: Pytest passed and Aider made changes.")
+                    # Proceed to LLM evaluation to confirm convergence against the goal
+                elif pytest_passed and not aider_diff:
+                    logging.info("Pytest passed, but Aider made no changes. Assuming convergence if goal seems met (LLM will verify).")
+                    # Let LLM decide if the goal is met even without changes
+                else: # pytest failed
+                    logging.warning("Pytest failed. Proceeding to LLM evaluation for retry suggestions.")
+                    # LLM evaluation is needed to generate retry prompt
 
                 # 4. Evaluate Outcome with LLM
                 logging.info("Evaluating outcome with LLM...")
-                evaluation_prompt = self._create_evaluation_prompt(
-                    initial_goal_prompt, # Pass the original goal
-                    self.state["prompt_history"], # Pass history for context
-                    aider_diff,
+                verdict, suggestions = self._evaluate_outcome(
+                    initial_goal_prompt,
+                    aider_diff if aider_diff is not None else "", # Pass empty string if None
                     pytest_output,
                     pytest_passed
                 )
-                try:
-                    # Use a separate system prompt for evaluation
-                    evaluation_system_prompt = """You are an expert software development assistant.
-Analyze the provided goal, history, code changes (diff), and test results.
-Determine if the changes meet the goal and tests pass.
-Respond ONLY in the specified format:
-Verdict: [SUCCESS|RETRY|FAILURE]
-Suggestions: [Provide concise suggestions ONLY if verdict is RETRY, otherwise leave blank]"""
+                logging.info(f"LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
+                # self.logger.log_iteration(iteration, "llm_verdict", verdict) # Placeholder
+                # self.logger.log_iteration(iteration, "llm_suggestions", suggestions) # Placeholder
 
-                    llm_evaluation_response = get_llm_response(
-                        evaluation_prompt,
-                        self.config,
-                        history=None, # Evaluation is self-contained, history is in the prompt
-                        system_prompt=evaluation_system_prompt
-                    )
-                    logging.debug(f"LLM Evaluation Response:\n{llm_evaluation_response}")
 
-                    # Parse the LLM response
-                    verdict_match = re.search(r"Verdict:\s*(SUCCESS|RETRY|FAILURE)", llm_evaluation_response, re.IGNORECASE)
-                    suggestions_match = re.search(r"Suggestions:\s*(.*)", llm_evaluation_response, re.IGNORECASE | re.DOTALL)
-
-                    if verdict_match:
-                        verdict = verdict_match.group(1).upper()
-                        suggestions = suggestions_match.group(1).strip() if suggestions_match else ""
-                        logging.info(f"LLM evaluation: Verdict={verdict}, Suggestions='{suggestions}'")
-                    else:
-                        logging.warning(f"Could not parse verdict from LLM evaluation response. Defaulting to RETRY.\nResponse:\n{llm_evaluation_response}")
-                        verdict = "RETRY"
-                        suggestions = "LLM response format was invalid. Please review the previous attempt and try again."
-
-                except Exception as e:
-                    logging.error(f"Error during LLM evaluation: {e}. Defaulting to RETRY.")
-                    verdict = "RETRY"
-                    # Provide a more generic suggestion if the evaluation itself failed
-                    suggestions = f"An error occurred during the evaluation step ({e}). Please review the previous code changes and test results, then try to improve the code to meet the original goal."
-
-                # 5. Decide next step
+                # 5. Decide next step based on LLM Verdict
                 if verdict == "SUCCESS":
-                    logging.info("Convergence criteria met. Stopping loop.")
+                    logging.info("LLM evaluation confirms SUCCESS. Stopping loop.")
                     self.state["converged"] = True
+                    # No need to add another user prompt if converged
                 elif verdict == "RETRY":
-                    logging.info("Retrying with suggestions...")
-                    # Pass necessary context to create the retry prompt
+                    logging.info("LLM evaluation suggests RETRY.")
+                    if self.state["current_iteration"] + 1 >= self.max_retries:
+                         logging.warning(f"Retry suggested, but max retries ({self.max_retries}) reached. Stopping.")
+                         self.state["last_error"] = "Max retries reached after RETRY verdict."
+                         break # Stop loop if max retries reached
+
+                    logging.info("Creating retry prompt...")
                     current_prompt = self._create_retry_prompt(
                         initial_goal_prompt,
-                        self.state["prompt_history"], # Pass full history
-                        aider_diff,
+                        # History is already updated with last assistant message
+                        aider_diff if aider_diff is not None else "",
                         pytest_output,
-                        suggestions
+                        suggestions # Pass suggestions from LLM
                     )
-                    # Add the *new* user prompt (the retry instructions) to history
+                    # Add the *new* user prompt (the retry instructions) to history for the *next* iteration
                     self.state["prompt_history"].append({"role": "user", "content": current_prompt})
+                    logging.debug(f"Next prompt for Aider:\n{current_prompt}")
+
                 else: # verdict == "FAILURE"
                     logging.error(f"Structural failure detected by LLM. Stopping loop. Reason: {suggestions}")
-                    self.state["last_error"] = f"LLM reported failure: {suggestions}"
+                    self.state["last_error"] = f"LLM reported FAILURE: {suggestions}"
+                    self.state["converged"] = False # Explicitly set converged to False on failure
                     break # Exit loop on failure
 
             except Exception as e:
-                logging.exception(f"Error during iteration {iteration + 1}: {e}")
+                logging.exception(f"Critical error during iteration {iteration + 1}: {e}")
                 self.state["last_error"] = str(e)
                 # Decide if we should retry on internal errors or just stop
                 break # Exit loop on internal error for now
@@ -304,18 +322,92 @@ Suggestions: [Provide concise suggestions ONLY if verdict is RETRY, otherwise le
 
         logging.info("Harness run complete.")
 
+
+    def _evaluate_outcome(
+        self,
+        initial_goal: str,
+        aider_diff: str,
+        pytest_output: str,
+        pytest_passed: bool
+    ) -> Tuple[str, str]:
+        """
+        Evaluates the outcome of an iteration using the LLM.
+
+        Args:
+            initial_goal: The original goal prompt.
+            aider_diff: The diff generated by Aider in the last iteration.
+            pytest_output: The output from pytest.
+            pytest_passed: Boolean indicating if pytest passed.
+
+        Returns:
+            A tuple containing:
+            - str: The verdict ("SUCCESS", "RETRY", "FAILURE").
+            - str: Suggestions from the LLM (empty if not RETRY).
+        """
+        evaluation_prompt = self._create_evaluation_prompt(
+            initial_goal,
+            self.state["prompt_history"], # Pass full history
+            aider_diff,
+            pytest_output,
+            pytest_passed
+        )
+        try:
+            # Use a separate system prompt for evaluation
+            evaluation_system_prompt = """You are an expert software development assistant.
+Analyze the provided goal, history, code changes (diff), and test results.
+Determine if the changes meet the goal and tests pass.
+Respond ONLY in the specified format:
+Verdict: [SUCCESS|RETRY|FAILURE]
+Suggestions: [Provide concise suggestions ONLY if verdict is RETRY, otherwise leave blank]"""
+
+            llm_evaluation_response = get_llm_response(
+                evaluation_prompt,
+                self.config,
+                history=None, # Evaluation is self-contained, history is in the prompt
+                system_prompt=evaluation_system_prompt
+            )
+            logging.debug(f"LLM Evaluation Response:\n{llm_evaluation_response}")
+
+            # Parse the LLM response
+            verdict_match = re.search(r"Verdict:\s*(SUCCESS|RETRY|FAILURE)", llm_evaluation_response, re.IGNORECASE)
+            suggestions_match = re.search(r"Suggestions:\s*(.*)", llm_evaluation_response, re.IGNORECASE | re.DOTALL)
+
+            if verdict_match:
+                verdict = verdict_match.group(1).upper()
+                suggestions = suggestions_match.group(1).strip() if suggestions_match else ""
+                # Ensure suggestions are only returned if verdict is RETRY
+                if verdict != "RETRY":
+                    suggestions = ""
+                logging.info(f"LLM evaluation parsed: Verdict={verdict}, Suggestions='{suggestions}'")
+                return verdict, suggestions
+            else:
+                logging.warning(f"Could not parse verdict from LLM evaluation response. Defaulting to RETRY.\nResponse:\n{llm_evaluation_response}")
+                verdict = "RETRY"
+                suggestions = "LLM response format was invalid. Please review the previous attempt and try again."
+                return verdict, suggestions
+
+        except Exception as e:
+            logging.error(f"Error during LLM evaluation: {e}. Defaulting to RETRY.")
+            verdict = "RETRY"
+            # Provide a more generic suggestion if the evaluation itself failed
+            suggestions = f"An error occurred during the evaluation step ({e}). Please review the previous code changes and test results, then try to improve the code to meet the original goal."
+            return verdict, suggestions
+
+
     def _create_evaluation_prompt(
         self,
         initial_goal: str,
-        history: List[Dict[str, str]],
+        history: List[Dict[str, str]], # Use full history
         aider_diff: str,
         pytest_output: str,
         pytest_passed: bool
     ) -> str:
-        """Creates the prompt for LLM evaluation."""
-        # Create a concise history string for the prompt
-        history_str = "\n".join([f"{msg['role']}: {msg['content'][:200]}..." # Truncate long messages
-                                 for msg in history])
+        """Creates the prompt for the LLM evaluation step."""
+        # Create a concise history string for the prompt, showing last few turns
+        history_limit = 5 # Show last N pairs of user/assistant messages
+        limited_history = history[-(history_limit * 2):] # Get last N*2 messages
+        history_str = "\n".join([f"{msg['role']}: {msg['content'][:300]}{'...' if len(msg['content']) > 300 else ''}"
+                                 for msg in limited_history])
 
         prompt = f"""
 Analyze the results of an automated code generation step.
@@ -337,6 +429,12 @@ Pytest Output:
 {pytest_output}
 ```
 
+Pytest Result: {'Pass' if pytest_passed else 'Fail'}
+Pytest Output:
+```
+{pytest_output if pytest_output else "[No output captured]"}
+```
+
 Based on the initial goal, the conversation history, the latest code changes (diff), and the test results, evaluate the outcome.
 
 Evaluation Criteria:
@@ -353,40 +451,41 @@ Suggestions: [Provide concise, actionable suggestions ONLY if the verdict is RET
 
     def _create_retry_prompt(
         self,
-        initial_goal: str, # Include initial goal for context
-        history: List[Dict[str, str]], # Full history needed
+        initial_goal: str,
+        # History is not needed here, it's passed separately to run_aider
         aider_diff: str,
         pytest_output: str,
         suggestions: str
     ) -> str:
-        """Creates the prompt for the next Aider attempt based on LLM's suggestions."""
-        # We don't need to include the full history *in* the prompt string itself,
-        # as it will be passed separately to run_aider -> get_llm_response.
-        # The prompt should focus on the *task* for the next iteration.
-
+        """
+        Creates the user prompt for the *next* Aider attempt based on LLM's suggestions.
+        This prompt will be added to the history with role 'user'.
+        """
+        # The prompt should focus on the *task* for the next iteration, using the suggestions.
         retry_prompt = f"""
-The previous attempt to achieve the goal "{initial_goal}" resulted in the following:
+The previous attempt to achieve the goal "{initial_goal}" had issues.
 
-Last Aider Diff:
+Last Aider Diff (changes made):
 ```diff
 {aider_diff if aider_diff else "[No changes made by Aider]"}
 ```
 
-Pytest Output:
+Pytest Output (results of running tests on the changes):
 ```
-{pytest_output}
+{pytest_output if pytest_output else "[No output captured]"}
 ```
 
-Evaluation and Suggestions for Improvement:
-{suggestions if suggestions else "No specific suggestions provided. Please analyze the diff and test output to identify the issue and try again."}
+Evaluation and Suggestions for Improvement from the previous step:
+{suggestions if suggestions else "No specific suggestions were provided by the evaluation. Please analyze the previous diff and test output yourself to identify the issue and determine the next steps to achieve the goal."}
 
-Based *only* on the suggestions above (if any), please modify the code to address the identified issues and progress towards the initial goal. Focus on applying the suggested changes or analyzing the previous attempt if no suggestions were given.
+Based *only* on the suggestions above (if provided) and your analysis of the previous attempt's diff and test results, please modify the code to address the identified issues and progress towards the initial goal: "{initial_goal}". Focus on applying the suggested changes or fixing the errors indicated by the pytest output.
 """
-        # Add a specific note if the evaluation itself failed
+        # Add a specific note if the evaluation itself failed (indicated by specific suggestion text)
         if "An error occurred during the evaluation step" in suggestions:
-            retry_prompt += "\n\nNote: The evaluation step encountered an error, so the suggestions are generic. Please carefully review the goal, code changes, and test results yourself."
+            retry_prompt += "\n\nNote: The automated evaluation step encountered an error, so the suggestions are generic. Please carefully review the goal, the last code changes (diff), and the test results yourself to decide how to proceed."
 
         return retry_prompt.strip()
+
 
 # Example usage (for testing purposes, normally called from main.py)
 if __name__ == "__main__":
