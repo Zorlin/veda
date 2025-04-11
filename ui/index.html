@@ -140,9 +140,10 @@
                     };
 
                     this.ws.onmessage = (event) => {
-                        // console.log('Message received:', event.data);
+                        // console.log('Raw WS Message:', event.data); // Log raw data if needed
                         try {
                             const data = JSON.parse(event.data);
+                            console.log("Parsed WS data:", data); // <-- Log parsed data
 
                             // Check message type
                             if (data.type === 'aider_output') {
@@ -314,9 +315,11 @@
 
                     const bufferToProcess = this.outputBuffer;
                     this.outputBuffer = ''; // Clear buffer before processing
+                    console.log("Processing buffer content:", bufferToProcess); // <-- Log buffer content
 
                     // Process the entire buffered chunk
                     this.processAiderChunk(bufferToProcess);
+                    console.log("After processAiderChunk. New liveAiderOutput length:", this.liveAiderOutput.length); // <-- Log updated length
 
                     // Limit scrollback after processing
                     const lines = this.liveAiderOutput.split('\n');
