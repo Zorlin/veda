@@ -254,54 +254,43 @@ This harness must be able to work on any project with a `pytest`-compatible test
         http_server_thread.start()
         # Note: We don't have a direct handle to the httpd object to call shutdown cleanly from here.
         # Daemon threads will exit when the main thread exits. For cleaner shutdown,
-        # start_http_server would need modification (e.g., using httpd.shutdown() via another thread/signal).
-
     # Create the communication stream for UI updates *before* initializing UIServer
     # Use infinite buffer to prevent blocking harness if UI server lags/crashes
     send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size=float('inf'))
 
-    # --- Re-initialize UI Server with the stream (if enabled) ---
-    # We need to potentially re-initialize ui_server here if it was created earlier
-    # without the stream. Or better, create it here only if ui_enabled.
-    if ui_enabled and ws_server_thread: # Check if the thread was started
-        # If the server object was already created, we need its reference.
-        # Let's adjust the logic slightly: create the server object *after* the stream.
-        # The previous code created the server object *before* the stream.
-        # Let's modify the earlier block.
+    # --- Start UI Servers (if enabled) ---
+    ui_server = None
+    ws_server_thread = None
+    http_server_thread = None
+    ui_dir_path = Path(__file__).parent / "ui"
 
-        # --- Start UI Servers Early (if enabled) ---
-        # (This block is adjusted from earlier in the code)
-        ui_server = None
-        ws_server_thread = None
-        http_server_thread = None
-        ui_dir_path = Path(__file__).parent / "ui"
+    if ui_enabled:
+        logger.info("UI is enabled. Starting WebSocket and HTTP servers...")
 
-        if ui_enabled:
-            logger.info("UI is enabled. Starting WebSocket and HTTP servers...")
+        # Create the UI Server instance *with* the stream
+        ui_server = UIServer(host=ws_host, port=ws_port, receive_stream=receive_stream)
 
-            # Create the UI Server instance *with* the stream
-            ui_server = UIServer(host=ws_host, port=ws_port, receive_stream=receive_stream)
+        # Start WebSocket Server
+        def run_ws_server():
+            try:
+                # Ensure an event loop exists for this thread
+                asyncio.run(ui_server.start())
+            except Exception as e:
+                logger.error(f"WebSocket server thread encountered an error: {e}", exc_info=True)
 
-            # Start WebSocket Server
-            def run_ws_server():
-                try:
-                    asyncio.run(ui_server.start())
-                except Exception as e:
-                    logger.error(f"WebSocket server thread encountered an error: {e}", exc_info=True)
+        ws_server_thread = threading.Thread(target=run_ws_server, daemon=True, name="WebSocketServerThread")
+        ws_server_thread.start()
+        logger.info(f"WebSocket server starting in background thread on ws://{ws_host}:{ws_port}")
 
-            ws_server_thread = threading.Thread(target=run_ws_server, daemon=True, name="WebSocketServerThread")
-            ws_server_thread.start()
-            logger.info(f"WebSocket server starting in background thread on ws://{ws_host}:{ws_port}")
-
-            # Start HTTP Server
-            http_server_thread = threading.Thread(
-                target=start_http_server,
-                args=(http_host, http_port, ui_dir_path),
-                daemon=True,
-                name="HttpServerThread"
-            )
-            http_server_thread.start()
-            # Note: HTTP server startup remains the same.
+        # Start HTTP Server
+        http_server_thread = threading.Thread(
+            target=start_http_server,
+            args=(http_host, http_port, ui_dir_path),
+            daemon=True,
+            name="HttpServerThread"
+        )
+        http_server_thread.start()
+        # Note: HTTP server startup remains the same. We don't have a clean shutdown mechanism here for the HTTP server yet.
 
     # Initialize and run the harness
     try:
