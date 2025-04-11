@@ -23,7 +23,7 @@ async def test_server():
         print("Warning: Server task did not finish cleanly during test cleanup.")
         server_task.cancel() # Force cancel if needed
 
-@pytest.mark.asyncio
+@pytest.mark.anyio # Use the correct marker for the anyio plugin
 async def test_ui_server_connection(test_server):
     """Test that a client can connect to the server."""
     uri = f"ws://{test_server.host}:{test_server.port}"
