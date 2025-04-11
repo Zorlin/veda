@@ -320,11 +320,53 @@ class Harness:
             "run_id": None
         }
 
-    def run(self, initial_goal_prompt: str):
-        """Runs the main Aider-Pytest-Ollama loop with enhanced features."""
+    def _get_file_hash(self, file_path: Path) -> Optional[str]:
+        """Calculates the SHA256 hash of a file's content."""
+        try:
+            hasher = hashlib.sha256()
+            with open(file_path, 'rb') as f:
+                while chunk := f.read(4096):
+                    hasher.update(chunk)
+            return hasher.hexdigest()
+        except FileNotFoundError:
+            logging.error(f"Goal prompt file not found at {file_path} during hash calculation.")
+            return None
+        except IOError as e:
+            logging.error(f"Error reading goal prompt file {file_path} for hashing: {e}")
+            return None
+
+    def run(self, initial_goal_prompt_or_file: str):
+        """
+        Runs the main Aider-Pytest-Ollama loop with enhanced features.
+
+        Args:
+            initial_goal_prompt_or_file: The initial goal prompt string OR path to a file containing the goal.
+        """
         logging.info("Starting harness run...")
         self._send_ui_update({"status": "Starting Run", "log_entry": "Harness run initiated."})
-        
+
+        # Determine if input is a file path or a string
+        goal_prompt_path = Path(initial_goal_prompt_or_file)
+        current_goal_prompt = ""
+        if goal_prompt_path.is_file():
+            logging.info(f"Loading initial goal from file: {goal_prompt_path}")
+            self._goal_prompt_file = goal_prompt_path.resolve() # Store absolute path
+            try:
+                current_goal_prompt = self._goal_prompt_file.read_text()
+                self._last_goal_prompt_hash = self._get_file_hash(self._goal_prompt_file)
+                logging.info(f"Initial goal prompt hash: {self._last_goal_prompt_hash}")
+            except Exception as e:
+                logging.error(f"Failed to read initial goal prompt file {self._goal_prompt_file}: {e}. Aborting.")
+                self._send_ui_update({"status": "Error", "log_entry": f"Failed to read goal file: {e}"})
+                return {"run_id": None, "iterations": 0, "converged": False, "final_status": f"ERROR: Failed to read goal file {self._goal_prompt_file}"}
+        else:
+            logging.info("Using provided string as initial goal prompt.")
+            current_goal_prompt = initial_goal_prompt_or_file
+            self._goal_prompt_file = None # Not using a file
+            self._last_goal_prompt_hash = None
+
+        # Start a new run in the ledger if we don't have an active one
+        if self.state["run_id"] is None:
             self.current_run_id = self.ledger.start_run(
                 current_goal_prompt, # Use the loaded/provided goal
                 self.max_retries,
