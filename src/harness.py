@@ -471,6 +471,9 @@ class Harness:
                         self.ledger.add_message(self.current_run_id, None, "system", goal_change_message) # Associate with run, not specific iteration
                         # Update the variable used in evaluation prompts etc.
                         initial_goal_for_run = current_goal_prompt # Update the correct variable used by eval/retry
+                        # Also update the current_prompt for the *next* iteration if needed,
+                        # although it will likely be overwritten by retry logic if RETRY occurs.
+                        current_prompt = current_goal_prompt
                         self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."})
 
                     except Exception as e:

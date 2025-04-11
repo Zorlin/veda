@@ -754,17 +754,22 @@ def test_interrupt_stops_aider_promptly(
     mock_event_instance = MockEvent.return_value
     mock_event_instance.is_set.return_value = False # Start as not set
 
+    # Simplified mock: Check event once, return INTERRUPTED if set, else simulate work briefly
     def aider_side_effect(*args, **kwargs):
         interrupt_event = kwargs.get("interrupt_event")
-        start_time = time.time()
-        # Simulate work, checking event periodically
-        while time.time() - start_time < 5: # Max 5 seconds simulated work
+        if interrupt_event and interrupt_event.is_set():
+            logging.info("TEST MOCK: Interrupt detected, returning INTERRUPTED")
+            return (None, "INTERRUPTED")
+        else:
+            # Simulate some work if not interrupted immediately
+            logging.info("TEST MOCK: No interrupt, simulating work...")
+            time.sleep(0.2) # Short sleep to represent work
+            # Check again in case interrupt happened during sleep
             if interrupt_event and interrupt_event.is_set():
-                # Simulate Aider stopping and returning INTERRUPTED
-                return (None, "INTERRUPTED")
-            time.sleep(0.1)
-        # If loop finishes without interrupt, return normal diff
-        return ("```diff\n+ normal code\n```", None)
+                 logging.info("TEST MOCK: Interrupt detected after sleep, returning INTERRUPTED")
+                 return (None, "INTERRUPTED")
+            logging.info("TEST MOCK: No interrupt after sleep, returning normal diff")
+            return ("```diff\n+ normal code\n```", None)
 
     mock_run_aider.side_effect = aider_side_effect
 
@@ -836,8 +841,20 @@ def test_interrupt_cleans_up_resources(
     mock_child.wait.side_effect = [pexpect.exceptions.TIMEOUT, 0] # Timeout on SIGTERM wait, then success on SIGKILL wait
     mock_spawn.return_value = mock_child
 
-    # Mock run_aider to simulate running and being interrupted
-    mock_run_aider.side_effect = lambda *args, **kwargs: time.sleep(0.5) or (None, "INTERRUPTED")
+    # Mock run_aider to simulate being interrupted immediately when event is set
+    def aider_interrupt_side_effect(*args, **kwargs):
+        interrupt_event = kwargs.get("interrupt_event")
+        # Simulate checking the event
+        if interrupt_event and interrupt_event.is_set():
+             logging.info("TEST MOCK (cleanup): Interrupt detected, returning INTERRUPTED")
+             return (None, "INTERRUPTED")
+        # Simulate running for a bit if not interrupted immediately
+        logging.warning("TEST MOCK (cleanup): Aider mock ran without interrupt event set?")
+        time.sleep(0.1) # Should ideally not reach here in this test
+        return ("```diff\n+ unexpected normal code\n```", None)
+
+    mock_run_aider.side_effect = aider_interrupt_side_effect
+
 
     # Mock Thread behavior
     mock_thread_instance = MockThread.return_value
