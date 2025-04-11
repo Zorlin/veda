@@ -710,10 +710,11 @@ Remember to respond in the JSON format specified in your instructions.
             summary.append(f"Score: {evaluation.get('score', 'N/A')}")
             summary.append(f"Model: {evaluation.get('model', 'Unknown')}")
             summary.append("")
-            summary.append(evaluation.get('evaluation', 'No evaluation provided'))
+            # Ensure evaluation content is treated as a string
+            summary.append(str(evaluation.get('evaluation', 'No evaluation provided')))
             summary.append("")
             
-            # Add role-specific fields
+            # Add role-specific fields, ensuring values are strings
             if role == "theorist" and "patterns_identified" in evaluation:
                 summary.append("#### Patterns Identified")
                 for pattern in evaluation["patterns_identified"]:
@@ -722,7 +723,7 @@ Remember to respond in the JSON format specified in your instructions.
                 
                 if "entropy_assessment" in evaluation:
                     summary.append(f"#### Entropy Assessment")
-                    summary.append(evaluation["entropy_assessment"])
+                    summary.append(str(evaluation["entropy_assessment"])) # Ensure string
                     summary.append("")
             
             elif role == "architect" and "optimization_opportunities" in evaluation:
@@ -733,7 +734,7 @@ Remember to respond in the JSON format specified in your instructions.
                 
                 if "architectural_impact" in evaluation:
                     summary.append(f"#### Architectural Impact")
-                    summary.append(evaluation["architectural_impact"])
+                    summary.append(str(evaluation["architectural_impact"])) # Ensure string
                     summary.append("")
             
             elif role == "skeptic" and "edge_cases" in evaluation:
@@ -744,7 +745,7 @@ Remember to respond in the JSON format specified in your instructions.
                 
                 if "risk_assessment" in evaluation:
                     summary.append(f"#### Risk Assessment")
-                    summary.append(evaluation["risk_assessment"])
+                    summary.append(str(evaluation["risk_assessment"])) # Ensure string
                     summary.append("")
             
             elif role == "historian" and "historical_patterns" in evaluation:
@@ -755,7 +756,7 @@ Remember to respond in the JSON format specified in your instructions.
                 
                 if "trajectory_assessment" in evaluation:
                     summary.append(f"#### Trajectory Assessment")
-                    summary.append(evaluation["trajectory_assessment"])
+                    summary.append(str(evaluation["trajectory_assessment"])) # Ensure string
                     summary.append("")
             
             elif role == "coordinator" and "consensus_points" in evaluation:
@@ -772,7 +773,7 @@ Remember to respond in the JSON format specified in your instructions.
                 
                 if "overall_assessment" in evaluation:
                     summary.append(f"#### Overall Assessment")
-                    summary.append(evaluation["overall_assessment"])
+                    summary.append(str(evaluation["overall_assessment"])) # Ensure string
                     summary.append("")
             
             # Add concerns and recommendations for all roles
