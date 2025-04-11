@@ -43,8 +43,9 @@
         <div class="mb-4">
             <h2 class="text-xl font-semibold mb-2">Live Aider Output</h2>
             <!-- Use div with x-html to render ANSI codes processed by ansi_up -->
+            <!-- Bind directly to the conversion result -->
             <div class="bg-gray-900 text-gray-300 p-4 rounded h-96 overflow-y-auto text-xs font-mono" x-ref="aiderLogContainer">
-                <div class="log-entry" x-html="processedAiderOutput()"></div>
+                <div class="log-entry" x-html="ansiUp ? ansiUp.ansi_to_html(liveAiderOutput) : liveAiderOutput"></div>
             </div>
         </div>
 
@@ -232,13 +233,7 @@
                     }
                 },
 
-                processedAiderOutput() {
-                    // Process the raw output with ansi_up
-                    if (this.ansiUp) {
-                        return this.ansiUp.ansi_to_html(this.liveAiderOutput);
-                    }
-                    return this.liveAiderOutput; // Fallback if ansi_up not ready
-                },
+                // Removed processedAiderOutput() function, logic moved directly into x-html
 
                 scrollToBottom(refName) {
                     // Scroll the specified container to the bottom
