@@ -7,28 +7,31 @@ from unittest.mock import patch, MagicMock
 from src.ui_server import UIServer
 
 @pytest.fixture
-async def test_server():
-    """Fixture to start and stop the UIServer for testing."""
+async def test_server(anyio_backend):
+    """Fixture to start and stop the UIServer within the test's anyio event loop."""
     server = UIServer(host="127.0.0.1", port=8766) # Use a different port for testing
-    server_task = asyncio.create_task(server.start())
-    server.server_task = server_task # Link task for send_update
-    # Give the server a moment to start up
-    await asyncio.sleep(0.1)
-    yield server
-    # Cleanup: stop the server
-    server.stop()
-    try:
-        await asyncio.wait_for(server_task, timeout=2.0)
-    except asyncio.TimeoutError:
-        print("Warning: Server task did not finish cleanly during test cleanup.")
-        server_task.cancel() # Force cancel if needed
+    
+    async with anyio.create_task_group() as tg:
+        # Start the server in the background using the test's task group
+        server_task = await tg.start(server.start)
+        
+        # Give the server a moment to initialize fully (e.g., bind the port)
+        # A more robust approach might involve waiting for a specific log message or state.
+        await anyio.sleep(0.2) 
+        
+        # Yield the server instance to the test
+        yield server
+        
+        # Cleanup: Signal the server to stop and cancel the task group
+        server.stop()
+        tg.cancel_scope.cancel()
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
 async def test_ui_server_connection(test_server):
     """Test that a client can connect to the server."""
     uri = f"ws://{test_server.host}:{test_server.port}"
     async with websockets.connect(uri) as websocket:
-        assert websocket.is_open() # Use the correct method to check if open
+        # Successful connection is implicitly checked by the context manager not raising an error.
         # Check if initial status is received
         initial_status_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
         initial_status = json.loads(initial_status_str)
@@ -46,10 +49,11 @@ async def test_ui_server_broadcast(test_server):
         await asyncio.wait_for(ws1.recv(), timeout=1.0)
         await asyncio.wait_for(ws2.recv(), timeout=1.0)
         
-        # Broadcast an update
+        # Broadcast an update - await directly since we're in the same loop
         update_data = {"status": "Testing Broadcast", "iteration": 5, "log_entry": "Test log"}
-        # Use run_coroutine_threadsafe as send_update does, simulating harness call
-        asyncio.run_coroutine_threadsafe(test_server.broadcast(update_data), test_server.server_task.get_loop()).result(timeout=1)
+        await test_server.broadcast(update_data)
+        # Add a small sleep to allow broadcast processing if needed, though often not required
+        await anyio.sleep(0.05) 
 
         # Check if both clients received the update
         update1_str = await asyncio.wait_for(ws1.recv(), timeout=1.0)
@@ -71,9 +75,10 @@ async def test_ui_server_latest_status_on_connect(test_server):
     """Test that a new client receives the *latest* status upon connection."""
     uri = f"ws://{test_server.host}:{test_server.port}"
 
-    # Send an update before the client connects
+    # Send an update before the client connects - await directly
     update_data = {"status": "Pre-Connection Update", "run_id": 123, "log_entry": "Status before connect"}
-    asyncio.run_coroutine_threadsafe(test_server.broadcast(update_data), test_server.server_task.get_loop()).result(timeout=1)
+    await test_server.broadcast(update_data)
+    await anyio.sleep(0.05) # Allow broadcast to process
 
     # Connect a new client
     async with websockets.connect(uri) as websocket:
