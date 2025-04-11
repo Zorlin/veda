@@ -97,6 +97,8 @@
                 userInput: '', // For the textarea
                 interruptAider: false, // For the checkbox
                 liveAiderOutput: '', // Raw Aider output with ANSI codes
+                outputBuffer: '', // Buffer for incoming chunks
+                isProcessingScheduled: false, // Flag for debouncing
                 lastInterruptStatus: '', // To store the status of the last interrupt request
                 ansiUp: null, // To hold the ansi_up instance
 
@@ -136,23 +138,17 @@
 
                             // Check message type
                             if (data.type === 'aider_output') {
-                                // Process and append raw chunk
+                                // Buffer the chunk and schedule processing
                                 if (data.chunk) {
-                                    this.processAiderChunk(data.chunk);
-                                    // Limit scrollback
-                                    const lines = this.liveAiderOutput.split('\n');
-                                    const maxLines = 10000;
-                                    if (lines.length > maxLines) {
-                                        // Keep the last maxLines lines
-                                        this.liveAiderOutput = lines.slice(-maxLines).join('\n');
+                                    this.outputBuffer += data.chunk;
+                                    if (!this.isProcessingScheduled) {
+                                        this.isProcessingScheduled = true;
+                                        requestAnimationFrame(() => this.processOutputBuffer());
                                     }
-                                    // Use nextTick to ensure DOM updates before scrolling
-                                    this.$nextTick(() => {
-                                        this.scrollToBottom('aiderLogContainer');
-                                    });
                                 }
                             } else if (data.type === 'aider_output_clear') {
                                 this.liveAiderOutput = ''; // Clear the raw output
+                                this.outputBuffer = ''; // Also clear the buffer
                             } else if (data.type === 'interrupt_ack') {
                                 // Handle interrupt acknowledgment
                                 this.lastInterruptStatus = data.message;
@@ -297,6 +293,42 @@
                     this.liveAiderOutput = currentOutput.replace(ansiEscapePattern, '');
                     
                     // Note: ansi_up will handle color codes later during rendering (x-html)
+                    // Removed redundant ANSI stripping
+                    // this.liveAiderOutput = currentOutput.replace(ansiEscapePattern, '');
+                    this.liveAiderOutput = currentOutput;
+                },
+
+                processOutputBuffer() {
+                    if (this.outputBuffer === '') {
+                        this.isProcessingScheduled = false;
+                        return; // Nothing to process
+                    }
+
+                    const bufferToProcess = this.outputBuffer;
+                    this.outputBuffer = ''; // Clear buffer before processing
+
+                    // Process the entire buffered chunk
+                    this.processAiderChunk(bufferToProcess);
+
+                    // Limit scrollback after processing
+                    const lines = this.liveAiderOutput.split('\n');
+                    const maxLines = 10000; // Keep the limit
+                    if (lines.length > maxLines) {
+                        this.liveAiderOutput = lines.slice(-maxLines).join('\n');
+                    }
+
+                    // Use nextTick to ensure DOM updates before scrolling
+                    this.$nextTick(() => {
+                        this.scrollToBottom('aiderLogContainer');
+                    });
+
+                    // Check if new data arrived while processing
+                    if (this.outputBuffer !== '') {
+                        // Reschedule immediately if buffer has new content
+                        requestAnimationFrame(() => this.processOutputBuffer());
+                    } else {
+                        this.isProcessingScheduled = false; // Allow new scheduling
+                    }
                 }
             }
         }
