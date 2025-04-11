@@ -7,6 +7,18 @@ from unittest.mock import patch, MagicMock
 from src.vesper_mind import VesperMind
 from src.ledger import Ledger
 
+# Module-level mock for get_llm_response to avoid repeated model checks
+_llm_mock = None
+
+@pytest.fixture(scope="module")
+def mock_get_llm():
+    """Create a module-scoped mock for get_llm_response."""
+    global _llm_mock
+    with patch('src.vesper_mind.get_llm_response') as mock:
+        mock.return_value = "OK"
+        _llm_mock = mock
+        yield mock
+
 @pytest.fixture
 def temp_work_dir(tmp_path):
     """Create a temporary working directory for tests."""
@@ -33,13 +45,9 @@ def sample_config():
     }
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 def test_vesper_council_initialization(mock_get_llm, temp_work_dir, mock_ledger, sample_config):
     """Test that the VESPER.MIND council initializes correctly."""
-    # Mock the LLM response for model availability check
-    mock_get_llm.return_value = "OK"
-    
-    # Initialize the council
+    # Initialize the council (mock_get_llm is already set up at module level)
     council = VesperMind(sample_config, mock_ledger, temp_work_dir)
     
     # Check that the council was initialized with the correct models
@@ -58,10 +66,9 @@ def test_vesper_council_initialization(mock_get_llm, temp_work_dir, mock_ledger,
     assert (temp_work_dir / "council_outputs").exists()
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 def test_open_source_evaluation(mock_get_llm, temp_work_dir, mock_ledger, sample_config):
     """Test that the open-source evaluation works correctly."""
-    # Mock the LLM response for model availability check
+    # Update the mock for this specific test
     mock_get_llm.return_value = json.dumps({
         "evaluation": "This is a test evaluation",
         "score": 0.8,
@@ -93,10 +100,9 @@ def test_open_source_evaluation(mock_get_llm, temp_work_dir, mock_ledger, sample
     assert evaluation["test_passed"] == True
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 def test_closed_source_evaluation(mock_get_llm, temp_work_dir, mock_ledger, sample_config):
     """Test that the closed-source evaluation works correctly."""
-    # Mock the LLM response for model availability check
+    # Update the mock for this specific test
     mock_get_llm.return_value = json.dumps({
         "evaluation": "This is a test evaluation",
         "score": 0.9,
@@ -131,11 +137,9 @@ def test_closed_source_evaluation(mock_get_llm, temp_work_dir, mock_ledger, samp
     assert evaluation["test_passed"] == True
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 def test_synthesize_open_source_evaluations(mock_get_llm, temp_work_dir, mock_ledger, sample_config):
     """Test that the open-source evaluations are synthesized correctly."""
-    # Mock the LLM response for model availability check
-    mock_get_llm.return_value = "OK"
+    # The mock is already set up at module level
     
     # Initialize the council
     council = VesperMind(sample_config, mock_ledger, temp_work_dir)
@@ -183,11 +187,9 @@ def test_synthesize_open_source_evaluations(mock_get_llm, temp_work_dir, mock_le
     assert "Architect recommendation" in synthesis
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 def test_determine_final_verdict(mock_get_llm, temp_work_dir, mock_ledger, sample_config):
     """Test that the final verdict is determined correctly."""
-    # Mock the LLM response for model availability check
-    mock_get_llm.return_value = "OK"
+    # The mock is already set up at module level
     
     # Initialize the council
     council = VesperMind(sample_config, mock_ledger, temp_work_dir)
@@ -264,10 +266,9 @@ def test_determine_final_verdict(mock_get_llm, temp_work_dir, mock_ledger, sampl
     assert "Arbiter suggestions" in suggestions
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 def test_generate_changelog(mock_get_llm, temp_work_dir, mock_ledger, sample_config, monkeypatch):
     """Test changelog generation."""
-    # Mock the get_llm_response function
+    # Update the mock for this specific test
     mock_get_llm.return_value = "## Test Changelog\n\nThis is a test changelog."
     
     # Mock the ledger.get_run_summary method

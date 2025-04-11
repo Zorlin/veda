@@ -7,6 +7,19 @@ from unittest.mock import patch, MagicMock
 from src.harness import Harness
 from src.vesper_mind import VesperMind
 
+# Module-level mock for get_llm_response to avoid repeated model checks
+_llm_mock = None
+_harness_instance = None
+
+@pytest.fixture(scope="module")
+def mock_get_llm():
+    """Create a module-scoped mock for get_llm_response."""
+    global _llm_mock
+    with patch('src.vesper_mind.get_llm_response') as mock:
+        mock.return_value = "OK"
+        _llm_mock = mock
+        yield mock
+
 @pytest.fixture
 def temp_harness_work_dir(tmp_path):
     """Create a temporary working directory for tests."""
@@ -32,23 +45,26 @@ storage_type: "sqlite"
     return config_path
 
 @pytest.fixture
-def harness_vesper_instance(temp_harness_work_dir, sample_config_path):
+def harness_vesper_instance(mock_get_llm, temp_harness_work_dir, sample_config_path):
     """Create a harness instance with VESPER.MIND enabled."""
-    with patch('src.vesper_mind.get_llm_response') as mock_get_llm:
-        # Mock the LLM response for model availability check
-        mock_get_llm.return_value = "OK"
-        
-        harness = Harness(
-            config_file=str(sample_config_path),
-            work_dir=temp_harness_work_dir,
-            enable_council=True,
-            enable_code_review=True
-        )
-        
-        return harness
+    global _harness_instance
+    
+    # If we already have a harness instance for this test session, return it
+    if _harness_instance is not None:
+        return _harness_instance
+    
+    # Otherwise, create a new one
+    harness = Harness(
+        config_file=str(sample_config_path),
+        work_dir=temp_harness_work_dir,
+        enable_council=True,
+        enable_code_review=True
+    )
+    
+    _harness_instance = harness
+    return harness
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 @patch('src.harness.run_pytest')
 @patch('src.harness.run_aider')
 def test_harness_with_vesper_council(mock_run_aider, mock_run_pytest, mock_get_llm, harness_vesper_instance):
@@ -161,7 +177,6 @@ def test_harness_with_vesper_council(mock_run_aider, mock_run_pytest, mock_get_l
     assert review_dir.exists()
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 @patch('src.harness.run_pytest')
 @patch('src.harness.run_aider')
 def test_harness_with_vesper_council_retry(mock_run_aider, mock_run_pytest, mock_get_llm, harness_vesper_instance):
@@ -265,7 +280,6 @@ def test_harness_with_vesper_council_retry(mock_run_aider, mock_run_pytest, mock
     assert council_dir.exists()
 
 @pytest.mark.vesper
-@patch('src.vesper_mind.get_llm_response')
 @patch('src.harness.run_pytest')
 @patch('src.harness.run_aider')
 def test_harness_with_vesper_council_failure(mock_run_aider, mock_run_pytest, mock_get_llm, harness_vesper_instance):
