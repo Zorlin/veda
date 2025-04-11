@@ -89,9 +89,8 @@ def test_harness_init_defaults(temp_work_dir, default_config):
     # Check if default config is loaded (project_dir needs careful check)
     assert harness.config["ollama_model"] == default_config["ollama_model"]
     assert harness.config["aider_command"] == default_config["aider_command"]
-    # The final work_dir should be project_dir / work_dir.name
-    # expected_work_dir calculated above for cleanup
-    assert harness.work_dir == expected_work_dir.resolve()
+    # The final work_dir should be the resolved path passed to the constructor
+    assert harness.work_dir == temp_work_dir.resolve()
 
     # Check default state initialization (should be fresh as we cleaned the state file)
     assert harness.state["current_iteration"] == 0
@@ -112,9 +111,8 @@ def test_harness_init_with_config_file(temp_work_dir, sample_config_path, defaul
     project_root = Path(__file__).parent.parent
     expected_project_dir = (project_root / "dummy_project").resolve()
     assert harness.config["project_dir"] == str(expected_project_dir)
-    # Check work_dir resolution (relative to loaded project_dir)
-    expected_work_dir = expected_project_dir / temp_work_dir.name
-    assert harness.work_dir == expected_work_dir.resolve()
+    # Check work_dir resolution (should be resolved relative to CWD, not project_dir)
+    assert harness.work_dir == temp_work_dir.resolve()
 
 
 def test_harness_init_override_model(temp_work_dir, sample_config_path):
@@ -199,9 +197,8 @@ def test_load_config_project_dir_absolute(temp_work_dir, default_config):
 
     harness = Harness(config_file=str(config_path), work_dir=temp_work_dir)
     assert harness.config["project_dir"] == str(abs_project_path)
-    # Work dir should be resolved relative to this absolute path
-    expected_work_dir = abs_project_path / temp_work_dir.name
-    assert harness.work_dir == expected_work_dir.resolve()
+    # Work dir should be resolved relative to CWD, not project_dir
+    assert harness.work_dir == temp_work_dir.resolve()
 
 
 # --- Test _initialize_state Method ---
