@@ -76,7 +76,7 @@ class UIServer:
         self.clients.remove(websocket)
         logger.info(f"Client disconnected: {websocket.remote_address}")
 
-    async def _handler(self, websocket: ServerProtocol, path: str): # Updated type hint
+    async def _handler(self, websocket: ServerProtocol): # Removed unused 'path' parameter
         """Handle incoming WebSocket connections and messages."""
         # Registration is now handled after _process_request returns None
         await self._register(websocket)

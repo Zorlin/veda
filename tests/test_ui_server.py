@@ -28,14 +28,14 @@ async def test_ui_server_connection(test_server):
     """Test that a client can connect to the server."""
     uri = f"ws://{test_server.host}:{test_server.port}"
     async with websockets.connect(uri) as websocket:
-        assert websocket.open
+        assert websocket.is_open() # Use the correct method to check if open
         # Check if initial status is received
         initial_status_str = await asyncio.wait_for(websocket.recv(), timeout=1.0)
         initial_status = json.loads(initial_status_str)
         assert "status" in initial_status
         assert initial_status["status"] == "Initializing"
 
-@pytest.mark.asyncio
+@pytest.mark.anyio # Use the correct marker for the anyio plugin
 async def test_ui_server_broadcast(test_server):
     """Test that the server broadcasts messages to connected clients."""
     uri = f"ws://{test_server.host}:{test_server.port}"
@@ -66,7 +66,7 @@ async def test_ui_server_broadcast(test_server):
         assert update2["iteration"] == 5
         assert "Test log" in update2["log"]
 
-@pytest.mark.asyncio
+@pytest.mark.anyio # Use the correct marker for the anyio plugin
 async def test_ui_server_latest_status_on_connect(test_server):
     """Test that a new client receives the *latest* status upon connection."""
     uri = f"ws://{test_server.host}:{test_server.port}"
