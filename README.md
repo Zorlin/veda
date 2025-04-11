@@ -18,7 +18,7 @@ The current council configuration uses the following models (as defined in `conf
 - **Skeptic:** `gemma3:12b` - Challenges assumptions, looks for edge cases, and potential issues.
 - **Historian:** `qwen2.5:14b` - Considers the changes in the context of the project's history and evolution.
 - **Coordinator:** `command-r7b` - Synthesizes the inputs from other council members to provide a summary.
-- *(Note: Closed-source Arbiter, Canonizer, Redactor roles are planned but not yet implemented).*
+- *(Note: Closed-source Arbiter, Canonizer, Redactor roles are planned but not yet implemented. These roles would typically provide final judgment, integrate successful changes into a canonical representation, and potentially edit or refine the final output based on the council's findings).*
 
 The council's collective judgment helps determine if the iteration was successful, needs refinement, or should be rejected.
 
@@ -102,7 +102,7 @@ def test_llm_handles_failed_output_and_suggests_retry():
     """When given failed output, LLM must respond with a retry plan."""
 
 @pytest.mark.llm
-def test_llm_flags_invalid_or_unusable output():
+def test_llm_flags_invalid_or_unusable_output():
     """If output is invalid Python or contradicts intent, LLM must block it."""
 ```
 
