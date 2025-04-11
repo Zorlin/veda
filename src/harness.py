@@ -4,7 +4,7 @@ import subprocess
 import time
 from pathlib import Path
 import json
-from typing import Dict, Any, Optional, List # Add List
+from typing import Dict, Any, Optional, List, Tuple # Add Tuple
 
 import yaml
 
@@ -31,18 +31,17 @@ class Harness:
     ):
         self.config_file = config_file
         self.max_retries = max_retries
-        self.work_dir = work_dir
-        self.config: Dict[str, Any] = self._load_config()
+        self.work_dir = work_dir # Initial work_dir path
+        self.config: Dict[str, Any] = self._load_config() # Load config, potentially updating self.work_dir
         # Override config model if CLI argument is provided
         if ollama_model:
             logging.info(f"Overriding configured Ollama model with command-line argument: {ollama_model}")
             self.config["ollama_model"] = ollama_model
-        # Initialize state *after* work_dir is potentially updated by config
-        self.state: Dict[str, Any] = {} # Initialize temporarily
+        # Initialize state *after* config is loaded and work_dir is finalized
+        self.state: Dict[str, Any] = self._initialize_state(reset_state) # Pass flag from __init__
         # self.logger = Logger(log_dir=self.work_dir / "logs") # Placeholder for future logging/ledger
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
-        # State initialization moved after work_dir is finalized
-        # logging.info(f"Working directory: {self.work_dir.resolve()}") # Logged after config load
+        logging.info(f"Working directory used for state: {self.work_dir.resolve()}")
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads configuration from the YAML file."""
@@ -101,8 +100,7 @@ class Harness:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         logging.info(f"Resolved working directory: {self.work_dir.resolve()}")
 
-        # Now initialize state using the final work_dir
-        self.state = self._initialize_state(reset_state)
+        # State initialization moved to __init__ after this method returns
 
         return config
 
