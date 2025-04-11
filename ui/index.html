@@ -6,7 +6,7 @@
     <title>Aider Harness UI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://unpkg.com/ansi_up@5.1.0/ansi_up.js"></script> <!-- Add ansi_up library -->
+    <script src="https://unpkg.com/ansi-to-html@0.7.2/lib/ansi_to_html.js"></script> <!-- Replace ansi_up with ansi-to-html -->
     <style>
         /* Basic styling */
         body { font-family: sans-serif; }
@@ -72,9 +72,9 @@
                 <div class="log-entry" x-html="() => {
                     try {
                         // console.log('Rendering liveAiderOutput length:', liveAiderOutput.length); // Optional: log before render
-                        return ansiUp ? ansiUp.ansi_to_html(liveAiderOutput) : liveAiderOutput;
+                        return ansiConverter ? ansiConverter.toHtml(liveAiderOutput) : liveAiderOutput;
                     } catch (e) {
-                        console.error('AnsiUp conversion error:', e);
+                        console.error('ansi-to-html conversion error:', e);
                         return `<span style=&quot;color: red; font-weight: bold;&quot;>Error rendering output: ${e.message}</span><br>${liveAiderOutput}`; // Show error and raw output
                     }
                 }"></div>
@@ -136,13 +136,14 @@
                 outputBuffer: '', // Buffer for incoming chunks
                 isProcessingScheduled: false, // Flag for debouncing
                 lastInterruptStatus: '', // To store the status of the last interrupt request
-                ansiUp: null, // To hold the ansi_up instance
+                ansiConverter: null, // To hold the ansi-to-html instance
                 lastLogEntry: null, // Track last log entry to prevent duplicates
                 lastProcessedChunk: '', // Track the last processed aider output chunk to prevent duplicates
 
                 init() {
                     console.log('Initializing Harness UI...');
-                    this.ansiUp = new AnsiUp(); // Initialize ansi_up
+                    // Initialize ansi-to-html with desired options (e.g., handle newlines)
+                    this.ansiConverter = new Convert({ newline: true, escapeXML: true }); 
                     this.connectWebSocket();
                 },
 
