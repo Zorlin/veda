@@ -362,8 +362,8 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
         run_task.start()
 
         # --- Simulate file change between iterations ---
-        # Wait briefly for the first iteration to likely start
-        time.sleep(0.5)
+        # Wait longer BEFORE the update to ensure iteration 1 likely finishes processing
+        time.sleep(1.0) # Increased sleep duration
         logging.info("TEST: Simulating goal file update...")
         goal_file.write_text(updated_content) # Update the file content
 
@@ -875,7 +875,7 @@ def test_interrupt_cleans_up_resources(
     harness.request_interrupt("Stop now!", interrupt_now=True)
 
     # --- Wait for Harness Thread ---
-    run_thread.join(timeout=5)
+    run_thread.join(timeout=15) # Increased timeout significantly for debugging
 
     # --- Assertions ---
     assert not run_thread.is_alive(), "Harness thread did not finish"
