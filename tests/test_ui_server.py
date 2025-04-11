@@ -299,7 +299,7 @@ def test_diff_viewer_prevents_duplication():
 @pytest.mark.ui
 @pytest.mark.skip(reason="Requires frontend rendering/interaction to verify.")
 def test_aider_control_codes_are_handled():
-    """Verify Aider output correctly interprets control codes (e.g., \c for cancel)."""
+    """Verify Aider output correctly interprets control codes (e.g., \\c for cancel)."""
     # Backend sends raw chunks including control codes. Frontend (`ansi_up`, potentially other JS) handles interpretation.
     pass
 

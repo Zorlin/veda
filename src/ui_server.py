@@ -216,14 +216,6 @@ class UIServer:
 
     async def _update_listener(self):
         """Listen for updates from the Harness via the receive stream."""
-        # Remove disconnected clients after iteration
-        for client in disconnected_clients:
-            if client in self.clients:
-                 await self._unregister(client)
-
-
-    async def _update_listener(self):
-        """Listen for updates from the Harness via the receive stream."""
         if not self.ui_receive_stream:
             logger.error("Receive stream not set. Cannot start update listener.")
             return
