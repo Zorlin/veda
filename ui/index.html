@@ -93,7 +93,8 @@
                 retrying: false, // Flag to indicate if a retry is scheduled
                 userInput: '', // For the textarea
                 interruptAider: false, // For the checkbox
-+               liveAiderOutput: '', // To store live output from Aider
+                liveAiderOutput: '', // To store live output from Aider
+                lastInterruptStatus: '', // To store the status of the last interrupt request
 
                 init() {
                     console.log('Initializing Harness UI...');
