@@ -104,15 +104,21 @@ def run_aider(
         - An error message string (if an error occurred).
     """
     aider_command = config.get("aider_command", "aider")
-    # Remove --yes, add --message with the initial prompt
+    # Quote the prompt to handle spaces and special characters
+    quoted_prompt = shlex.quote(prompt)
+    # Remove --yes, add --message with the quoted initial prompt
     command_args = [
-        "--message", prompt,
+        f"--message {quoted_prompt}", # Pass the quoted prompt as part of the argument
         # Add other necessary aider flags from config if needed
         # e.g., "--model", config.get("aider_model", "gpt-4")
     ]
+    # Construct the command string carefully
     full_command = f"{aider_command} {' '.join(command_args)}"
 
+
     logger.info(f"Spawning Aider command: {full_command} in {work_dir}")
+    # Log the prompt separately for clarity, avoiding potential quoting issues in logs
+    logger.debug(f"Aider prompt content:\n{prompt}")
     full_output = "" # Accumulate all output from the session
 
     try:
