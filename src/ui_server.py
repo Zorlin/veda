@@ -235,12 +235,8 @@ class UIServer:
                         # Let the loop finish, srv will remain None
                         break # Exit loop on final OSError failure
                 except RuntimeError as e:
-                    # Catch the specific RuntimeError indicating backend incompatibility
-                    if "no running event loop" in str(e):
-                         logger.error(f"Failed to start WebSocket server on {self.host}:{current_port}: {e}. This often indicates incompatibility between the 'websockets' library and the current async backend (e.g., Trio).")
-                    else:
-                         # Log other RuntimeErrors differently if needed, or re-raise
-                         logger.exception(f"An unexpected RuntimeError occurred during server startup attempt on port {current_port}: {e}")
+                    # Catch RuntimeErrors during startup
+                    logger.exception(f"An unexpected RuntimeError occurred during server startup attempt on port {current_port}: {e}")
                     srv = None # Ensure srv is None after this kind of error
                     break # Exit loop, cannot proceed
                 except Exception as e:
