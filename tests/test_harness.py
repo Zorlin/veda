@@ -36,7 +36,9 @@ def default_config():
         "ollama_model": "gemma3:12b",
         "ollama_api_url": "http://localhost:11434/api/generate",
         "aider_command": "aider",
+        "aider_test_command": "pytest -v", # Added default
         "project_dir": resolved_project_dir,
+        "ollama_request_timeout": 300, # Added default
     }
 
 @pytest.fixture
