@@ -32,6 +32,7 @@ def test_harness_initializes_config_directory(tmp_path):
 
 
 @pytest.mark.bootstrap
+@pytest.mark.long # Mark as a long-running test
 def test_ollama_model_is_accessible():
     """Validate Ollama can be called and returns basic output."""
     # Assuming default Ollama URL from harness defaults for now
@@ -64,6 +65,7 @@ def test_ollama_model_is_accessible():
 
 
 @pytest.mark.bootstrap
+@pytest.mark.long # Mark as a long-running test
 def test_aider_starts_and_receives_prompt():
     """Ensure Aider subprocess can be called and returns basic output (version)."""
     aider_command = "aider" # Assuming aider is in PATH (from harness defaults)
