@@ -17,12 +17,12 @@ def anyio_backend(request):
 async def test_server(anyio_backend): # Add anyio_backend fixture back
     """Fixture to start and stop the UIServer within the test's anyio event loop."""
 
-    # Use a different port for testing
-    server = UIServer(host="127.0.0.1", port=8766) 
-    
     # Create a memory stream pair for testing
     send_stream, receive_stream = anyio.create_memory_object_stream(float('inf'))
-    server.set_receive_stream(receive_stream)
+
+    # Use a different port for testing and pass the stream to the constructor
+    server = UIServer(host="127.0.0.1", port=8766, receive_stream=receive_stream)
+    # server.set_receive_stream(receive_stream) # Removed this line
     
     async with anyio.create_task_group() as tg:
         # Start the server in the background using the test's task group
