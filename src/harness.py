@@ -1063,7 +1063,7 @@ Status: {'PASSED' if pytest_passed else 'FAILED'}
 {pytest_output if pytest_output else "[No output captured]"}
 ```
 
-Based on the initial goal, the conversation history, the latest code changes (diff), and the test results, evaluate the outcome.
+Based on the **current goal**, the conversation history, the latest code changes (diff), and the test results, evaluate the outcome.
 
 Detailed Evaluation Criteria:
 1. Goal Alignment: Do the changes directly address the requirements in the current goal?
