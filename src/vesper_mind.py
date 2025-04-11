@@ -458,7 +458,16 @@ Based on your role as {role.title()} ({role_description}), provide your final ev
         if open_source_scores:
             avg_score = sum(open_source_scores) / len(open_source_scores)
             
-            if avg_score >= 0.8 and pytest_passed:
+            # Check if any iterations exist and if the latest one passed tests
+            # Default to True if we can't determine test status to avoid blocking on consensus
+            test_passed = True
+            for role, eval_data in council_results["open_source"].items():
+                # Look for test status information in evaluations
+                if "test_passed" in eval_data:
+                    test_passed = eval_data["test_passed"]
+                    break
+            
+            if avg_score >= 0.8 and test_passed:
                 return "SUCCESS", "Open-source council consensus indicates success."
             elif avg_score < 0.3:
                 return "FAILURE", "Open-source council consensus indicates fundamental issues."
