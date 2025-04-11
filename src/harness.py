@@ -232,18 +232,18 @@ class Harness:
                 if config_path.is_file():
                     with open(config_path, 'r') as f:
                         user_config = yaml.safe_load(f)
-                     # Check user_config *after* the 'with open' block closes the file
-                     if user_config: # Ensure file is not empty and is a dict
-                         if isinstance(user_config, dict):
-                             config.update(user_config)
-                             logging.info(f"Loaded and merged configuration from {self.config_file}")
-                         else:
-                             logging.warning(f"Config file {self.config_file} does not contain a valid dictionary. Using defaults.")
-                     else:
-                         logging.info(f"Config file {self.config_file} is empty. Using defaults.")
-                 else: # This corresponds to 'if config_path.is_file():'
-                     logging.warning(f"Config file {self.config_file} not found. Using default configuration.")
-                     # Optionally create a default config file here
+                    # Check user_config *after* the 'with open' block closes the file
+                    if user_config: # Ensure file is not empty and is a dict
+                        if isinstance(user_config, dict):
+                            config.update(user_config)
+                            logging.info(f"Loaded and merged configuration from {self.config_file}")
+                        else:
+                            logging.warning(f"Config file {self.config_file} does not contain a valid dictionary. Using defaults.")
+                    else:
+                        logging.info(f"Config file {self.config_file} is empty. Using defaults.")
+                else: # This corresponds to 'if config_path.is_file():'
+                    logging.warning(f"Config file {self.config_file} not found. Using default configuration.")
+                    # Optionally create a default config file here
                  # try:
                  #     with open(config_path, 'w') as f:
                  #         yaml.dump(default_config, f, default_flow_style=False)
