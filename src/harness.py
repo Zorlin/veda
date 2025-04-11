@@ -375,30 +375,6 @@ Based *only* on the suggestions above, please modify the code to address the ide
         return retry_prompt.strip()
 
 # Example usage (for testing purposes, normally called from main.py)
-
-Aider Diff:
-```diff
-{aider_diff}
-```
-
-Pytest Output:
-```
-{pytest_output}
-```
-
-Evaluation and Suggestions for Improvement:
-{suggestions}
-
-Based on these suggestions, please refine the code to address the issues and better achieve the original goal.
-Original Goal Reminder: [Insert original goal here]
-Previous Prompt: {previous_prompt}
-
-Apply the necessary changes.
-"""
-        logging.warning("Retry prompt creation not fully implemented.")
-        return retry_prompt.strip()
-
-# Example usage (for testing purposes, normally called from main.py)
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     # Create dummy work dir for standalone testing
