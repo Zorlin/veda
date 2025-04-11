@@ -18,15 +18,20 @@ logger = logging.getLogger(__name__)
 class UIServer:
     """Handles WebSocket connections, listens for updates, and broadcasts them."""
 
-    def __init__(self, host: str = "localhost", port: int = 8765):
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 8765,
+        receive_stream: Optional[MemoryObjectReceiveStream] = None # Add stream to constructor
+    ):
         self.host = host
         self.port = port
         self.clients: Set[ServerProtocol] = set()
         self.server_task: Optional[asyncio.Task] = None
         self.stop_event = asyncio.Event()
         self.latest_status: Dict[str, Any] = {"status": "Initializing", "run_id": None, "iteration": 0, "log": []}
-        # Stream for receiving updates from Harness
-        self.ui_receive_stream: Optional[MemoryObjectReceiveStream] = None
+        # Stream for receiving updates from Harness (passed during init)
+        self.ui_receive_stream: Optional[MemoryObjectReceiveStream] = receive_stream
         # Reference to Harness for sending interrupts back
         self.harness_instance: Optional['Harness'] = None
         # Define the path to the UI directory relative to this file's location or project root
@@ -42,9 +47,7 @@ class UIServer:
         """Allows main script to inject the Harness instance for callbacks."""
         self.harness_instance = harness_instance
 
-    def set_receive_stream(self, receive_stream: MemoryObjectReceiveStream):
-        """Allows main script to inject the receive stream."""
-        self.ui_receive_stream = receive_stream
+    # Removed set_receive_stream method
 
     async def _register(self, websocket: ServerProtocol):
         """Register a new client WebSocket connection."""
@@ -310,8 +313,9 @@ async def main_test():
     # Create a dummy stream pair for testing
     send_stream, receive_stream = anyio.create_memory_object_stream(float('inf'))
 
-    server = UIServer()
-    server.set_receive_stream(receive_stream) # Inject the stream
+    # Pass the stream during initialization
+    server = UIServer(receive_stream=receive_stream)
+    # server.set_receive_stream(receive_stream) # No longer needed
 
     async with anyio.create_task_group() as tg:
         # Start the server in the background using the task group
