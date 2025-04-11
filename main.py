@@ -172,7 +172,6 @@ This harness must be able to work on any project with a `pytest`-compatible test
             enable_ui=args.enable_ui or None, # Pass None if not set, Harness will use config
             websocket_host=args.ui_host,      # Pass None if not set
             websocket_port=args.ui_port       # Pass None if not set
-            websocket_port=args.ui_port       # Pass None if not set
         )
         
         # Start WebSocket server if enabled
