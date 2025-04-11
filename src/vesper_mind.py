@@ -826,8 +826,8 @@ Remember to respond in the JSON format specified in your instructions.
                 critical_issues = council_results["closed_source"]["arbiter"].get("critical_issues", [])
                 if critical_issues:
                     issues_str = "\n".join([f"- {issue}" for issue in critical_issues])
-                    return "FAILURE", f"{arbiter_suggestions}\n\n## Critical Issues\n\n{issues_str}\n\n## Rationale\n\n{arbiter_rationale}"
-                return "FAILURE", f"{arbiter_suggestions}\n\n## Rationale\n\n{arbiter_rationale}"
+                    return "FAILURE", f"{arbiter_suggestions}\n\n## Critical Issues\n\n{issues_str}"
+                return "FAILURE", f"{arbiter_suggestions}"
             
             # Otherwise, it's a RETRY with suggestions
             suggestions = arbiter_suggestions

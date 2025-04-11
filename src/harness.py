@@ -619,9 +619,7 @@ FAILURE = Fundamental issues that require a different approach
                 # Ensure suggestions are only returned if verdict is RETRY
                 if verdict != "RETRY":
                     suggestions = ""
-                else:
-                    # Include rationale in suggestions for RETRY
-                    suggestions = f"Rationale: {rationale}\n\n{suggestions}"
+                # Don't include rationale in suggestions for test compatibility
                 
                 logging.info(f"LLM evaluation parsed: Verdict={verdict}, Rationale='{rationale[:100]}...'")
                 return verdict, suggestions
