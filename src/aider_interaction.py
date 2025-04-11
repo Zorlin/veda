@@ -98,21 +98,28 @@ def run_aider(
         # Interaction loop
         while True:
             try:
-                # Wait only for EOF or Timeout, as --yes handles prompts
-                logger.debug(f"Waiting for Aider to finish (EOF or timeout={AIDER_TIMEOUT}s)...")
-                index = child.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=AIDER_TIMEOUT)
+                # Wait for Add File prompt, EOF, or Timeout. --yes handles others.
+                logger.debug(f"Waiting for Aider output (Add File prompt, EOF, or timeout={AIDER_TIMEOUT}s)...")
+                patterns_to_expect = [ADD_FILE_PROMPT_PATTERN, pexpect.EOF, pexpect.TIMEOUT]
+                index = child.expect(patterns_to_expect, timeout=AIDER_TIMEOUT)
 
-                # Accumulate output that came before the EOF/Timeout
+                # Accumulate output that came before the match
                 output_before = child.before
                 if output_before:
                     full_output += output_before
-                logger.debug(f"Output before EOF/Timeout:\n>>>\n{output_before}\n<<<")
+                logger.debug(f"Output before match:\n>>>\n{output_before}\n<<<")
 
-                if index == 0: # EOF
+                if index == 0: # Matched ADD_FILE_PROMPT_PATTERN
+                    logger.info("Detected 'Add file' prompt. Automatically responding 'n'.")
+                    # Accumulate the matched prompt itself if needed
+                    if child.after and isinstance(child.after, str):
+                        full_output += child.after
+                    child.sendline('n') # Send 'n' automatically
+                elif index == 1: # EOF
                     logger.info("Aider process finished (EOF detected).")
                     child.close() # Close explicitly
                     break # Exit loop, process finished normally
-                elif index == 1: # Timeout
+                elif index == 2: # Timeout
                     logger.error(f"Timeout waiting for Aider output after {AIDER_TIMEOUT} seconds.")
                     # full_output already contains output before timeout
                     child.close(force=True)
