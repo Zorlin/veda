@@ -30,12 +30,17 @@ class Harness:
         config_file: str = "config.yaml",
         max_retries: int = 5,
         work_dir: Path = Path("harness_work_dir"),
-        reset_state: bool = False, # Add reset_state parameter
+        reset_state: bool = False,
+        ollama_model: Optional[str] = None, # Add ollama_model parameter
     ):
         self.config_file = config_file
         self.max_retries = max_retries
         self.work_dir = work_dir
         self.config: Dict[str, Any] = self._load_config()
+        # Override config model if CLI argument is provided
+        if ollama_model:
+            logging.info(f"Overriding configured Ollama model with command-line argument: {ollama_model}")
+            self.config["ollama_model"] = ollama_model
         self.state: Dict[str, Any] = self._initialize_state(reset_state) # Pass flag
         # self.logger = Logger(log_dir=self.work_dir / "logs") # Placeholder
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
@@ -210,11 +215,7 @@ class Harness:
                 # self.logger.log_iteration(iteration, "pytest_output", pytest_output) # Placeholder
                 # self.logger.log_iteration(iteration, "pytest_passed", pytest_passed) # Placeholder
 
-                # 3. Run Pytest
-                logging.info("Running pytest...")
-                pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
-                summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
-                logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
+                # --- Removed duplicate pytest run ---
 
                 # 4. Evaluate Outcome with LLM
                 logging.info("Evaluating outcome with LLM...")
@@ -258,7 +259,8 @@ Suggestions: [Provide concise suggestions ONLY if verdict is RETRY, otherwise le
                 except Exception as e:
                     logging.error(f"Error during LLM evaluation: {e}. Defaulting to RETRY.")
                     verdict = "RETRY"
-                    suggestions = f"An error occurred during evaluation: {e}. Please review the previous attempt and try again."
+                    # Provide a more generic suggestion if the evaluation itself failed
+                    suggestions = f"An error occurred during the evaluation step ({e}). Please review the previous code changes and test results, then try to improve the code to meet the original goal."
 
                 # 5. Decide next step
                 if verdict == "SUCCESS":
