@@ -124,7 +124,7 @@ def run_aider(
         loop_timeout = 0.5 # seconds (Reduced for responsiveness)
 
         while True:
-            # --- Check for Interrupt Signal ---
+            # --- Check for Interrupt Signal First ---
             if interrupt_event and interrupt_event.is_set():
                 logger.warning("Interrupt signal received. Attempting to terminate Aider process forcefully.")
                 full_output += "\n[Harness: Aider process interrupted by user signal]\n"
@@ -191,7 +191,8 @@ def run_aider(
                     # This is the normal case when Aider is running/thinking.
                     # Output up to this point was captured in output_chunk.
                     # Loop continues to check interrupt and wait for more output/EOF.
-                    pass # Continue the loop
+                    # Add a small sleep to prevent tight-looping on timeout when idle
+                    time.sleep(0.05) # 50ms sleep
 
             except pexpect.exceptions.ExceptionPexpect as e:
                  # Catch specific pexpect errors during the expect() call (other than Timeout/EOF)
