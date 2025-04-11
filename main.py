@@ -51,6 +51,12 @@ def main():
         action="store_true", # Makes it a flag, default is False
         help="Ignore any saved state and start a fresh run.",
     )
+    parser.add_argument(
+        "--ollama-model",
+        type=str,
+        default=None, # Default to None, so we only override if provided
+        help="Specify the Ollama model to use (overrides config file).",
+    )
     # Add more arguments as needed (e.g., specific Ollama model, Aider args)
 
     args = parser.parse_args()
@@ -100,7 +106,8 @@ This harness must be able to work on any project with a `pytest`-compatible test
             config_file=args.config_file,
             max_retries=args.max_retries,
             work_dir=work_dir_path,
-            reset_state=args.reset_state, # Pass the flag here
+            reset_state=args.reset_state,
+            ollama_model=args.ollama_model, # Pass the new argument
         )
         harness.run(initial_goal_prompt)
     except Exception as e:
