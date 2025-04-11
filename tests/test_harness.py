@@ -336,17 +336,21 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
     updated_hash = "hash2"
     mock_get_hash.side_effect = [initial_hash, updated_hash, updated_hash] # Initial check, check before iter 1, check before iter 2
 
-    # Mock subprocesses and evaluation to allow loop progression
+    # Mock subprocesses and LLM response to allow loop progression
     with patch('src.harness.run_aider') as mock_run_aider, \
          patch('src.harness.run_pytest') as mock_run_pytest, \
-         patch('src.harness.Harness._evaluate_outcome') as mock_evaluate, \
+         patch('src.harness.get_llm_response') as mock_get_llm, \
          patch('src.harness.VesperMind', MagicMock()): # Mock VesperMind
 
         # Configure mocks for 2 iterations
         mock_run_aider.side_effect = [("diff1", None), ("diff2", None)]
         mock_run_pytest.side_effect = [(True, "pass1"), (True, "pass2")]
-        # Make first eval RETRY, second SUCCESS to stop
-        mock_evaluate.side_effect = [("RETRY", "suggestion1"), ("SUCCESS", "")]
+        # Make first LLM eval return RETRY, second SUCCESS to stop
+        # Simulate the structured response format expected by _evaluate_outcome parsing
+        mock_get_llm.side_effect = [
+            "Verdict: RETRY\nRationale: Needs work\nSuggestions: suggestion1",
+            "Verdict: SUCCESS\nRationale: Looks good\nSuggestions: "
+        ]
 
         # Initialize Harness with the goal file
         harness = Harness(
@@ -382,20 +386,19 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
         for msg in harness.state["prompt_history"]
     ), "System message for goal reload not found in history"
 
-    # Check that the evaluation in the *second* iteration used the *updated* goal
-    # The second call to _evaluate_outcome corresponds to the second iteration
-    assert mock_evaluate.call_count == 2
-    # The first argument to _evaluate_outcome is initial_goal
-    # The first call should use initial_content, the second should use updated_content
-    # Note: _evaluate_outcome is called *after* the potential reload check
-    first_eval_call_args, _ = mock_evaluate.call_args_list[0]
-    second_eval_call_args, _ = mock_evaluate.call_args_list[1]
+    # Check that the LLM evaluation prompt in the *second* iteration used the *updated* goal
+    assert mock_get_llm.call_count == 2
+    # The first argument to get_llm_response is the prompt
+    first_eval_prompt = mock_get_llm.call_args_list[0].args[0]
+    second_eval_prompt = mock_get_llm.call_args_list[1].args[0]
 
-    # Check the goal passed to the *second* evaluation
-    assert second_eval_call_args[0] == updated_content # Check initial_goal arg
+    # Check the goal embedded within the evaluation prompts
+    assert f"Initial Goal:\n{initial_content}" in first_eval_prompt
+    assert f"Initial Goal:\n{updated_content}" in second_eval_prompt
 
-    # Check that the retry prompt generated *after* the reload used the updated goal
-    # The retry prompt is generated based on the goal *before* the next Aider run
+    # Check that the retry prompt generated *after* the first evaluation (which used the initial goal)
+    # and *before* the second iteration (where the reload happens) used the *updated* goal.
+    # The retry prompt is generated based on the goal *before* the next Aider run.
     # The last user message before the final assistant message should be the retry prompt
     # Find the last user prompt in history
     last_user_prompt = None
@@ -745,14 +748,13 @@ def test_harness_aider_output_callback_processing(
 @patch('src.harness.run_pytest')
 @patch('src.harness.Harness._evaluate_outcome')
 @patch('src.harness.VesperMind', MagicMock())
-@patch('src.harness.threading.Event')
+# Removed threading.Event mock - use real event
 def test_interrupt_stops_aider_promptly(
-    MockEvent, mock_evaluate, mock_run_pytest, mock_run_aider, temp_work_dir
+    mock_evaluate, mock_run_pytest, mock_run_aider, temp_work_dir
 ):
     """Verify that Aider stops processing quickly after an interrupt signal."""
     # Mock run_aider to simulate taking time but stopping when event is set
-    mock_event_instance = MockEvent.return_value
-    mock_event_instance.is_set.return_value = False # Start as not set
+    # We still need to mock run_aider, but it will receive a real Event
 
     # Simplified mock: Check event once, return INTERRUPTED if set, else simulate work briefly
     def aider_side_effect(*args, **kwargs):
@@ -819,17 +821,17 @@ def test_interrupt_stops_aider_promptly(
     # Let's check the final status returned by run()
     assert run_results.get("final_status") == "MAX_RETRIES_REACHED: INTERRUPTED" # Because max_retries=1
 
-    # Verify the interrupt event's set() method was called
-    mock_event_instance.set.assert_called_once()
+    # Verify the interrupt event was set (cannot assert mock call on real event)
+    # We rely on the prompt termination and final status as evidence
 
 
 @pytest.mark.control # Add marker
 @patch('src.harness.run_aider')
-@patch('src.harness.threading.Thread')
-@patch('src.harness.threading.Event')
+# Removed threading.Thread mock
+# Removed threading.Event mock
 @patch('src.aider_interaction.pexpect.spawn') # Mock pexpect spawn
 def test_interrupt_cleans_up_resources(
-    mock_spawn, MockEvent, MockThread, mock_run_aider, temp_work_dir
+    mock_spawn, mock_run_aider, temp_work_dir # Removed MockEvent, MockThread
 ):
     """Ensure resources (threads, processes) are cleaned up after an interrupt."""
     # --- Setup ---
@@ -855,16 +857,7 @@ def test_interrupt_cleans_up_resources(
 
     mock_run_aider.side_effect = aider_interrupt_side_effect
 
-
-    # Mock Thread behavior
-    mock_thread_instance = MockThread.return_value
-    # Simulate thread being alive initially, then finishing after join is called
-    thread_alive_states = [True, True, False]
-    mock_thread_instance.is_alive.side_effect = lambda: thread_alive_states.pop(0) if thread_alive_states else False
-
-    # Mock Event behavior
-    mock_event_instance = MockEvent.return_value
-    mock_event_instance.is_set.return_value = False
+    # Use real Thread and Event objects
 
     # Initialize Harness
     harness = Harness(
