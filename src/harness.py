@@ -225,9 +225,9 @@ class Harness:
             # State initialization happens after this method returns in __init__
             return config
         else:
-             # Proceed with loading from the specified config file
-             logging.info(f"Loading configuration from {self.config_file}...")
-             config_path = Path(self.config_file)
+            # Proceed with loading from the specified config file
+            logging.info(f"Loading configuration from {self.config_file}...")
+            config_path = Path(self.config_file)
              try:
                  if config_path.is_file():
                      with open(config_path, 'r') as f:
@@ -369,15 +369,18 @@ class Harness:
             logging.info("Using provided string as initial goal prompt.")
             current_goal_prompt = initial_goal_prompt_or_file
             self._goal_prompt_file = None # Not using a file
-            self._last_goal_prompt_hash = None
-        
+            self._last_goal_prompt_hash = None # No hash if not using a file
+
+        # Store the initial goal separately for reference in evaluations, even if prompt changes
+        initial_goal_for_run = current_goal_prompt
+
         # Initialize current_prompt before history check
         current_prompt = current_goal_prompt
 
-        # Start a new run in the ledger if we don't have an active one
+        # Start a new run in the ledger if we don't have an active one from state
         if self.state["run_id"] is None:
             self.current_run_id = self.ledger.start_run(
-                current_goal_prompt, # Use the loaded/provided goal
+                initial_goal_for_run, # Use the initial goal for the run record
                 self.max_retries,
                 self.config
             )
@@ -412,9 +415,9 @@ class Harness:
                 self.state["prompt_history"] = [{"role": "user", "content": current_goal_prompt}]
                 self.state["converged"] = False
                 self.state["last_error"] = None
-                # Start a new run in the ledger (using current_goal_prompt)
+                # Start a new run in the ledger (using initial_goal_for_run)
                 self.current_run_id = self.ledger.start_run(
-                    current_goal_prompt,
+                    initial_goal_for_run,
                     self.max_retries,
                     self.config
                 )
@@ -507,14 +510,15 @@ class Harness:
                 self.ledger.add_message(self.current_run_id, None, "user", f"{guidance_prefix} {interrupt_msg}")
 
                 # Reset flags now that the message has been incorporated
-                self._interrupt_requested = False
+                self._interrupt_requested = False # Message has been processed
                 self._interrupt_message = None
-                # Also reset force_interrupt here. The *reason* for the force (the user message)
-                # has been handled by injecting it. The Aider thread might still be stopping
-                # from a signal sent earlier, but we don't want the harness loop logic
-                # to think it's *still* under a forced condition unless another interrupt(force=True) comes in.
-                self._force_interrupt = False
-                logging.info("User guidance injected and flags reset.")
+                # DO NOT reset _force_interrupt here. If a forced interrupt was requested,
+                # the signal was already sent to the thread. Resetting the flag here
+                # would prevent the main loop from correctly handling the "INTERRUPTED"
+                # status returned by run_aider if the thread stops due to that signal.
+                # _force_interrupt will be reset naturally if the loop continues to the next iteration
+                # without being interrupted.
+                logging.info("User guidance injected. Interrupt flags (_interrupt_requested, _interrupt_message) reset.")
 
 
             # --- Start Iteration ---
@@ -547,12 +551,14 @@ class Harness:
                     Frontend (ansi_up) will handle ANSI conversion.
                     Frontend (processOutputBuffer) will handle \r, \b, and duplicates.
                     """
-                    # Send the raw chunk directly if it's not empty
-                    if chunk:
+                    # Send the raw chunk directly if it's not empty and not a duplicate of the last sent chunk
+                    if chunk and chunk != self._last_aider_output_chunk:
                         # Send output chunk with a specific type identifier
                         self._send_ui_update({"type": "aider_output", "chunk": chunk})
-                    # else: # Optional: log skipped empty chunks if needed
-                        # logging.debug("Skipping empty chunk from Aider.")
+                        self._last_aider_output_chunk = chunk # Store the last sent chunk
+                    # else: # Optional: log skipped empty or duplicate chunks if needed
+                        # if not chunk: logging.debug("Skipping empty chunk from Aider.")
+                        # if chunk == self._last_aider_output_chunk: logging.debug("Skipping duplicate chunk from Aider.")
 
 
                 def aider_thread_target():
@@ -575,23 +581,20 @@ class Harness:
                 self._aider_thread = threading.Thread(target=aider_thread_target)
                 self._aider_thread.start()
 
-                # Monitor the thread and check for forced interrupts
+                # Monitor the thread (no need to explicitly check _force_interrupt here,
+                # as request_interrupt handles signaling the event directly if needed)
                 while self._aider_thread.is_alive():
-                    # Check frequently for forced interrupt signal
-                    if self._force_interrupt and self._aider_interrupt_event and not self._aider_interrupt_event.is_set():
-                         logging.warning("Forced interrupt detected while Aider running. Signaling thread.")
-                         self._aider_interrupt_event.set() # Signal the thread to stop
-
-                    # Wait for a short period before checking again
+                    # Wait for the thread to finish or timeout
                     self._aider_thread.join(timeout=0.2) # Check every 200ms
 
                 # Aider thread finished or was interrupted
-                self._aider_thread = None # Clear thread reference
-                self._aider_interrupt_event = None # Clear event reference
-                # Removed _last_aider_output_chunk reset as it's no longer used here
-
                 aider_diff = aider_result["diff"]
                 aider_error = aider_result["error"]
+
+                # --- Cleanup after thread finishes ---
+                self._aider_thread = None # Clear thread reference
+                self._aider_interrupt_event = None # Clear event reference
+                self._last_aider_output_chunk = None # Reset duplicate checker for next Aider run
 
                 # Check if Aider was forcefully interrupted (error is "INTERRUPTED")
                 if aider_error == "INTERRUPTED":
@@ -601,7 +604,10 @@ class Harness:
 
                     # The user's guidance message (if any) was already stored in self._interrupt_message
                     # and will be injected at the *start* of the next loop cycle by the logic above.
-                    # No need to modify the prompt or history here.
+
+                    # Reset the force_interrupt flag now that the interruption has been handled
+                    self._force_interrupt = False
+                    logging.info("Force interrupt flag reset after handling INTERRUPTED status.")
 
                     # Complete the iteration record in the ledger, noting the interruption
                     self.ledger.complete_iteration(
@@ -701,7 +707,7 @@ class Harness:
                         verdict, suggestions, council_results = self.council.evaluate_iteration(
                             self.current_run_id,
                             iteration_id,
-                            current_goal_prompt, # Use the potentially updated goal
+                            initial_goal_for_run, # Use the potentially updated goal
                             aider_diff if aider_diff is not None else "",
                             pytest_output,
                             pytest_passed,
@@ -732,7 +738,7 @@ class Harness:
                         # Standard LLM evaluation
                         logging.info("Evaluating outcome with standard LLM...")
                         verdict, suggestions = self._evaluate_outcome(
-                            current_goal_prompt, # Use the potentially updated goal
+                            initial_goal_for_run, # Use the potentially updated goal
                             aider_diff if aider_diff is not None else "",
                             pytest_output,
                             pytest_passed
@@ -744,7 +750,7 @@ class Harness:
                     self._send_ui_update({"status": "Error", "log_entry": f"Error during evaluation: {e}"})
                     logging.info("Falling back to standard LLM evaluation")
                     verdict, suggestions = self._evaluate_outcome(
-                        current_goal_prompt, # Use the potentially updated goal
+                        initial_goal_for_run, # Use the potentially updated goal
                         aider_diff if aider_diff is not None else "",
                         pytest_output,
                         pytest_passed
@@ -774,7 +780,7 @@ class Harness:
                         try:
                             # run_code_review now saves the file itself
                             self.run_code_review(
-                                current_goal_prompt, # Use the potentially updated goal
+                                initial_goal_for_run, # Use the potentially updated goal
                                 aider_diff if aider_diff is not None else "",
                                 pytest_output
                             )
@@ -801,7 +807,7 @@ class Harness:
 
                     logging.info("Creating retry prompt...")
                     current_prompt = self._create_retry_prompt(
-                        current_goal_prompt, # Use the potentially updated goal
+                        initial_goal_for_run, # Use the potentially updated goal
                         aider_diff if aider_diff is not None else "",
                         pytest_output,
                         suggestions

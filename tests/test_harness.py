@@ -10,6 +10,7 @@ import pytest
 import yaml
 from anyio.streams.memory import MemoryObjectSendStream # Added import
 
+import time # Added import for sleep in tests
 from src.harness import Harness
 from src.ledger import Ledger
 
@@ -316,6 +317,93 @@ def test_initialize_state_load_valid_resumes_run(resumable_ledger):
     assert harness.state["prompt_history"][2]["content"] == "Prompt 2 (Retry)"
 
 
+# --- Test Goal Prompt Reloading ---
+
+@patch('src.harness.Harness._get_file_hash')
+def test_goal_prompt_changes_are_detected_and_reloaded(mock_get_hash, temp_work_dir):
+    """Verify that modifying the goal prompt file during a run is detected and reloaded."""
+    # Setup: Create a dummy goal file
+    goal_file = temp_work_dir / "test_goal.prompt"
+    initial_content = "Initial goal content."
+    updated_content = "Updated goal content!"
+    goal_file.write_text(initial_content)
+
+    # Mock file hashing: return initial hash, then updated hash
+    initial_hash = "hash1"
+    updated_hash = "hash2"
+    mock_get_hash.side_effect = [initial_hash, updated_hash, updated_hash] # Initial check, check before iter 1, check before iter 2
+
+    # Mock subprocesses and evaluation to allow loop progression
+    with patch('src.harness.run_aider') as mock_run_aider, \
+         patch('src.harness.run_pytest') as mock_run_pytest, \
+         patch('src.harness.Harness._evaluate_outcome') as mock_evaluate, \
+         patch('src.harness.VesperMind', MagicMock()): # Mock VesperMind
+
+        # Configure mocks for 2 iterations
+        mock_run_aider.side_effect = [("diff1", None), ("diff2", None)]
+        mock_run_pytest.side_effect = [(True, "pass1"), (True, "pass2")]
+        # Make first eval RETRY, second SUCCESS to stop
+        mock_evaluate.side_effect = [("RETRY", "suggestion1"), ("SUCCESS", "")]
+
+        # Initialize Harness with the goal file
+        harness = Harness(
+            work_dir=temp_work_dir,
+            max_retries=3,
+            enable_council=False,
+            storage_type="json"
+        )
+
+        # --- Start the run ---
+        # Run should load the initial goal and hash
+        run_task = threading.Thread(target=harness.run, args=(str(goal_file),))
+        run_task.start()
+
+        # --- Simulate file change between iterations ---
+        # Wait briefly for the first iteration to likely start
+        time.sleep(0.5)
+        logging.info("TEST: Simulating goal file update...")
+        goal_file.write_text(updated_content) # Update the file content
+
+        # Wait for the harness run to complete
+        run_task.join(timeout=10) # Increased timeout
+        assert not run_task.is_alive(), "Harness run did not complete in time"
+
+    # --- Assertions ---
+    # Check hash function calls
+    assert mock_get_hash.call_count >= 2 # Initial load + check before iter 1
+
+    # Check that the goal reload was logged (using caplog fixture if available, or check history)
+    # Check history for system message
+    assert any(
+        msg["role"] == "system" and "Goal prompt reloaded" in msg["content"]
+        for msg in harness.state["prompt_history"]
+    ), "System message for goal reload not found in history"
+
+    # Check that the evaluation in the *second* iteration used the *updated* goal
+    # The second call to _evaluate_outcome corresponds to the second iteration
+    assert mock_evaluate.call_count == 2
+    # The first argument to _evaluate_outcome is initial_goal
+    # The first call should use initial_content, the second should use updated_content
+    # Note: _evaluate_outcome is called *after* the potential reload check
+    first_eval_call_args, _ = mock_evaluate.call_args_list[0]
+    second_eval_call_args, _ = mock_evaluate.call_args_list[1]
+
+    # Check the goal passed to the *second* evaluation
+    assert second_eval_call_args[0] == updated_content # Check initial_goal arg
+
+    # Check that the retry prompt generated *after* the reload used the updated goal
+    # The retry prompt is generated based on the goal *before* the next Aider run
+    # The last user message before the final assistant message should be the retry prompt
+    # Find the last user prompt in history
+    last_user_prompt = None
+    for msg in reversed(harness.state["prompt_history"]):
+        if msg["role"] == "user":
+            last_user_prompt = msg["content"]
+            break
+    assert last_user_prompt is not None
+    assert f'Original Goal:\n"{updated_content}"' in last_user_prompt
+
+
 # --- Test Interrupt Handling ---
 
 @patch('src.harness.run_aider')
@@ -402,26 +490,30 @@ def test_harness_queues_guidance_and_injects_next_iteration(
     assert guidance_message in next_prompt_for_aider
     assert retry_prompt in next_prompt_for_aider # Original retry prompt should still be there
 
-    # Verify flags are reset
+    # Verify flags are reset *after injection*
+    # Note: The test simulates the injection logic directly. In the real harness,
+    # these flags are reset *after* the injection happens at the start of the next loop.
+    # So, we check the state *after* simulating the injection.
     assert harness._interrupt_requested is False
     assert harness._interrupt_message is None
+    # _force_interrupt should remain False as it was never set to True
     assert harness._force_interrupt is False
 
     # Verify history contains the guidance message
-    # The history length should be 4 at this point: goal, diff, retry_prompt, guidance_injection
+    # History: goal, diff1, retry_prompt, guidance_injection
     assert len(harness.state["prompt_history"]) == 4
     assert harness.state["prompt_history"][-1]["role"] == "user"
     assert harness.state["prompt_history"][-1]["content"] == f"[User Guidance] {guidance_message}"
 
     # Verify ledger contains the guidance message
     ledger_history = harness.ledger.get_conversation_history(harness.current_run_id)
-    assert len(ledger_history) == 4 # Should also be 4
+    # Ledger history: goal, diff1 (iter1), retry_prompt (run level), guidance (run level)
+    assert len(ledger_history) == 4
     assert ledger_history[-1]["role"] == "user"
     assert ledger_history[-1]["content"] == f"[User Guidance] {guidance_message}"
 
-# Note: The non-forced interrupt test ('test_harness_interrupt_modifies_next_prompt')
-# was likely not applied previously. If needed, it should be added here as well.
 
+@pytest.mark.control # Add marker
 @patch('src.harness.run_aider')
 @patch('src.harness.run_pytest') # Mock pytest as it won't run
 @patch('src.harness.Harness._evaluate_outcome') # Mock evaluation as it won't run
@@ -526,26 +618,30 @@ def test_harness_forced_interrupt_stops_aider_skips_iteration(
 
     # --- Assertions (after interrupt signal and simulated harness reaction) ---
     # Verify the interrupt flags were set correctly by request_interrupt
-    # Note: These flags are reset *after* the message is injected in the *next* iteration's start,
-    # so we check their state *after* the interrupt request but before the simulated 'continue'.
+    # Note: These flags are checked *after* the interrupt request but *before* the
+    # harness loop would naturally reset them in the next iteration's start.
     assert harness._interrupt_requested is True
     assert harness._force_interrupt is True # Because interrupt_now=True was used
     assert harness._interrupt_message == interrupt_message
 
     # Verify history and ledger were NOT immediately updated with the interrupt message
-    # (This happens at the start of the next iteration now)
+    # (This happens at the start of the next iteration if guidance is injected,
+    # or not at all if only stopping)
     assert len(harness.state["prompt_history"]) == 1 # Only initial goal
     assert harness.state["prompt_history"][-1]["content"] == initial_goal
     messages = harness.ledger.get_conversation_history(harness.current_run_id)
     assert len(messages) == 1 # Only initial goal message
     assert messages[-1]["content"] == initial_goal
 
-    # Note: The ledger complete_iteration call is now simulated above within the
-    # `if aider_error_result == "INTERRUPTED":` block to better reflect the harness flow.
+    # Verify the ledger iteration record shows INTERRUPTED status
+    run_summary = harness.ledger.get_run_summary(harness.current_run_id)
+    # Iteration data is not directly in run_summary, need to query iterations if Ledger supports it,
+    # or check the final status if the run ended due to interrupt (which it shouldn't here).
+    # For now, check the log message sent to UI mock (if using mock stream) or check ledger manually.
+    # Let's assume the ledger update simulation inside the test is sufficient verification for now.
 
-    # Since we're not using UI server mock anymore, we don't need to check these
-    # The test is primarily about the interrupt mechanism working correctly
-    pass
+    # Verify the force_interrupt flag was reset after handling the INTERRUPTED status
+    assert harness._force_interrupt is False
 
 @pytest.mark.ui # Mark as UI test
 @patch('src.harness.run_aider') # Mock run_aider as we test the callback logic
@@ -639,6 +735,84 @@ def test_harness_aider_output_callback_processing(
     assert sent_updates[3]["chunk"] == "Chunk with backspac.\n"
     # Check the last sent chunk tracker state (internal detail, but useful)
     assert last_sent_chunk_test == "OK" # The last successfully processed and sent chunk was "OK"
+
+
+@pytest.mark.control
+@patch('src.harness.run_aider')
+@patch('src.harness.run_pytest')
+@patch('src.harness.Harness._evaluate_outcome')
+@patch('src.harness.VesperMind', MagicMock())
+@patch('src.harness.threading.Event')
+def test_interrupt_stops_aider_promptly(
+    MockEvent, mock_evaluate, mock_run_pytest, mock_run_aider, temp_work_dir
+):
+    """Verify that Aider stops processing quickly after an interrupt signal."""
+    # Mock run_aider to simulate taking time but stopping when event is set
+    mock_event_instance = MockEvent.return_value
+    mock_event_instance.is_set.return_value = False # Start as not set
+
+    def aider_side_effect(*args, **kwargs):
+        interrupt_event = kwargs.get("interrupt_event")
+        start_time = time.time()
+        # Simulate work, checking event periodically
+        while time.time() - start_time < 5: # Max 5 seconds simulated work
+            if interrupt_event and interrupt_event.is_set():
+                # Simulate Aider stopping and returning INTERRUPTED
+                return (None, "INTERRUPTED")
+            time.sleep(0.1)
+        # If loop finishes without interrupt, return normal diff
+        return ("```diff\n+ normal code\n```", None)
+
+    mock_run_aider.side_effect = aider_side_effect
+
+    # Initialize Harness
+    harness = Harness(
+        work_dir=temp_work_dir,
+        max_retries=1,
+        enable_council=False,
+        storage_type="json"
+    )
+    harness.config["enable_ui"] = True # Simulate UI enabled
+
+    initial_goal = "Test Goal"
+
+    # Run harness in a separate thread so we can interrupt it
+    run_results = {}
+    def harness_run_target():
+        result = harness.run(initial_goal)
+        run_results.update(result)
+
+    run_thread = threading.Thread(target=harness_run_target)
+    run_thread.start()
+
+    # Wait a short time for Aider to start, then send interrupt
+    time.sleep(0.5) # Give Aider thread time to start the simulated work
+    logging.info("TEST: Sending forced interrupt...")
+    start_interrupt_time = time.time()
+    harness.request_interrupt("Stop now!", interrupt_now=True)
+
+    # Wait for the harness run thread to finish
+    run_thread.join(timeout=10) # Should finish much faster than 10s if interrupt works
+    end_interrupt_time = time.time()
+
+    # Assertions
+    assert not run_thread.is_alive(), "Harness thread did not finish"
+    # Check that the interrupt was processed quickly (e.g., < 2 seconds)
+    interrupt_duration = end_interrupt_time - start_interrupt_time
+    logging.info(f"TEST: Interrupt processing duration: {interrupt_duration:.2f}s")
+    assert interrupt_duration < 2.0, "Interrupt did not stop Aider promptly"
+
+    # Check that the final status reflects the interrupt (run ends without success/failure)
+    # Since the loop continues after interrupt, it might hit max_retries=1 immediately.
+    # Check the ledger for the iteration status instead.
+    assert harness.current_run_id is not None
+    run_summary = harness.ledger.get_run_summary(harness.current_run_id)
+    # Need a way to get iteration details from ledger or check final status carefully
+    # Let's check the final status returned by run()
+    assert run_results.get("final_status") == "MAX_RETRIES_REACHED: INTERRUPTED" # Because max_retries=1
+
+    # Verify the interrupt event's set() method was called
+    mock_event_instance.set.assert_called_once()
 
 
 # Removed tests:
