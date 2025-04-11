@@ -136,19 +136,19 @@ def main():
     logger.info(f"Using working directory: {work_dir_path.resolve()}")
 
     # Determine the prompt source (command line or file)
+    prompt_source_arg = None
     if args.prompt:
-        initial_goal_prompt = args.prompt
-        logger.info("Using goal prompt from command line argument")
+        prompt_source_arg = args.prompt
+        logger.info("Using goal prompt from command line argument.")
     else:
-        # Read initial goal prompt from file
-        try:
-            with open(args.goal_prompt_file, "r") as f:
-                initial_goal_prompt = f.read()
-            logger.info(f"Loaded initial goal from: {args.goal_prompt_file}")
-        except FileNotFoundError:
+        # Check if the goal prompt file exists before passing its path
+        goal_file_path = Path(args.goal_prompt_file)
+        if not goal_file_path.is_file():
             logger.error(f"Goal prompt file not found: {args.goal_prompt_file}")
-            logger.error("Please create the goal prompt file or specify a valid path.")
+            logger.error("Please create the goal prompt file or specify a valid path using --goal-prompt-file.")
             sys.exit(1) # Exit if the prompt file is essential and not found
+        prompt_source_arg = args.goal_prompt_file # Pass the filename string
+        logger.info(f"Using goal prompt file: {args.goal_prompt_file}")
 
 
     # Display banner
@@ -290,8 +290,8 @@ def main():
             # ui_server.set_receive_stream(receive_stream) # No longer needed
             logger.info("Linked Harness instance to UI server.") # Updated log message
 
-        # Run the harness and get results
-        result = harness.run(initial_goal_prompt)
+        # Run the harness and get results, passing the filename or prompt string
+        result = harness.run(prompt_source_arg)
         
         # Display summary
         console.print("\n[bold green]Harness Run Complete[/bold green]")
