@@ -11,6 +11,7 @@ import yaml
 from .aider_interaction import run_aider
 from .llm_interaction import get_llm_response
 from .pytest_interaction import run_pytest
+import anyio # Import anyio for thread-safe async calls
 from .ledger import Ledger
 from .vesper_mind import VesperMind
 from .ui_server import UIServer # Import UI Server
@@ -123,9 +124,18 @@ class Harness:
             # Add common context if not present
             update.setdefault("run_id", self.current_run_id)
             update.setdefault("iteration", self.state.get("current_iteration", 0) + 1) # UI shows 1-based
-            self.ui_server.send_update(update)
+            try:
+                # Use anyio.from_thread.run to safely call the async function
+                # from this synchronous thread. Assumes ui_server.send_update is async.
+                # If send_update is actually synchronous but interacts with an async loop
+                # internally in a blocking way, this might still be needed or
+                # the issue might be within send_update itself.
+                anyio.from_thread.run(self.ui_server.send_update, update)
+            except Exception as e:
+                # Log errors during UI update without crashing the harness
+                logging.error(f"Error sending UI update: {e}", exc_info=True)
         # else:
-            # logger.debug("UI update skipped (UI disabled or server not linked).")
+            # logging.debug("UI update skipped (UI disabled or server not linked).")
 
     def request_interrupt(self, message: str, interrupt_now: bool = False):
         """
