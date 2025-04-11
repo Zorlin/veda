@@ -39,12 +39,36 @@
             </div>
         </div>
 
+        <!-- Iteration Results -->
+        <div class="mb-4 border border-gray-200 p-4 rounded bg-gray-50" x-show="status.verdict">
+             <h2 class="text-xl font-semibold mb-2">Last Iteration Results</h2>
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                 <div class="bg-indigo-50 p-3 rounded">
+                     <strong>Verdict:</strong> <span x-text="status.verdict || 'N/A'"></span>
+                 </div>
+                 <div class="bg-indigo-50 p-3 rounded">
+                     <strong>Suggestions:</strong> <span x-text="status.suggestions || 'N/A'"></span>
+                 </div>
+             </div>
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div>
+                     <h3 class="text-lg font-medium mb-1">Aider Diff</h3>
+                     <pre class="bg-gray-900 text-gray-300 p-3 rounded h-48 overflow-y-auto text-xs font-mono" x-text="status.aider_diff || '[No diff]'"></pre>
+                 </div>
+                 <div>
+                     <h3 class="text-lg font-medium mb-1">Pytest Output</h3>
+                     <pre class="bg-gray-900 text-gray-300 p-3 rounded h-48 overflow-y-auto text-xs font-mono" x-text="status.pytest_output || '[No output]'"></pre>
+                 </div>
+             </div>
+        </div>
+
+
         <!-- Live Aider Output -->
         <div class="mb-4">
-            <h2 class="text-xl font-semibold mb-2">Live Aider Output</h2>
+            <h2 class="text-xl font-semibold mb-2">Live Aider Output / Current Task</h2>
             <!-- Use div with x-html to render ANSI codes processed by ansi_up -->
             <!-- Add error handling for ansi_up -->
-            <div class="bg-gray-900 text-gray-300 p-4 rounded h-96 overflow-y-auto text-xs font-mono" x-ref="aiderLogContainer">
+            <div class="bg-gray-900 text-gray-300 p-4 rounded h-64 overflow-y-auto text-xs font-mono" x-ref="aiderLogContainer">
                 <div class="log-entry" x-html="() => {
                     try {
                         // console.log('Rendering liveAiderOutput length:', liveAiderOutput.length); // Optional: log before render
@@ -98,7 +122,11 @@
                     status: "Initializing",
                     run_id: null,
                     iteration: 0,
-                    log: ["UI Initialized. Waiting for connection..."]
+                    log: ["UI Initialized. Waiting for connection..."],
+                    aider_diff: '',
+                    pytest_output: '',
+                    verdict: '',
+                    suggestions: ''
                 },
                 retryTimeout: null,
                 retrying: false, // Flag to indicate if a retry is scheduled
