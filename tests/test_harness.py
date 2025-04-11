@@ -319,9 +319,10 @@ def test_initialize_state_load_valid_resumes_run(resumable_ledger):
 
 # --- Test Goal Prompt Reloading ---
 
+@pytest.mark.control # Add marker from README
 @patch('src.harness.Harness._get_file_hash')
-def test_goal_prompt_changes_are_detected_and_reloaded(mock_get_hash, temp_work_dir):
-    """Verify that modifying the goal prompt file during a run is detected and reloaded."""
+def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed test
+    """Ensure that after a goal prompt reload, subsequent evaluations/retries use the new goal."""
     # Setup: Create a dummy goal file
     goal_file = temp_work_dir / "test_goal.prompt"
     initial_content = "Initial goal content."
@@ -813,6 +814,89 @@ def test_interrupt_stops_aider_promptly(
 
     # Verify the interrupt event's set() method was called
     mock_event_instance.set.assert_called_once()
+
+
+@pytest.mark.control # Add marker
+@patch('src.harness.run_aider')
+@patch('src.harness.threading.Thread')
+@patch('src.harness.threading.Event')
+@patch('src.aider_interaction.pexpect.spawn') # Mock pexpect spawn
+def test_interrupt_cleans_up_resources(
+    mock_spawn, MockEvent, MockThread, mock_run_aider, temp_work_dir
+):
+    """Ensure resources (threads, processes) are cleaned up after an interrupt."""
+    # --- Setup ---
+    # Mock pexpect child process for run_aider interaction
+    mock_child = MagicMock()
+    mock_child.isalive.return_value = True # Simulate process initially alive
+    mock_child.closed = False # Simulate pexpect connection initially open
+    # Make terminate raise TIMEOUT first time, then succeed
+    mock_child.wait.side_effect = [pexpect.exceptions.TIMEOUT, 0] # Timeout on SIGTERM wait, then success on SIGKILL wait
+    mock_spawn.return_value = mock_child
+
+    # Mock run_aider to simulate running and being interrupted
+    mock_run_aider.side_effect = lambda *args, **kwargs: time.sleep(0.5) or (None, "INTERRUPTED")
+
+    # Mock Thread behavior
+    mock_thread_instance = MockThread.return_value
+    # Simulate thread being alive initially, then finishing after join is called
+    thread_alive_states = [True, True, False]
+    mock_thread_instance.is_alive.side_effect = lambda: thread_alive_states.pop(0) if thread_alive_states else False
+
+    # Mock Event behavior
+    mock_event_instance = MockEvent.return_value
+    mock_event_instance.is_set.return_value = False
+
+    # Initialize Harness
+    harness = Harness(
+        work_dir=temp_work_dir,
+        max_retries=1,
+        enable_council=False,
+        storage_type="json"
+    )
+    harness.config["enable_ui"] = True # Simulate UI enabled
+
+    initial_goal = "Test Goal"
+
+    # --- Run Harness in Thread ---
+    run_results = {}
+    def harness_run_target():
+        result = harness.run(initial_goal)
+        run_results.update(result)
+
+    run_thread = threading.Thread(target=harness_run_target)
+    run_thread.start()
+
+    # --- Interrupt ---
+    time.sleep(0.2) # Allow harness loop to start the aider thread simulation
+    logging.info("TEST: Sending forced interrupt...")
+    harness.request_interrupt("Stop now!", interrupt_now=True)
+
+    # --- Wait for Harness Thread ---
+    run_thread.join(timeout=5)
+
+    # --- Assertions ---
+    assert not run_thread.is_alive(), "Harness thread did not finish"
+
+    # 1. Check Aider Thread Cleanup (Harness internal state)
+    assert harness._aider_thread is None, "Aider thread reference not cleared"
+    assert harness._aider_interrupt_event is None, "Aider interrupt event reference not cleared"
+
+    # 2. Check Aider Process Termination (via pexpect mock)
+    # Check that terminate was called (SIGTERM first)
+    mock_child.terminate.assert_any_call(force=False)
+    # Check that wait was called after SIGTERM
+    mock_child.wait.assert_any_call(timeout=2)
+    # Check that terminate was called again (SIGKILL because wait timed out)
+    mock_child.terminate.assert_any_call(force=True)
+    # Check that pexpect child was closed
+    mock_child.close.assert_called()
+
+    # 3. Check Interrupt Event was Set
+    mock_event_instance.set.assert_called_once()
+
+    # 4. Check Final Status (indicates interrupt was handled)
+    assert run_results.get("final_status") == "MAX_RETRIES_REACHED: INTERRUPTED"
 
 
 # Removed tests:

@@ -209,6 +209,101 @@ async def test_ui_server_relays_stream_updates(test_server, anyio_backend):
         assert "Test log 2" in received_status_data["log"]
 
 
+@pytest.mark.ui # Add marker
+@pytest.mark.anyio
+async def test_live_log_scrollback_limit(test_server, anyio_backend):
+    """Test that the server enforces the log scrollback limit."""
+    server, send_stream = test_server
+    uri = f"ws://{server.host}:{server.port}"
+    server.max_log_lines = 3 # Set a small limit for testing
+
+    async with websockets.connect(uri) as websocket:
+        # Receive initial status
+        await asyncio.wait_for(websocket.recv(), timeout=1.0)
+
+        # Send more log entries than the limit
+        for i in range(5):
+            await send_stream.send({"status": f"Update {i}", "log_entry": f"Log {i}"})
+            await anyio.sleep(0.05) # Allow broadcast time
+
+        # Check the final status received by the client
+        # Keep receiving until we get the last status update
+        final_status_data = None
+        try:
+            while True:
+                received_str = await asyncio.wait_for(websocket.recv(), timeout=0.5)
+                final_status_data = json.loads(received_str)
+                if final_status_data.get("status") == "Update 4":
+                    break
+        except asyncio.TimeoutError:
+            # Expected if no more messages are coming
+            pass
+
+        assert final_status_data is not None, "Did not receive final status update"
+        assert final_status_data["status"] == "Update 4"
+        # Check that the log contains only the last 'max_log_lines' entries
+        assert len(final_status_data["log"]) == server.max_log_lines
+        assert final_status_data["log"] == ["Log 2", "Log 3", "Log 4"] # Should contain the last 3
+
+
+@pytest.mark.ui # Add marker
+@pytest.mark.anyio
+async def test_live_log_prevents_duplication(test_server, anyio_backend):
+    """Test that the server prevents identical consecutive log entries."""
+    server, send_stream = test_server
+    uri = f"ws://{server.host}:{server.port}"
+
+    async with websockets.connect(uri) as websocket:
+        # Receive initial status
+        await asyncio.wait_for(websocket.recv(), timeout=1.0)
+
+        # Send some log entries, including duplicates
+        log_entries = ["Log A", "Log B", "Log B", "Log C", "Log C", "Log C", "Log D"]
+        for i, entry in enumerate(log_entries):
+            await send_stream.send({"status": f"Update {i}", "log_entry": entry})
+            await anyio.sleep(0.05) # Allow broadcast time
+
+        # Check the final status received by the client
+        final_status_data = None
+        try:
+            while True:
+                received_str = await asyncio.wait_for(websocket.recv(), timeout=0.5)
+                final_status_data = json.loads(received_str)
+                if final_status_data.get("status") == f"Update {len(log_entries) - 1}":
+                    break
+        except asyncio.TimeoutError:
+            pass
+
+        assert final_status_data is not None, "Did not receive final status update"
+        # Check that the log contains only unique consecutive entries
+        assert final_status_data["log"] == ["Log A", "Log B", "Log C", "Log D"]
+
+
+# --- Placeholder/Skipped UI Tests (Require Frontend Interaction) ---
+
+@pytest.mark.ui
+@pytest.mark.skip(reason="Requires frontend rendering/interaction to verify.")
+def test_diff_syntax_highlighting():
+    """Check that code diffs are displayed with appropriate syntax highlighting."""
+    # This needs visual inspection or a complex DOM check in a browser test.
+    pass
+
+@pytest.mark.ui
+@pytest.mark.skip(reason="Requires frontend rendering/interaction to verify.")
+def test_diff_viewer_prevents_duplication():
+    """Ensure diff viewers don't display duplicated content chunks."""
+    # Backend sends chunks; frontend JS (`processOutputBuffer`) handles assembly and prevents duplicates.
+    # Testing the backend duplicate chunk prevention for the *stream* is done elsewhere.
+    pass
+
+@pytest.mark.ui
+@pytest.mark.skip(reason="Requires frontend rendering/interaction to verify.")
+def test_aider_control_codes_are_handled():
+    """Verify Aider output correctly interprets control codes (e.g., \c for cancel)."""
+    # Backend sends raw chunks including control codes. Frontend (`ansi_up`, potentially other JS) handles interpretation.
+    pass
+
+
 # Note: Testing the thread startup in main.py is more complex and might require
 # mocking threading.Thread or using integration tests. These tests focus on the
 # UIServer class functionality itself.

@@ -29,7 +29,14 @@ class UIServer:
         self.clients: Set[ServerProtocol] = set()
         self.server_task: Optional[asyncio.Task] = None
         self.stop_event = asyncio.Event()
-        self.latest_status: Dict[str, Any] = {"status": "Initializing", "run_id": None, "iteration": 0, "log": []}
+        # Initialize log with a max size limit
+        self.max_log_lines = 1000 # Max lines for scrollback
+        self.latest_status: Dict[str, Any] = {
+            "status": "Initializing",
+            "run_id": None,
+            "iteration": 0,
+            "log": [] # Log history (limited)
+        }
         # Stream for receiving updates from Harness (passed during init)
         self.ui_receive_stream: Optional[MemoryObjectReceiveStream] = receive_stream
         # Reference to Harness for sending interrupts back
@@ -136,17 +143,21 @@ class UIServer:
             # logger.debug(f"Broadcasting specific message type to {len(self.clients)} clients: {log_preview}") # Keep original or remove if too verbose
         else:
             # For general status updates, update latest_status and send that
+            # Update all fields except 'log' directly
+            log_entry = message.pop("log_entry", None) # Extract log entry if present
             self.latest_status.update(message)
-            # Keep log history manageable
-            if "log_entry" in message:
-                self.latest_status["log"].append(message["log_entry"])
-                self.latest_status["log"] = self.latest_status["log"][-100:]
-                # Remove temporary key if it exists in the original message,
-                # but don't delete from latest_status as it's part of the log array now.
-                # del message["log_entry"] # No, don't delete from original message dict
-            # Ensure log_entry key doesn't persist at the top level of latest_status if it came in message
-            if "log_entry" in self.latest_status:
-                 del self.latest_status["log_entry"]
+
+            # Handle log entry: prevent duplicates and enforce limit
+            if log_entry:
+                # Check if the new entry is different from the last one
+                if not self.latest_status["log"] or log_entry != self.latest_status["log"][-1]:
+                    self.latest_status["log"].append(log_entry)
+                    # Enforce max log lines
+                    if len(self.latest_status["log"]) > self.max_log_lines:
+                        # Keep the most recent 'max_log_lines' entries
+                        self.latest_status["log"] = self.latest_status["log"][-self.max_log_lines:]
+                # else: # Optional: log skipped duplicate entry
+                    # logger.debug(f"Skipping duplicate log entry: {log_entry}")
 
             message_to_send = self.latest_status
             log_preview = json.dumps(message_to_send)[:200]
