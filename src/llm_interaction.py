@@ -1,7 +1,9 @@
-import json
 import logging
-import requests
+import ollama # Use the official ollama library
+from ollama import ResponseError # Import specific error type
+from requests.exceptions import ConnectionError # Still possible if server is down
 from typing import Dict, Any, List, Optional
+import json # Keep for potential JSON parsing errors if needed, though less likely
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -26,14 +28,14 @@ def get_llm_response(
         The content string of the LLM's response.
 
     Raises:
-        requests.exceptions.RequestException: If the API request fails.
-        KeyError: If the expected keys are missing in the response.
-        ValueError: If the response indicates an error from Ollama.
+        ollama.ResponseError: If the Ollama API returns an error (e.g., model not found).
+        requests.exceptions.ConnectionError: If the connection to the Ollama server fails.
+        Exception: For other unexpected errors during the interaction.
     """
-    ollama_url = config.get("ollama_api_url", "http://localhost:11434/api/chat")
     # Use the specific model from config, fall back to a default if necessary
-    ollama_model = config.get("ollama_model", "deepcoder:14b")
+    ollama_model = config.get("ollama_model", "gemma3:12b") # Updated default
     ollama_options = config.get("ollama_options", {}) # e.g., {"temperature": 0.7}
+    # ollama_host = config.get("ollama_host", None) # Optional: configure host if not default localhost
 
     messages = []
     if system_prompt:
@@ -42,73 +44,55 @@ def get_llm_response(
         messages.extend(history)
     messages.append({"role": "user", "content": prompt})
 
-    payload = {
-        "model": ollama_model,
-        "messages": messages,
-        "stream": False, # We want the full response at once
-        "options": ollama_options
-    }
-
-    logger.debug(f"Sending request to Ollama URL: {ollama_url}")
+    logger.debug(f"Sending request to Ollama client")
     logger.debug(f"Using Ollama model: {ollama_model}")
-    # Avoid logging potentially large history/prompt payload at info level
-    logger.debug(f"Ollama request payload (messages truncated): "
-                 f"model={payload['model']}, "
-                 f"messages=[...{len(payload['messages'])} messages...], "
-                 f"options={payload['options']}")
+    logger.debug(f"Ollama options: {ollama_options}")
+    logger.debug(f"Messages (count: {len(messages)}): {messages}") # Log full messages at debug
 
     try:
-        response = requests.post(ollama_url, json=payload, timeout=180) # Add timeout
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-        response_data = response.json()
+        # Initialize client - host can be configured via OLLAMA_HOST env var or passed explicitly
+        # client = ollama.Client(host=ollama_host) # Example if using explicit host config
+        client = ollama.Client() # Uses default host (http://localhost:11434) or OLLAMA_HOST env var
 
-        # Handle potential errors returned in the JSON payload itself
-        if response_data.get("error"):
-            error_msg = f"Ollama API returned an error: {response_data['error']}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        response_data = client.chat(
+            model=ollama_model,
+            messages=messages,
+            stream=False, # We want the full response at once
+            options=ollama_options
+            # Add keep_alive handling if needed via options or separate call? Check library docs.
+        )
 
-        # Check for specific non-content responses like model loading
-        if response_data.get("done") and response_data.get("done_reason") == "load":
-            error_msg = f"Ollama model '{ollama_model}' is still loading or failed to load (done_reason: load)."
-            logger.error(error_msg)
-            # Raise a specific error or handle retry logic if desired
-            raise ValueError(error_msg)
+        # The ollama library response structure is slightly different
+        # It raises ResponseError for API errors (like model not found, loading errors)
+        # Successful response structure: {'model': '...', 'created_at': '...', 'message': {'role': 'assistant', 'content': '...'}, ...}
 
-        # Check if the expected keys exist for a successful response
         if "message" not in response_data or "content" not in response_data.get("message", {}):
-            # Check if 'response' key exists for older Ollama versions or different endpoints
-            if "response" in response_data:
-                 llm_content = response_data["response"] # Use 'response' key if 'message.content' is missing
-                 logger.warning("Using 'response' key from Ollama output (older format?).")
-            else:
-                 error_msg = f"LLM response missing 'message.content' or 'response' key. Response: {response_data}"
-                 logger.error(error_msg)
-                 raise KeyError(error_msg)
-        else:
-             llm_content = response_data["message"]["content"]
+            error_msg = f"LLM response missing 'message.content'. Response: {response_data}"
+            logger.error(error_msg)
+            raise KeyError(error_msg) # Raise KeyError if structure is unexpected
+
+        llm_content = response_data["message"]["content"]
         logger.debug(f"Received LLM response content (truncated): {llm_content[:200]}...")
         return llm_content.strip()
 
-    except requests.exceptions.Timeout:
-        logger.error(f"Timeout connecting to Ollama API at {ollama_url}")
-        raise requests.exceptions.RequestException("Timeout connecting to Ollama API")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error communicating with Ollama API at {ollama_url}: {e}")
-        # Log response text if available
-        if hasattr(e, 'response') and e.response is not None:
-            logger.error(f"Ollama Response Status Code: {e.response.status_code}")
-            logger.error(f"Ollama Response Text: {e.response.text}")
-        raise
-    except json.JSONDecodeError:
-        logger.error(f"Error decoding JSON response from Ollama: {response.text}")
-        raise requests.exceptions.RequestException("Invalid JSON response from Ollama")
-    except (KeyError, ValueError) as e:
-        # Errors raised explicitly above
-        raise
+    except ResponseError as e:
+        # Handle specific Ollama errors (like model not found, loading issues)
+        error_msg = f"Ollama API error: {e.status_code} - {e.error}"
+        # Check if it's the 'model is loading' error specifically
+        if "model" in e.error and "is loading" in e.error:
+             error_msg = f"Ollama model '{ollama_model}' is still loading or failed to load (ResponseError)."
+        logger.error(error_msg)
+        raise # Re-raise the specific error for the harness to catch
+
+    except ConnectionError as e:
+        # Handle connection errors (Ollama server not running?)
+        logger.error(f"Error connecting to Ollama server: {e}")
+        raise # Re-raise for the harness
+
     except Exception as e:
+        # Catch any other unexpected errors
         logger.exception(f"An unexpected error occurred during LLM interaction: {e}")
-        raise requests.exceptions.RequestException(f"Unexpected LLM interaction error: {e}")
+        raise # Re-raise the generic exception
 
 
 # Example usage (optional, for testing this module directly)
@@ -117,28 +101,47 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
     logger.info("Running llm_interaction module test...")
 
-    test_config = {
-        "ollama_model": "deepcoder:14b", # Use a model you have running
-        "ollama_api_url": "http://localhost:11434/api/chat", # Ensure this matches Ollama setup
-        "ollama_options": {"temperature": 0.1}
-    }
-    test_history = [{"role": "system", "content": "You are a concise assistant."}]
-    test_prompt = "What is the capital of France?"
-
+    # Ensure Ollama is running and the model exists for this test
+    test_model = "llama3" # Use a common, small model likely available
     try:
+        ollama.list() # Check connection
+        logger.info(f"Attempting to use model '{test_model}' for testing...")
+        # Pre-pull the model if it doesn't exist? Or just let the test fail?
+        # ollama.pull(test_model) # Uncomment to ensure model exists
+
+        test_config = {
+            "ollama_model": test_model,
+            "ollama_options": {"temperature": 0.1}
+        }
+        test_history = [{"role": "system", "content": "You are a concise assistant."}]
+        test_prompt = "What is the capital of France?"
+
         llm_reply = get_llm_response(test_prompt, test_config, test_history)
         logger.info(f"Test LLM Prompt: {test_prompt}")
         logger.info(f"Test LLM Response: {llm_reply}")
-    except Exception as e:
-        logger.error(f"LLM interaction test failed: {e}", exc_info=True)
 
-    # Test error handling (e.g., invalid URL)
-    logger.info("Testing error handling (invalid URL)...")
+        # Test system prompt
+        logger.info("Testing system prompt...")
+        sys_prompt = "Respond in Spanish."
+        llm_reply_es = get_llm_response(test_prompt, test_config, test_history, system_prompt=sys_prompt)
+        logger.info(f"Test LLM Response (Spanish): {llm_reply_es}")
+        # Basic check - this is language dependent and might fail
+        # assert "parís" in llm_reply_es.lower()
+
+    except ConnectionError:
+         logger.error("Ollama connection failed. Is Ollama running?")
+    except ResponseError as e:
+         logger.error(f"Ollama API error during test: {e.status_code} - {e.error}. Ensure model '{test_model}' is available.")
+    except Exception as e:
+        logger.error(f"LLM interaction test failed unexpectedly: {e}", exc_info=True)
+
+    # Test error handling (e.g., model not found)
+    logger.info("Testing error handling (model not found)...")
     invalid_config = test_config.copy()
-    invalid_config["ollama_api_url"] = "http://invalid-url-that-does-not-exist:11434/api/chat"
+    invalid_config["ollama_model"] = "model-that-does-not-exist-hopefully"
     try:
         get_llm_response(test_prompt, invalid_config, test_history)
-    except requests.exceptions.RequestException as e:
-        logger.info(f"Successfully caught expected RequestException: {e}")
+    except ResponseError as e:
+        logger.info(f"Successfully caught expected ResponseError for non-existent model: {e.status_code} - {e.error}")
     except Exception as e:
-        logger.error(f"Caught unexpected exception during error test: {e}", exc_info=True)
+        logger.error(f"Caught unexpected exception during non-existent model test: {e}", exc_info=True)
