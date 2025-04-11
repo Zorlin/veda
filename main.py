@@ -8,9 +8,18 @@ from rich.console import Console
 from rich.logging import RichHandler
 import threading # For running UI server in background
 import asyncio # For running async UI server
+import yaml # For loading config early
 
 from src.harness import Harness
 from src.ui_server import UIServer # Import UI Server
+
+# Default configuration values (used if config file is missing or invalid)
+DEFAULT_CONFIG = {
+    "websocket_host": "localhost",
+    "websocket_port": 8765,
+    "enable_ui": False,
+    # Add other essential defaults if needed for early access
+}
 
 # Configure rich console
 console = Console()
@@ -156,12 +165,54 @@ This harness must be able to work on any project with a `pytest`-compatible test
     # Display banner
     console.print("\n[bold blue]Aider Autoloop Harness[/bold blue]")
     console.print("[italic]Self-Building Agent Framework[/italic]\n")
-    
+
+    # --- Load Config Early for UI ---
+    config = DEFAULT_CONFIG.copy()
+    config_path = Path(args.config_file)
+    if config_path.is_file():
+        try:
+            with open(config_path, 'r') as f:
+                loaded_config = yaml.safe_load(f)
+            if isinstance(loaded_config, dict):
+                config.update(loaded_config)
+                logger.info(f"Loaded configuration from {config_path}")
+            else:
+                logger.warning(f"Config file {config_path} is not a valid dictionary. Using defaults.")
+        except yaml.YAMLError as e:
+            logger.error(f"Error parsing config file {config_path}: {e}. Using defaults.")
+        except Exception as e:
+            logger.error(f"Error reading config file {config_path}: {e}. Using defaults.")
+    else:
+        logger.warning(f"Config file {config_path} not found. Using defaults.")
+
+    # Determine final UI settings (CLI args override config)
+    ui_enabled = args.enable_ui or config.get("enable_ui", False)
+    ui_host = args.ui_host or config.get("websocket_host", "localhost")
+    ui_port = args.ui_port or config.get("websocket_port", 8765)
+
+    # --- Start UI Server Early (if enabled) ---
+    ui_server = None
+    ui_server_thread = None
+    if ui_enabled:
+        logger.info("UI is enabled. Starting UI server...")
+        ui_server = UIServer(host=ui_host, port=ui_port)
+
+        def run_server():
+            try:
+                asyncio.run(ui_server.start())
+            except Exception as e:
+                logger.error(f"UI server thread encountered an error: {e}", exc_info=True)
+
+        ui_server_thread = threading.Thread(target=run_server, daemon=True)
+        ui_server_thread.start()
+        logger.info(f"UI WebSocket server starting in background thread on ws://{ui_host}:{ui_port}")
+        # Removed time.sleep(1) - let it start concurrently
+
     # Initialize and run the harness
     try:
-        # Create harness with enhanced features
+        # Create harness, passing determined UI settings
         harness = Harness(
-            config_file=args.config_file,
+            config_file=args.config_file, # Harness still loads its full config internally
             max_retries=args.max_retries,
             work_dir=work_dir_path,
             reset_state=args.reset_state,
@@ -169,32 +220,18 @@ This harness must be able to work on any project with a `pytest`-compatible test
             storage_type=args.storage_type,
             enable_council=not args.disable_council,
             enable_code_review=args.enable_code_review,
-            # UI settings can be overridden by CLI args
-            enable_ui=args.enable_ui or None, # Pass None if not set, Harness will use config
-            websocket_host=args.ui_host,      # Pass None if not set
-            websocket_port=args.ui_port       # Pass None if not set
+            # Pass the final determined UI settings to Harness constructor
+            # These might override what Harness loads from its config again, which is fine.
+            enable_ui=ui_enabled,
+            websocket_host=ui_host,
+            websocket_port=ui_port
         )
 
-        # Initialize UI server variables
-        ui_server = None
-        ui_server_thread = None
+        # Link the already running UI server instance to the harness
+        if ui_server:
+            harness.set_ui_server(ui_server)
+            logger.info("Linked running UI server instance to Harness.")
 
-        # Start WebSocket server if enabled
-        if harness.config.get("enable_ui"):
-            ui_host = harness.config.get("websocket_host", "localhost")
-            ui_port = harness.config.get("websocket_port", 8765)
-            ui_server = UIServer(host=ui_host, port=ui_port)
-            harness.set_ui_server(ui_server) # Link server to harness
-
-            def run_server():
-                asyncio.run(ui_server.start())
-
-            ui_server_thread = threading.Thread(target=run_server, daemon=True)
-            ui_server_thread.start()
-            logger.info(f"UI WebSocket server starting in background thread on ws://{ui_host}:{ui_port}")
-            # Give the server a moment to start
-            time.sleep(1)
-        
         # Run the harness and get results
         result = harness.run(initial_goal_prompt)
         
@@ -225,10 +262,10 @@ This harness must be able to work on any project with a `pytest`-compatible test
         logger.exception(f"Harness execution failed: {e}")
         console.print(f"\n[bold red]Error:[/bold red] {str(e)}")
     finally:
-        # Stop the UI server if it was started
+        # Stop the UI server if it was started (using variables from the outer scope)
         if ui_server and ui_server_thread and ui_server_thread.is_alive():
             logger.info("Stopping UI WebSocket server...")
-            ui_server.stop()
+            ui_server.stop() # Signal the server loop to stop
             ui_server_thread.join(timeout=5) # Wait for thread to finish
             if ui_server_thread.is_alive():
                  logger.warning("UI server thread did not stop cleanly.")
