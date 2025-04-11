@@ -30,9 +30,9 @@ def run_aider(
     command = [
         aider_command,
         "--message", prompt,
+        "--yes", # Auto-apply changes without confirmation
         # Add other necessary aider flags from config if needed
         # e.g., "--model", config.get("aider_model", "gpt-4")
-        # "--yes" might be useful to auto-apply changes if appropriate
     ]
 
     logging.info(f"Running Aider command: {' '.join(command)} in {work_dir}")
