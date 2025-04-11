@@ -738,7 +738,7 @@ class Harness:
                         verdict, suggestions, council_results = self.council.evaluate_iteration(
                             self.current_run_id,
                             iteration_id,
-                            initial_goal_for_run, # Use the potentially updated goal
+                            self.current_goal_prompt, # Use the potentially updated goal (instance var)
                             aider_diff if aider_diff is not None else "",
                             pytest_output,
                             pytest_passed,
@@ -769,7 +769,7 @@ class Harness:
                         # Standard LLM evaluation
                         logging.info("Evaluating outcome with standard LLM...")
                         verdict, suggestions = self._evaluate_outcome(
-                            initial_goal_for_run, # Use the potentially updated goal
+                            self.current_goal_prompt, # Use the potentially updated goal (instance var)
                             aider_diff if aider_diff is not None else "",
                             pytest_output,
                             pytest_passed
@@ -781,7 +781,7 @@ class Harness:
                     self._send_ui_update({"status": "Error", "log_entry": f"Error during evaluation: {e}"})
                     logging.info("Falling back to standard LLM evaluation")
                     verdict, suggestions = self._evaluate_outcome(
-                        initial_goal_for_run, # Use the potentially updated goal
+                        self.current_goal_prompt, # Use the potentially updated goal (instance var)
                         aider_diff if aider_diff is not None else "",
                         pytest_output,
                         pytest_passed
@@ -811,7 +811,7 @@ class Harness:
                         try:
                             # run_code_review now saves the file itself
                             self.run_code_review(
-                                initial_goal_for_run, # Use the potentially updated goal
+                                self.current_goal_prompt, # Use the potentially updated goal (instance var)
                                 aider_diff if aider_diff is not None else "",
                                 pytest_output
                             )
@@ -837,8 +837,9 @@ class Harness:
                         break
 
                     logging.info("Creating retry prompt...")
-                    current_prompt = self._create_retry_prompt(
-                        initial_goal_for_run, # Use the potentially updated goal
+                    # Create retry prompt using the potentially updated goal (instance var)
+                    current_prompt = self._create_retry_prompt( # Update local var for next Aider run
+                        self.current_goal_prompt,
                         aider_diff if aider_diff is not None else "",
                         pytest_output,
                         suggestions
