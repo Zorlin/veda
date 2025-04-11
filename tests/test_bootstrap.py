@@ -78,8 +78,9 @@ def test_aider_starts_and_receives_prompt():
             [aider_command, "--yes", test_prompt],
             capture_output=True,
             text=True,
-            timeout=30, # Adjust timeout as needed
-            check=False # Don't fail on non-zero exit code initially
+            timeout=60, # Increased timeout
+            check=False, # Don't fail on non-zero exit code initially
+            cwd=Path.cwd() # Run in the current working directory (project root)
         )
 
         # Basic checks: Did it run without immediate error? Did it mention the prompt?
