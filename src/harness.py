@@ -506,6 +506,7 @@ class Harness:
                 # Aider thread finished or was interrupted
                 self._aider_thread = None # Clear thread reference
                 self._aider_interrupt_event = None # Clear event reference
+                self._last_aider_output_chunk = None # Reset last chunk tracker after Aider finishes
 
                 aider_diff = aider_result["diff"]
                 aider_error = aider_result["error"]
