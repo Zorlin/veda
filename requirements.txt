@@ -4,6 +4,7 @@ pytest
 requests
 PyYAML
 ollama # Or preferred Ollama client library
+pexpect # For interactive subprocess control
 
 # Optional dependencies (uncomment as needed)
 # Flask # For web dashboard

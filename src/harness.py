@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 import yaml
 
 from .aider_interaction import run_aider
-# from .ollama_interaction import evaluate_output
+from .llm_interaction import get_llm_response # Import the LLM function
 # from .persistence import Logger
 from .pytest_interaction import run_pytest
 
