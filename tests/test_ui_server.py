@@ -8,12 +8,14 @@ from unittest.mock import patch, MagicMock
 
 from src.ui_server import UIServer
 
-# Removed backend detection logic
+# Force only asyncio backend for tests in this file
+@pytest.fixture(params=["asyncio"])
+def anyio_backend(request):
+    return request.param
 
 @pytest.fixture
-async def test_server(): # No anyio_backend parameter needed
+async def test_server(anyio_backend): # Add anyio_backend fixture back
     """Fixture to start and stop the UIServer within the test's anyio event loop."""
-    # Removed backend skipping logic
 
     # Use a different port for testing
     server = UIServer(host="127.0.0.1", port=8766) 
@@ -41,7 +43,7 @@ async def test_server(): # No anyio_backend parameter needed
 # Removed pytestmark skip logic
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
-async def test_ui_server_connection(test_server): # No anyio_backend parameter needed
+async def test_ui_server_connection(test_server, anyio_backend): # Add anyio_backend fixture back
     """Test that a client can connect to the server."""
     uri = f"ws://{test_server.host}:{test_server.port}"
     
@@ -55,7 +57,7 @@ async def test_ui_server_connection(test_server): # No anyio_backend parameter n
         assert initial_status["status"] == "Initializing"
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
-async def test_ui_server_broadcast(test_server): # No anyio_backend parameter needed
+async def test_ui_server_broadcast(test_server, anyio_backend): # Add anyio_backend fixture back
     """Test that the server broadcasts messages to connected clients."""
     uri = f"ws://{test_server.host}:{test_server.port}"
     
@@ -87,7 +89,7 @@ async def test_ui_server_broadcast(test_server): # No anyio_backend parameter ne
     assert "Test log" in update2["log"]
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
-async def test_ui_server_latest_status_on_connect(test_server): # No anyio_backend parameter needed
+async def test_ui_server_latest_status_on_connect(test_server, anyio_backend): # Add anyio_backend fixture back
     """Test that a new client receives the *latest* status upon connection."""
     uri = f"ws://{test_server.host}:{test_server.port}"
 
