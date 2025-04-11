@@ -65,11 +65,12 @@ Response:"""
         if allowed_chars_match:
             allowed_chars = set(c for c in allowed_chars_match.group(1) if c != '/')
 
+        logger.debug(f"Raw LLM response for Aider prompt: '{response}'")
         # Basic validation: take the first character, lowercased
         llm_choice = response.strip().lower()[:1]
 
         if allowed_chars and llm_choice not in allowed_chars:
-            logger.warning(f"LLM proposed invalid response '{response}'. Allowed: {allowed_chars}. Defaulting to 'n'.")
+            logger.warning(f"LLM proposed invalid response '{llm_choice}' (from raw: '{response}'). Allowed: {allowed_chars}. Defaulting to 'n'.")
             return 'n' # Default to 'no' if LLM response is invalid
         elif not allowed_chars and llm_choice not in ('y', 'n', 'q', 'a', 'v'): # Fallback validation
              logger.warning(f"LLM proposed potentially invalid response '{response}'. Defaulting to 'n'.")
@@ -113,13 +114,14 @@ def run_aider(
         # Add other necessary aider flags from config if needed
         # e.g., "--model", config.get("aider_model", "gpt-4")
     ]
+    # Add the working directory itself as an argument for Aider to scan
+    command_args.append(shlex.quote(work_dir))
     # Construct the command string carefully
     full_command = f"{aider_command} {' '.join(command_args)}"
 
-
     logger.info(f"Spawning Aider command: {full_command} in {work_dir}")
     # Log the prompt separately for clarity, avoiding potential quoting issues in logs
-    logger.debug(f"Aider prompt content:\n{prompt}")
+    logger.debug(f"Aider initial prompt content:\n{prompt}")
     full_output = "" # Accumulate all output from the session
 
     try:
