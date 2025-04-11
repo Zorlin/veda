@@ -546,8 +546,16 @@ class Ledger:
                 
                 # Get run details
                 cursor.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,))
-                run = dict(cursor.fetchone())
+                run_row = cursor.fetchone()
+                if not run_row:
+                    logger.warning(f"Run {run_id} not found in SQLite database.")
+                    return {}
+                run = dict(run_row)
                 
+                # Convert converged integer back to boolean
+                if run.get("converged") is not None:
+                    run["converged"] = bool(run["converged"])
+                    
                 # Get iterations
                 cursor.execute("SELECT * FROM iterations WHERE run_id = ? ORDER BY iteration_number", (run_id,))
                 iterations = [dict(row) for row in cursor.fetchall()]
