@@ -53,6 +53,7 @@ def run_aider(
         work_dir: The directory where Aider should run.
         interrupt_event: A threading.Event to signal interruption. If set, the function
                          will attempt to terminate Aider and return (None, "INTERRUPTED").
+        output_callback: Optional callback function to receive chunks of Aider's stdout/stderr.
 
     Returns:
         A tuple containing:
@@ -60,25 +61,19 @@ def run_aider(
         - An error message string (if an error occurred).
           Returns "INTERRUPTED" if stopped by interrupt_event.
     """
-    aider_command_base = config.get("aider_command", "aider") # Base command like "aider"
-    aider_model = config.get("aider_model") # e.g., "gemini-1.5-pro" or "ollama/gemma3:12b"
+    # Get the base command string from config (e.g., "aider --model gemini")
+    aider_command_str = config.get("aider_command", "aider")
+    # Split the base command string into parts, respecting quotes
+    command_args = shlex.split(aider_command_str)
+    logger.info(f"Using base Aider command from config: {aider_command_str}")
 
     # Quote the prompt to handle spaces and special characters
     quoted_prompt = shlex.quote(prompt)
 
-    # Base command arguments
-    command_args = [aider_command_base] # Start with the base command
-
-    # Add the model argument if specified in config
-    if aider_model:
-        command_args.append(f"--model {shlex.quote(aider_model)}")
-        logger.info(f"Using Aider model specified in config: {aider_model}")
-    else:
-        logger.warning("No 'aider_model' specified in config. Aider will use its default model.")
-
+    # --- Append additional operational flags ---
     # Add --yes to automatically approve actions like applying changes
     command_args.append("--yes")
-    logger.info("Adding --yes flag to Aider command.")
+    logger.info("Appending --yes flag to Aider command.")
 
     # Add --auto-test to enable Aider's internal testing loop
     command_args.append("--auto-test")
