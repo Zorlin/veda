@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re # Import the regex module
 import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
