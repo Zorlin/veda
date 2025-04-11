@@ -1,2 +1,16 @@
-Add a simple print statement to main.py, like print("Hello from Aider!").
+You are improving aiderbot according to the information laid out in README.md
 
+Look for anything missing, any tests that can be added, anything you can do to make it run unstoppably and controllably
+
+And expand on the concepts used if needed
+
+You should make sure the output from Live Aider Output respects the control codes of Aider,
+and keeps less than 10,000 lines in scrollback to avoid crashing the browser
+
+You should make sure its displayed correctly and that text isn't being duplicated over and over
+
+You should make sure the Live Log reflects the current state of everything as best as possible
+
+You should make sure the Interrupt current Aider process works and that in interruption mode we really interrupt Aider
+
+You should make sure if we edit goal.prompt after an initial run, we take the new goal into account if it changes
