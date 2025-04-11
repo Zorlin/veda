@@ -24,7 +24,7 @@ skeptic_model: "gemma3:12b"
 historian_model: "qwen2.5:14b"
 coordinator_model: "command-r7b"
 # Final Authority (Closed-Source Models - using open-source fallbacks)
-arbiter_model: "claude-3-sonnet" # Fallback to ollama_model if not available
+arbiter_model: "claude-3.7-sonnet" # Fallback to ollama_model if not available
 canonizer_model: "gemini-2.5-pro" # Fallback to ollama_model if not available
 redactor_model: "gpt-4-turbo" # Fallback to ollama_model if not available
 
