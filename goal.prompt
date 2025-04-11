@@ -36,11 +36,11 @@ The final act is slotting the change into the mesh ledger as a new version
 These are your explorers, inventors, skeptics, and historians
 
 Role	Model	Function
-Theorist	Qwen-14B	Synthesizes new rules, infers structure from patterns
-Architect	DeepCoder:16B	Optimizes actual code changes from proposed topology shifts
-Skeptic	Gemma-7B	Challenges logic and points out risks, fragility, or overfit
-Historian	Yi-34B or Mixtral	Tracks long-term patterns, suggests rollback or reinforcement
-Coordinator	Command-R+	Mediates dialogue and relays findings to upper quorum
+Theorist	Qwen2.5:14b	Synthesizes new rules, infers structure from patterns
+Architect	DeepCoder:14b	Optimizes actual code changes from proposed topology shifts
+Skeptic	Gemma3:12b	Challenges logic and points out risks, fragility, or overfit
+Historian	Qwen2.5:14b	Tracks long-term patterns, suggests rollback or reinforcement
+Coordinator	Command-r7b	Mediates dialogue and relays findings to upper quorum
 These 5 models form the Active Thought Mesh.
 They pass around slot-based proposals (CID references or state deltas) and argue over:
 

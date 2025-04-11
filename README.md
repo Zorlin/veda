@@ -13,7 +13,7 @@ This is a self-bootstrapping agent harness built using Aider and a local LLM (vi
 When enabled (`enable_council: true` in `config.yaml`), the harness utilizes a VESPER.MIND council for more robust evaluation of Aider's output. This council consists of multiple LLM personas, each analyzing the changes from a different perspective.
 
 The current council configuration uses the following models (as defined in `config.yaml`):
-- **Theorist:** `qwen:14b` - Focuses on the conceptual soundness and alignment with the goal.
+- **Theorist:** `qwen2.5:14b` - Focuses on the conceptual soundness and alignment with the goal.
 - **Architect:** `deepcoder:14b` - Examines code structure, design patterns, and maintainability.
 - **Skeptic:** `gemma3:12b` - Challenges assumptions, looks for edge cases, and potential issues.
 - **Historian:** `qwen2.5:14b` - Considers the changes in the context of the project's history and evolution.
