@@ -182,9 +182,15 @@ class VesperMind:
                 )
                 council_results["open_source"][role] = evaluation
                 
-                # Store in ledger
+                # Store in ledger - ensure evaluation content is stored as a string (JSON if dict)
+                eval_content = evaluation.get("evaluation", "No evaluation content")
+                if isinstance(eval_content, dict):
+                    eval_content_str = json.dumps(eval_content)
+                else:
+                    eval_content_str = str(eval_content) # Ensure it's a string
+                
                 self.ledger.add_council_evaluation(
-                    iteration_id, model_name, role, evaluation["evaluation"], evaluation["score"]
+                    iteration_id, model_name, role, eval_content_str, evaluation.get("score")
                 )
                 
                 # Save to file
@@ -199,10 +205,16 @@ class VesperMind:
                 )
                 council_results["open_source"][role] = evaluation
                 
-                # Store in ledger
+                # Store in ledger - ensure evaluation content is stored as a string (JSON if dict)
+                eval_content = evaluation.get("evaluation", "No evaluation content")
+                if isinstance(eval_content, dict):
+                    eval_content_str = json.dumps(eval_content)
+                else:
+                    eval_content_str = str(eval_content) # Ensure it's a string
+                    
                 self.ledger.add_council_evaluation(
                     iteration_id, f"{self.default_model} (as fallback for {model_name})", 
-                    role, evaluation["evaluation"], evaluation["score"]
+                    role, eval_content_str, evaluation.get("score")
                 )
                 
                 # Save to file
@@ -234,10 +246,16 @@ class VesperMind:
                 )
                 council_results["closed_source"][role] = evaluation
                 
-                # Store in ledger
+                # Store in ledger - ensure evaluation content is stored as a string (JSON if dict)
+                eval_content = evaluation.get("evaluation", "No evaluation content")
+                if isinstance(eval_content, dict):
+                    eval_content_str = json.dumps(eval_content)
+                else:
+                    eval_content_str = str(eval_content) # Ensure it's a string
+                    
                 self.ledger.add_council_evaluation(
                     iteration_id, f"{self.default_model} (as {model_name})", role, 
-                    evaluation["evaluation"], evaluation["score"]
+                    eval_content_str, evaluation.get("score")
                 )
                 
                 # Save to file
