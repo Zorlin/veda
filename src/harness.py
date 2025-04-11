@@ -326,6 +326,22 @@ class Harness:
                 self.state["prompt_history"].append({"role": "assistant", "content": assistant_message})
                 self.ledger.add_message(self.current_run_id, iteration_id, "assistant", assistant_message)
 
+                # Check for stuck cycle (consecutive identical non-empty diffs)
+                if aider_diff and aider_diff.strip(): # Only check non-empty diffs
+                    recent_diffs.append(aider_diff)
+                    if len(recent_diffs) > stuck_cycle_threshold:
+                        recent_diffs.pop(0) # Keep only the last few
+                    
+                    if len(recent_diffs) == stuck_cycle_threshold and len(set(recent_diffs)) == 1:
+                        logging.error(f"Stuck cycle detected: Aider produced the same diff {stuck_cycle_threshold} times consecutively. Aborting.")
+                        self.state["last_error"] = "Stuck cycle detected (repeated diff)"
+                        self.ledger.complete_iteration(
+                            self.current_run_id, iteration_id, aider_diff, 
+                            "[No tests run due to stuck cycle]", False, "FAILURE", 
+                            "Stuck cycle detected (repeated diff)"
+                        )
+                        break # Exit the main loop
+
                 # 2. Run Pytest
                 logging.info("Running pytest...")
                 pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
