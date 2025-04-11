@@ -142,8 +142,14 @@ class Harness:
             except anyio.WouldBlock:
                 # Should not happen with infinite buffer, but good practice
                 logging.warning("UI update stream is unexpectedly blocked.")
-            except Exception as e:
-                # Log errors during UI update without crashing the harness
+           except anyio.BrokenResourceError:
+                # This happens if the receiver (UI server listener) has closed the stream.
+                # Log it but don't crash the harness.
+                logging.warning("UI update stream receiver closed. Cannot send update.")
+                # Optionally disable further UI updates?
+                # self.ui_send_stream = None # Or set a flag
+           except Exception as e:
+                # Log other errors during UI update without crashing the harness
                 logging.error(f"Error sending UI update via stream: {e}", exc_info=True)
         # else:
              # logging.debug("UI update skipped (UI disabled or stream not available).")
