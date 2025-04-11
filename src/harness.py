@@ -405,7 +405,7 @@ class Harness:
                 # 4. Run code review if enabled and successful
                 if self.enable_code_review and verdict == "SUCCESS":
                     logging.info("Running code review...")
-                    review_result = self._run_code_review(
+                    review_result = self.run_code_review(
                         initial_goal_prompt,
                         aider_diff if aider_diff is not None else "",
                         pytest_output
@@ -678,7 +678,7 @@ Focus on implementing the suggested improvements while maintaining code quality 
         return retry_prompt.strip()
 
     # --- Code Review ---
-    def _run_code_review(
+    def run_code_review(
         self,
         initial_goal: str,
         aider_diff: str,
