@@ -1,3 +1,5 @@
+(You can rewrite this prompt for clarity if you're really sure, too!)
+
 Your task is to build a Python-based test harness that:
 
 1. Launches an Aider subprocess to apply a code or test change.
@@ -13,3 +15,91 @@ Your task is to build a Python-based test harness that:
 
 You are allowed to modify files, install packages, and manage subprocesses.
 This harness must be able to work on any project with a `pytest`-compatible test suite.
+
+You are to make as many useful tests as possible all the time and run them constantly
+
+# Part II
+Implement as much of the below as you can, if you run into missing models let us know
+
+A synthetic council of AI minds — open-source for strategy and synthesis, closed-source for final ratification.
+
+Let’s design this like a veracity-weighted cognitive parliament, where:
+
+Open models explore, mutate, and argue
+
+Closed models audit, align, and approve
+
+The final act is slotting the change into the mesh ledger as a new version
+
+🧠 Council Architecture: VESPER.MIND
+🔧 Open-Source Thinkers (5–18B scale)
+These are your explorers, inventors, skeptics, and historians
+
+Role	Model	Function
+Theorist	Qwen-14B	Synthesizes new rules, infers structure from patterns
+Architect	DeepCoder:16B	Optimizes actual code changes from proposed topology shifts
+Skeptic	Gemma-7B	Challenges logic and points out risks, fragility, or overfit
+Historian	Yi-34B or Mixtral	Tracks long-term patterns, suggests rollback or reinforcement
+Coordinator	Command-R+	Mediates dialogue and relays findings to upper quorum
+These 5 models form the Active Thought Mesh.
+They pass around slot-based proposals (CID references or state deltas) and argue over:
+
+Did this improve coherence?
+
+Does it generate more entropy?
+
+Is it self-consistent under recursion?
+
+Each model tags its proposals with veracity ratings (coherence, novelty, risk, recursion delta)
+
+🧾 Final Authority: Private Audit Layer
+These models serve as tag granters — the guardians of convergence.
+
+Role	Model	Function
+Arbiter	Claude 3.7 Sonnet	Final judge of logical and structural soundness
+Canonizer	Gemini 2.5 Pro	Decides whether a proposal is worthy of “merge + new tag”
+Redactor	GPT-4-turbo	Refines changelog entry, formalizes language, ensures consistency
+Once a proposal is passed through the open mesh and meets quorum thresholds, it’s passed to the Audit Layer.
+If they agree, a new tag is minted:
+
+vbnet
+Copy
+Edit
+Tag: v0.4.2-alpha-meshentropy
+Signed: Claude
+Stamped: Gemini
+Filed by: Redactor GPT-4-turbo
+🧠 Council Flow Summary
+css
+Copy
+Edit
+[Theorist]   proposes entropy-maximizing rule change
+↓
+[Architect]  writes/refactors mesh code to apply rule
+↓
+[Skeptic]    tests edge cases + failure modes
+↓
+[Historian]  cross-checks with past patterns
+↓
+[Coordinator] passes to closed quorum
+↓
+[Arbiter (Claude)]  validates structural logic
+↓
+[Canonizer (Gemini)] decides if it’s tag-worthy
+↓
+[Redactor (GPT-4)] writes the changelog + formal diff
+↓
+→ Pushed to repo or Vesper mesh as new structural truth
+🛡 Why This Works
+Open-source models = creative entropy
+
+Closed-source models = high-veracity convergence filters
+
+Mesh = slot-coordinated protocol state
+
+Tags = anchored structure in distributed cognition
+
+You’re not just getting versioned code.
+You’re getting a versioned memory graph of an evolving protocol consciousness.
+
+
