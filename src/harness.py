@@ -10,8 +10,7 @@ import yaml
 
 from .aider_interaction import run_aider
 from .llm_interaction import get_llm_response # Import the LLM function
-# TODO: Implement persistence layer (e.g., JSON or SQLite logger)
-# from .persistence import Logger
+# Persistence is handled directly via JSON state saving/loading
 from .pytest_interaction import run_pytest
 import re # Import re for parsing LLM response
 
@@ -39,7 +38,7 @@ class Harness:
             self.config["ollama_model"] = ollama_model
         # Initialize state *after* config is loaded and work_dir is finalized
         self.state: Dict[str, Any] = self._initialize_state(reset_state) # Pass flag from __init__
-        # self.logger = Logger(log_dir=self.work_dir / "logs") # Placeholder for future logging/ledger
+        # State is saved/loaded via JSON, no separate logger object needed for now.
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
         logging.info(f"Working directory used for state: {self.work_dir.resolve()}")
 
@@ -247,7 +246,6 @@ class Harness:
                     break
 
                 logging.info(f"Aider finished. Diff:\n{aider_diff if aider_diff else '[No changes detected]'}")
-                # self.logger.log_iteration(iteration, "aider_diff", aider_diff) # Placeholder
 
                 # Add Aider's response (diff or status message) to history for context
                 # Use the diff as the assistant's message. If no diff, use a status message.
@@ -265,8 +263,6 @@ class Harness:
                 # Log the outcome and truncated output for clarity
                 summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output) # Truncate long output for info log
                 logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
-                # self.logger.log_iteration(iteration, "pytest_output", pytest_output) # Placeholder
-                # self.logger.log_iteration(iteration, "pytest_passed", pytest_passed) # Placeholder
 
                 # 3. Check for Convergence (Simple check: tests passed and Aider made changes)
                 # More sophisticated check using LLM evaluation comes next
@@ -289,8 +285,6 @@ class Harness:
                     pytest_passed
                 )
                 logging.info(f"LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
-                # self.logger.log_iteration(iteration, "llm_verdict", verdict) # Placeholder
-                # self.logger.log_iteration(iteration, "llm_suggestions", suggestions) # Placeholder
 
 
                 # 5. Decide next step based on LLM Verdict
