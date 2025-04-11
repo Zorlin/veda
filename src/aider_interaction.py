@@ -60,16 +60,21 @@ def run_aider(
         - An error message string (if an error occurred).
           Returns "INTERRUPTED" if stopped by interrupt_event.
     """
-    aider_command = config.get("aider_command", "aider")
-    ollama_model = config.get("ollama_model") # Get the model from harness config
+    aider_command_base = config.get("aider_command", "aider") # Base command like "aider"
+    aider_model = config.get("aider_model") # e.g., "gemini-1.5-pro" or "ollama/gemma3:12b"
 
     # Quote the prompt to handle spaces and special characters
     quoted_prompt = shlex.quote(prompt)
 
     # Base command arguments
-    # DO NOT explicitly set --model here. Let Aider use its config or defaults.
-    # The harness uses its configured model for *evaluation*, not for Aider's internal LLM.
-    command_args = []
+    command_args = [aider_command_base] # Start with the base command
+
+    # Add the model argument if specified in config
+    if aider_model:
+        command_args.append(f"--model {shlex.quote(aider_model)}")
+        logger.info(f"Using Aider model specified in config: {aider_model}")
+    else:
+        logger.warning("No 'aider_model' specified in config. Aider will use its default model.")
 
     # Add --yes to automatically approve actions like applying changes
     command_args.append("--yes")
@@ -93,8 +98,8 @@ def run_aider(
 
     # Add the working directory itself as an argument for Aider to scan
     command_args.append(shlex.quote(work_dir))
-    # Construct the command string carefully
-    full_command = f"{aider_command} {' '.join(command_args)}"
+    # Construct the full command string
+    full_command = ' '.join(command_args)
 
     logger.info(f"Spawning Aider command: {full_command} in {work_dir}")
     # Log the prompt separately for clarity, avoiding potential quoting issues in logs

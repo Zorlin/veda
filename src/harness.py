@@ -996,18 +996,15 @@ Focus on implementing the suggested improvements while maintaining code quality 
         Returns:
             The code review result as a string.
         """
-        logging.info("Running code review using configured LLM...")
+        logging.info("Running code review...")
 
-        # If VESPER.MIND council is enabled, use the Architect model for code review
-        if self.enable_council and self.council:
-            model_name = self.council.open_source_council.get("architect", {}).get("model")
-            if model_name in self.council.available_models:
-                logging.info(f"Using Architect model ({model_name}) for code review")
-            else:
-                model_name = self.config.get("ollama_model", "gemma3:12b")
-                logging.info(f"Architect model not available, using default model ({model_name}) for code review")
-        else:
-            model_name = self.config.get("ollama_model", "gemma3:12b")
+        # Get the configured code review model
+        model_name = self.config.get("code_review_model")
+        if not model_name:
+            logging.warning("No 'code_review_model' specified in config. Falling back to 'ollama_model'.")
+            model_name = self.config.get("ollama_model", "gemma3:12b") # Fallback
+
+        logging.info(f"Using model '{model_name}' for code review.")
 
         # Create code review prompt
         review_prompt = f"""
@@ -1045,20 +1042,28 @@ Use headings, bullet points, and code snippets where appropriate.
 """
 
         try:
-            # Use the configured LLM directly
+            # Use the configured LLM directly via get_llm_response
             review_system_prompt = """You are an expert code reviewer with years of experience.
 Provide thorough, constructive code reviews that highlight both strengths and areas for improvement.
 Focus on code quality, maintainability, performance, and adherence to best practices.
 Be specific and provide concrete examples and suggestions.
 Format your review as a professional markdown document with clear sections and specific examples."""
 
-            # Use a higher temperature for code review to get more creative insights
-            ollama_options = self.config.get("ollama_options", {}).copy()
-            ollama_options["temperature"] = 0.7
+            # Use specific options for code review, potentially different from general Ollama options
+            review_ollama_options = self.config.get("ollama_options", {}).copy()
+            review_ollama_options["temperature"] = 0.5 # Slightly lower temp for more focused review
             
+            # Pass the specific model name to get_llm_response
+            # Note: get_llm_response needs to handle model names like "ollama/gemma3:12b"
+            # or potentially integrate with different APIs if non-Ollama models are used.
+            # Assuming get_llm_response can handle the model_name format for now.
+            review_config = self.config.copy()
+            review_config["ollama_model"] = model_name # Tell get_llm_response which model to use
+            review_config["ollama_options"] = review_ollama_options
+
             review_result = get_llm_response(
                 review_prompt,
-                {"ollama_model": model_name, "ollama_options": ollama_options},
+                review_config, # Pass the modified config with the review model
                 history=None, # Review is based on the current state, not conversation history
                 system_prompt=review_system_prompt
             )
