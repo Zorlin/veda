@@ -203,23 +203,6 @@ class Harness:
             "run_id": None
         }
 
-    def _save_state(self):
-        """
-        Updates the ledger with the current state.
-        This is a compatibility method that delegates to the ledger.
-        """
-        # If we have an active run, update it in the ledger
-        if self.current_run_id is not None:
-            # Update run status
-            self.ledger.end_run(
-                self.current_run_id,
-                self.state["converged"],
-                self.state.get("last_error", "Unknown status")
-            )
-            
-            logging.info(f"Updated run {self.current_run_id} in ledger")
-
-
     def run(self, initial_goal_prompt: str):
         """Runs the main Aider-Pytest-Ollama loop with enhanced features."""
         logging.info("Starting harness run...")
@@ -464,8 +447,8 @@ class Harness:
 
             finally:
                 self.state["current_iteration"] += 1
-                self._save_state()
-                time.sleep(1)
+                # State is saved implicitly via ledger updates and end_run below
+                time.sleep(1) # Keep delay if needed for external processes
 
         # End of loop
         if self.state["converged"]:
