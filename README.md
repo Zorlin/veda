@@ -206,12 +206,12 @@ def test_loop_detects_stuck_cycle_and_aborts():
 
 - ✅ `@pytest.mark.mesh` → Simulate multiple Aider agents collaborating
 - ✅ Realtime status logging to a web dashboard (Flask or Streamlit)
-- ✅ Agent-slot coordination system (one reviewer, one implementer)
-- ✅ TUI or keyboard CLI interface for human-assisted nudges
-- ✅ Handle Aider control codes in live output
-- ✅ Enforce scrollback limits in UI
-- ✅ Prevent UI text duplication
-- ✅ Implement robust interrupt mechanism
-- ✅ Dynamically reload goal prompt changes
+- ⬜ Agent-slot coordination system (one reviewer, one implementer)
+- ⬜ TUI or keyboard CLI interface for human-assisted nudges
+- ✅ Handle Aider control codes in live output (Backend sends codes; Frontend handles interpretation)
+- ✅ Enforce scrollback limits in UI (Set to 10,000 lines)
+- ✅ Prevent UI text duplication (Backend prevents duplicate raw chunks; Frontend handles rendered view)
+- ✅ Implement robust interrupt mechanism (SIGTERM/SIGKILL sequence)
+- ✅ Dynamically reload goal prompt changes (File hashing check)
 
 ---

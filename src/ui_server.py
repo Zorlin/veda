@@ -29,8 +29,8 @@ class UIServer:
         self.clients: Set[ServerProtocol] = set()
         self.server_task: Optional[asyncio.Task] = None
         self.stop_event = asyncio.Event()
-        # Initialize log with a max size limit
-        self.max_log_lines = 1000 # Max lines for scrollback
+        # Initialize log with a max size limit (as per README goal)
+        self.max_log_lines = 10000 # Max lines for scrollback
         self.latest_status: Dict[str, Any] = {
             "status": "Initializing",
             "run_id": None,

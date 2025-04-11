@@ -547,9 +547,19 @@ class Harness:
                 # Removed ANSI stripping pattern
                 def ui_output_callback(chunk: str):
                     """
-                    Callback function to send raw Aider output chunks to the UI.
-                    Frontend (ansi_up) will handle ANSI conversion.
-                    Frontend (processOutputBuffer) will handle \r, \b, and duplicates.
+                    Callback function to send raw Aider output chunks to the UI stream.
+
+                    Design Notes:
+                    - Sends raw chunks: Includes ANSI codes and control characters (\r, \b, \c etc.).
+                    - Frontend Responsibility: The frontend UI (specifically `ansi_up.js` and
+                      custom JavaScript in `index.html` like `processOutputBuffer`) is responsible
+                      for interpreting ANSI codes for color/formatting and handling control
+                      characters like carriage return (\r) and backspace (\b) to correctly
+                      render the live output, simulating a terminal. Aider's cancel code (\c)
+                      should also be handled by frontend logic if specific actions are needed.
+                    - Backend Duplicate Prevention: This callback prevents sending *identical consecutive raw chunks*
+                      to the stream, reducing unnecessary WebSocket traffic. The frontend might perform
+                      additional duplicate prevention based on the *rendered* output.
                     """
                     # Send the raw chunk directly if it's not empty and not a duplicate of the last sent chunk
                     if chunk and chunk != self._last_aider_output_chunk:

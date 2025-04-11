@@ -128,7 +128,7 @@ def run_aider(
         while True:
             # --- Check for Interrupt Signal First ---
             if interrupt_event and interrupt_event.is_set():
-                logger.warning("Interrupt signal received. Attempting to terminate Aider process forcefully.")
+                logger.warning("Interrupt signal received. Attempting to terminate Aider process.")
                 full_output += "\n[Harness: Aider process interrupted by user signal]\n"
                 # Send callback immediately to indicate interruption attempt
                 if output_callback:
@@ -138,17 +138,33 @@ def run_aider(
                         logger.error(f"Error in output_callback during interrupt: {cb_err}")
 
                 try:
+                    # --- Termination Sequence ---
+                    # 1. Try graceful termination (SIGTERM) first. This allows Aider
+                    #    to potentially clean up resources or save state if it handles the signal.
+                    # 2. Wait for a short period.
+                    # 3. If still alive, force termination (SIGKILL). SIGKILL cannot be caught
+                    #    or ignored and guarantees the process stops.
                     if child.isalive():
                         logger.warning("Attempting graceful termination (SIGTERM) of Aider process.")
-                        child.terminate(force=False) # Send SIGTERM first
-                        # Wait briefly to see if it terminates gracefully
-                        graceful_shutdown = child.wait(timeout=2) # Wait up to 2 seconds
-                        if graceful_shutdown is None: # Check if wait timed out (process still alive)
-                             logger.warning("Aider did not terminate gracefully. Sending SIGKILL.")
-                             child.terminate(force=True) # Force kill
-                             time.sleep(0.1) # Short pause after kill
-                        else:
-                             logger.info("Aider terminated gracefully after SIGTERM.")
+                        child.terminate(force=False) # Send SIGTERM
+                        try:
+                            # Wait briefly to see if it terminates gracefully
+                            child.wait(timeout=2) # Wait up to 2 seconds
+                            logger.info("Aider terminated gracefully after SIGTERM.")
+                        except pexpect.exceptions.TIMEOUT:
+                            # wait() timed out, process still alive
+                            logger.warning("Aider did not terminate gracefully after SIGTERM. Sending SIGKILL.")
+                            if child.isalive(): # Double-check before SIGKILL
+                                child.terminate(force=True) # Send SIGKILL
+                                time.sleep(0.1) # Short pause after kill
+                            else:
+                                logger.info("Aider terminated between SIGTERM check and SIGKILL attempt.")
+                        except Exception as wait_exc:
+                            # Handle potential errors during wait() itself
+                            logger.error(f"Error during Aider SIGTERM wait: {wait_exc}. Attempting SIGKILL.")
+                            if child.isalive():
+                                child.terminate(force=True)
+                                time.sleep(0.1)
                     else:
                         logger.info("Aider process already terminated before explicit signal.")
                 except pexpect.exceptions.TIMEOUT:
