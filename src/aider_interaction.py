@@ -26,7 +26,7 @@ AIDER_PROMPT_PATTERNS = [
     # Add other patterns if Aider has more interactive prompts
 ]
 # Default timeout for waiting for Aider output
-AIDER_TIMEOUT = 300 # seconds (5 minutes)
+AIDER_TIMEOUT = 600 # seconds (10 minutes)
 
 # --- Helper function removed as --yes flag makes it unnecessary ---
 
