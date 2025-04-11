@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aider Harness UI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        /* Basic styling */
+        body { font-family: sans-serif; }
+        .log-entry { white-space: pre-wrap; word-break: break-word; }
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100 p-4" x-data="harnessUI()" x-cloak>
+
+    <div class="container mx-auto bg-white p-6 rounded shadow-lg">
+        <h1 class="text-2xl font-bold mb-4">Aider Harness Status</h1>
+
+        <!-- Connection Status -->
+        <div class="mb-4 p-2 rounded" :class="wsStatus === 'Connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'">
+            WebSocket Status: <span x-text="wsStatus">Connecting...</span>
+            <span x-show="wsStatus !== 'Connected'" class="ml-2 text-sm">(Attempting to connect to ws://<span x-text="websocketHost"></span>:<span x-text="websocketPort"></span>)</span>
+        </div>
+
+        <!-- Run Status -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div class="bg-blue-50 p-3 rounded">
+                <strong>Run ID:</strong> <span x-text="status.run_id || 'N/A'"></span>
+            </div>
+            <div class="bg-blue-50 p-3 rounded">
+                <strong>Iteration:</strong> <span x-text="status.iteration || '0'"></span>
+            </div>
+            <div class="bg-blue-50 p-3 rounded">
+                <strong>Status:</strong> <span x-text="status.status || 'Idle'"></span>
+            </div>
+        </div>
+
+        <!-- Log Output -->
+        <div class="mb-4">
+            <h2 class="text-xl font-semibold mb-2">Live Log</h2>
+            <div class="bg-gray-800 text-white p-4 rounded h-64 overflow-y-auto text-sm font-mono" x-ref="logContainer">
+                <template x-for="(entry, index) in status.log" :key="index">
+                    <div class="log-entry" x-text="entry"></div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Interaction Area (Placeholder) -->
+        <div class="mb-4">
+            <h2 class="text-xl font-semibold mb-2">Interaction</h2>
+            <textarea class="w-full p-2 border rounded mb-2" rows="3" placeholder="Inject thoughts or commands (future feature)..." disabled></textarea>
+            <button class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50" disabled>Send</button>
+        </div>
+
+    </div>
+
+    <script>
+        function harnessUI() {
+            return {
+                // Default host/port - should match config.yaml or be configurable
+                websocketHost: 'localhost',
+                websocketPort: 8765,
+                ws: null,
+                wsStatus: 'Connecting...',
+                status: {
+                    status: "Initializing",
+                    run_id: null,
+                    iteration: 0,
+                    log: ["UI Initialized. Waiting for connection..."]
+                },
+                retryTimeout: null,
+
+                init() {
+                    console.log('Initializing Harness UI...');
+                    this.connectWebSocket();
+                },
+
+                connectWebSocket() {
+                    const wsUrl = `ws://${this.websocketHost}:${this.websocketPort}`;
+                    console.log(`Attempting to connect to ${wsUrl}`);
+                    this.wsStatus = 'Connecting...';
+                    this.status.log.push(`Attempting connection to ${wsUrl}...`);
+
+                    // Clear previous timeout if exists
+                    if (this.retryTimeout) clearTimeout(this.retryTimeout);
+
+                    this.ws = new WebSocket(wsUrl);
+
+                    this.ws.onopen = () => {
+                        console.log('WebSocket connected');
+                        this.wsStatus = 'Connected';
+                        this.status.log.push('WebSocket connection established.');
+                        // Reset retry timeout on successful connection
+                        if (this.retryTimeout) clearTimeout(this.retryTimeout);
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        // console.log('Message received:', event.data);
+                        try {
+                            const data = JSON.parse(event.data);
+                            this.status = { ...this.status, ...data }; // Merge new data
+                            // Ensure log is always an array
+                            if (!Array.isArray(this.status.log)) {
+                                this.status.log = [JSON.stringify(this.status.log)];
+                            }
+                            // Scroll log container to bottom
+                            this.$nextTick(() => {
+                                const logContainer = this.$refs.logContainer;
+                                if(logContainer) {
+                                    logContainer.scrollTop = logContainer.scrollHeight;
+                                }
+                            });
+                        } catch (e) {
+                            console.error('Failed to parse message:', e);
+                            this.status.log.push(`Error parsing message: ${event.data}`);
+                        }
+                    };
+
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.wsStatus = 'Error';
+                        this.status.log.push(`WebSocket error occurred. Check console.`);
+                        // Attempt to reconnect after a delay
+                        this.scheduleReconnect();
+                    };
+
+                    this.ws.onclose = (event) => {
+                        console.log('WebSocket disconnected:', event.code, event.reason);
+                        this.wsStatus = `Disconnected (Code: ${event.code})`;
+                        this.status.log.push(`WebSocket disconnected. Attempting to reconnect...`);
+                        // Attempt to reconnect
+                        this.scheduleReconnect();
+                    };
+                },
+
+                scheduleReconnect() {
+                    // Don't schedule if already scheduled
+                    if (this.retryTimeout) return;
+                    
+                    const delay = 5000; // 5 seconds
+                    console.log(`Scheduling WebSocket reconnect in ${delay / 1000} seconds...`);
+                    this.retryTimeout = setTimeout(() => {
+                        this.retryTimeout = null; // Clear the timeout ID before retrying
+                        this.connectWebSocket();
+                    }, delay);
+                },
+
+                // Placeholder for sending messages
+                sendMessage() {
+                    console.log('Sending message (not implemented)');
+                    // if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    //     this.ws.send(JSON.stringify({ command: 'userInput', data: '...' }));
+                    // }
+                }
+            }
+        }
+    </script>
+
+</body>
+</html>

@@ -5,8 +5,11 @@ from pathlib import Path
 import rich
 from rich.console import Console
 from rich.logging import RichHandler
+import threading # For running UI server in background
+import asyncio # For running async UI server
 
 from src.harness import Harness
+from src.ui_server import UIServer # Import UI Server
 
 # Configure rich console
 console = Console()
@@ -169,9 +172,26 @@ This harness must be able to work on any project with a `pytest`-compatible test
             enable_ui=args.enable_ui or None, # Pass None if not set, Harness will use config
             websocket_host=args.ui_host,      # Pass None if not set
             websocket_port=args.ui_port       # Pass None if not set
+            websocket_port=args.ui_port       # Pass None if not set
         )
         
-        # TODO: Start WebSocket server if enabled (in a separate thread/process)
+        # Start WebSocket server if enabled
+        ui_server_thread = None
+        ui_server = None
+        if harness.config.get("enable_ui"):
+            ui_host = harness.config.get("websocket_host", "localhost")
+            ui_port = harness.config.get("websocket_port", 8765)
+            ui_server = UIServer(host=ui_host, port=ui_port)
+            harness.set_ui_server(ui_server) # Link server to harness
+
+            def run_server():
+                asyncio.run(ui_server.start())
+
+            ui_server_thread = threading.Thread(target=run_server, daemon=True)
+            ui_server_thread.start()
+            logger.info(f"UI WebSocket server starting in background thread on ws://{ui_host}:{ui_port}")
+            # Give the server a moment to start
+            time.sleep(1)
         
         # Run the harness and get results
         result = harness.run(initial_goal_prompt)
@@ -202,6 +222,16 @@ This harness must be able to work on any project with a `pytest`-compatible test
     except Exception as e:
         logger.exception(f"Harness execution failed: {e}")
         console.print(f"\n[bold red]Error:[/bold red] {str(e)}")
+    finally:
+        # Stop the UI server if it was started
+        if ui_server and ui_server_thread and ui_server_thread.is_alive():
+            logger.info("Stopping UI WebSocket server...")
+            ui_server.stop()
+            ui_server_thread.join(timeout=5) # Wait for thread to finish
+            if ui_server_thread.is_alive():
+                 logger.warning("UI server thread did not stop cleanly.")
+            else:
+                 logger.info("UI WebSocket server stopped.")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from .llm_interaction import get_llm_response
 from .pytest_interaction import run_pytest
 from .ledger import Ledger
 from .vesper_mind import VesperMind
+from .ui_server import UIServer # Import UI Server
 import re
 
 
@@ -91,6 +92,9 @@ class Harness:
         self.enable_code_review = enable_code_review
         self.current_run_id = None
         
+        # Initialize UI Server reference (will be set if started externally)
+        self.ui_server: Optional[UIServer] = None
+        
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
         logging.info(f"Working directory: {self.work_dir.resolve()}")
         logging.info(f"Storage type: {storage_type}")
@@ -99,6 +103,22 @@ class Harness:
         logging.info(f"UI enabled: {self.config.get('enable_ui', False)}")
         logging.info(f"WebSocket Host: {self.config.get('websocket_host', 'N/A')}")
         logging.info(f"WebSocket Port: {self.config.get('websocket_port', 'N/A')}")
+
+    def set_ui_server(self, ui_server: UIServer):
+        """Allows the main script to inject the running UI server instance."""
+        self.ui_server = ui_server
+        logging.info("UI Server instance linked to Harness.")
+
+    def _send_ui_update(self, update: Dict[str, Any]):
+        """Sends an update to the UI server if it's enabled and linked."""
+        if self.config.get("enable_ui") and self.ui_server:
+            # Add common context if not present
+            update.setdefault("run_id", self.current_run_id)
+            update.setdefault("iteration", self.state.get("current_iteration", 0) + 1) # UI shows 1-based
+            self.ui_server.send_update(update)
+        # else:
+            # logger.debug("UI update skipped (UI disabled or server not linked).")
+
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads configuration from the YAML file."""
@@ -237,6 +257,7 @@ class Harness:
     def run(self, initial_goal_prompt: str):
         """Runs the main Aider-Pytest-Ollama loop with enhanced features."""
         logging.info("Starting harness run...")
+        self._send_ui_update({"status": "Starting Run", "log_entry": "Harness run initiated."})
         
         # Start a new run in the ledger if we don't have an active one
         if self.state["run_id"] is None:
@@ -300,7 +321,9 @@ class Harness:
             and not self.state["converged"]
         ):
             iteration = self.state["current_iteration"]
-            logging.info(f"--- Starting Iteration {iteration + 1} ---")
+            iteration_num_display = iteration + 1
+            logging.info(f"--- Starting Iteration {iteration_num_display} ---")
+            self._send_ui_update({"status": f"Starting Iteration {iteration_num_display}", "iteration": iteration_num_display, "log_entry": f"Starting Iteration {iteration_num_display}"})
             
             # Start iteration in ledger
             iteration_id = self.ledger.start_iteration(
@@ -312,6 +335,7 @@ class Harness:
             try:
                 # 1. Run Aider
                 logging.info("Running Aider...")
+                self._send_ui_update({"status": "Running Aider", "log_entry": "Invoking Aider..."})
                 aider_diff, aider_error = run_aider(
                     prompt=current_prompt,
                     config=self.config,
@@ -322,6 +346,7 @@ class Harness:
                 if aider_error:
                     logging.error(f"Aider failed: {aider_error}")
                     self.state["last_error"] = f"Aider failed: {aider_error}"
+                    self._send_ui_update({"status": "Error", "log_entry": f"Aider failed: {aider_error}"})
                     # Update ledger with error
                     self.ledger.complete_iteration(
                         self.current_run_id,
@@ -337,6 +362,7 @@ class Harness:
                 if aider_diff is None:
                     logging.error("Aider returned None for diff without error. Stopping.")
                     self.state["last_error"] = "Aider returned None diff unexpectedly."
+                    self._send_ui_update({"status": "Error", "log_entry": "Aider returned None diff unexpectedly."})
                     # Update ledger with error
                     self.ledger.complete_iteration(
                         self.current_run_id,
@@ -349,7 +375,9 @@ class Harness:
                     )
                     break
 
-                logging.info(f"Aider finished. Diff:\n{aider_diff if aider_diff else '[No changes detected]'}")
+                log_diff_summary = (aider_diff[:200] + '...' if len(aider_diff) > 200 else aider_diff) if aider_diff else '[No changes detected]'
+                logging.info(f"Aider finished. Diff summary:\n{log_diff_summary}")
+                self._send_ui_update({"status": "Aider Finished", "aider_diff": aider_diff, "log_entry": f"Aider finished. Diff:\n{log_diff_summary}"})
 
                 # Add Aider's response to history and ledger
                 assistant_message = aider_diff if aider_diff is not None else "[Aider encountered an error or produced no output]"
@@ -367,8 +395,9 @@ class Harness:
                     if len(recent_diffs) == stuck_cycle_threshold and len(set(recent_diffs)) == 1:
                         logging.error(f"Stuck cycle detected: Aider produced the same diff {stuck_cycle_threshold} times consecutively. Aborting.")
                         self.state["last_error"] = "Stuck cycle detected (repeated diff)"
+                        self._send_ui_update({"status": "Error", "log_entry": "Stuck cycle detected. Aborting."})
                         self.ledger.complete_iteration(
-                            self.current_run_id, iteration_id, aider_diff, 
+                            self.current_run_id, iteration_id, aider_diff,
                             "[No tests run due to stuck cycle]", False, "FAILURE", 
                             "Stuck cycle detected (repeated diff)"
                         )
@@ -376,11 +405,20 @@ class Harness:
 
                 # 2. Run Pytest
                 logging.info("Running pytest...")
+                self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."})
                 pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
                 summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
                 logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
+                self._send_ui_update({
+                    "status": "Pytest Finished",
+                    "pytest_passed": pytest_passed,
+                    "pytest_output": pytest_output,
+                    "log_entry": f"Pytest finished. Passed: {pytest_passed}. Output:\n{summary_output}"
+                })
 
                 # 3. Evaluate with VESPER.MIND council or standard LLM
+                evaluation_status = "Evaluating (Council)" if self.enable_council and self.council else "Evaluating (LLM)"
+                self._send_ui_update({"status": evaluation_status, "log_entry": evaluation_status + "..."})
                 try:
                     if self.enable_council and self.council:
                         logging.info("Evaluating with VESPER.MIND council...")
@@ -394,6 +432,7 @@ class Harness:
                             self.state["prompt_history"]
                         )
                         logging.info(f"VESPER.MIND council verdict: {verdict}")
+                        self._send_ui_update({"status": "Council Evaluated", "verdict": verdict, "suggestions": suggestions, "log_entry": f"Council verdict: {verdict}"})
                         
                         # Generate changelog if successful
                         if verdict == "SUCCESS":
@@ -423,8 +462,10 @@ class Harness:
                             pytest_passed
                         )
                         logging.info(f"LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
+                        self._send_ui_update({"status": "LLM Evaluated", "verdict": verdict, "suggestions": suggestions, "log_entry": f"LLM verdict: {verdict}"})
                 except Exception as e:
                     logging.error(f"Error during evaluation: {e}")
+                    self._send_ui_update({"status": "Error", "log_entry": f"Error during evaluation: {e}"})
                     logging.info("Falling back to standard LLM evaluation")
                     verdict, suggestions = self._evaluate_outcome(
                         initial_goal_prompt,
@@ -448,6 +489,7 @@ class Harness:
                 # 4. Run code review if enabled and successful
                 if self.enable_code_review and verdict == "SUCCESS":
                     logging.info("Running code review...")
+                    self._send_ui_update({"status": "Running Code Review", "log_entry": "Running code review..."})
                     review_result = self.run_code_review(
                         initial_goal_prompt,
                         aider_diff if aider_diff is not None else "",
@@ -465,11 +507,14 @@ class Harness:
                 # 5. Decide next step based on verdict
                 if verdict == "SUCCESS":
                     logging.info("Evaluation confirms SUCCESS. Stopping loop.")
+                    self._send_ui_update({"status": "SUCCESS", "log_entry": "Converged: SUCCESS"})
                     self.state["converged"] = True
                 elif verdict == "RETRY":
                     logging.info("Evaluation suggests RETRY.")
+                    self._send_ui_update({"status": "RETRY Suggested", "log_entry": f"RETRY suggested. Suggestions:\n{suggestions}"})
                     if self.state["current_iteration"] + 1 >= self.max_retries:
                         logging.warning(f"Retry suggested, but max retries ({self.max_retries}) reached. Stopping.")
+                        self._send_ui_update({"status": "Max Retries Reached", "log_entry": "Max retries reached after RETRY verdict."})
                         self.state["last_error"] = "Max retries reached after RETRY verdict."
                         break
 
@@ -486,12 +531,14 @@ class Harness:
                 else:  # verdict == "FAILURE"
                     logging.error(f"Structural failure detected. Stopping loop. Reason: {suggestions}")
                     self.state["last_error"] = f"Evaluation reported FAILURE: {suggestions}"
+                    self._send_ui_update({"status": "FAILURE", "log_entry": f"FAILURE detected: {suggestions}"})
                     self.state["converged"] = False
                     break
 
             except Exception as e:
                 logging.exception(f"Critical error during iteration {iteration + 1}: {e}")
                 self.state["last_error"] = str(e)
+                self._send_ui_update({"status": "Critical Error", "log_entry": f"Critical error: {e}"})
                 
                 # Update ledger with error
                 try:
@@ -515,14 +562,18 @@ class Harness:
                 time.sleep(1) # Keep delay if needed for external processes
 
         # End of loop
+        final_log_entry = ""
         if self.state["converged"]:
             logging.info(f"Harness finished successfully after {self.state['current_iteration']} iterations.")
+            final_log_entry = f"Harness finished: SUCCESS after {self.state['current_iteration']} iterations."
             final_status = "SUCCESS"
         elif self.state["current_iteration"] >= self.max_retries:
             logging.warning(f"Harness stopped after reaching max retries ({self.max_retries}).")
             final_status = f"MAX_RETRIES_REACHED: {self.state.get('last_error', 'Unknown error')}"
+            final_log_entry = f"Harness finished: MAX_RETRIES_REACHED. Last error: {self.state.get('last_error', 'Unknown error')}"
         else:
             logging.error(f"Harness stopped prematurely due to error: {self.state.get('last_error', 'Unknown error')}")
+            final_log_entry = f"Harness finished: ERROR. Last error: {self.state.get('last_error', 'Unknown error')}"
             final_status = f"ERROR: {self.state.get('last_error', 'Unknown error')}"
 
         # Update run status in ledger
@@ -531,7 +582,8 @@ class Harness:
             self.state["converged"],
             final_status
         )
-
+        
+        self._send_ui_update({"status": final_status, "log_entry": final_log_entry, "converged": self.state["converged"]})
         logging.info("Harness run complete.")
         
         # Return summary
