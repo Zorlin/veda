@@ -46,6 +46,11 @@ def main():
         default="harness_work_dir",
         help="Working directory for logs, state, and intermediate files.",
     )
+    parser.add_argument(
+        "--reset-state",
+        action="store_true", # Makes it a flag, default is False
+        help="Ignore any saved state and start a fresh run.",
+    )
     # Add more arguments as needed (e.g., specific Ollama model, Aider args)
 
     args = parser.parse_args()
@@ -95,6 +100,7 @@ This harness must be able to work on any project with a `pytest`-compatible test
             config_file=args.config_file,
             max_retries=args.max_retries,
             work_dir=work_dir_path,
+            reset_state=args.reset_state, # Pass the flag here
         )
         harness.run(initial_goal_prompt)
     except Exception as e:

@@ -30,12 +30,13 @@ class Harness:
         config_file: str = "config.yaml",
         max_retries: int = 5,
         work_dir: Path = Path("harness_work_dir"),
+        reset_state: bool = False, # Add reset_state parameter
     ):
         self.config_file = config_file
         self.max_retries = max_retries
         self.work_dir = work_dir
         self.config: Dict[str, Any] = self._load_config()
-        self.state: Dict[str, Any] = self._initialize_state()
+        self.state: Dict[str, Any] = self._initialize_state(reset_state) # Pass flag
         # self.logger = Logger(log_dir=self.work_dir / "logs") # Placeholder
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
         logging.info(f"Working directory: {self.work_dir.resolve()}")
@@ -97,11 +98,16 @@ class Harness:
 
         return config
 
-    def _initialize_state(self) -> Dict[str, Any]:
-        """Initializes the harness state, loading from file if exists."""
+    def _initialize_state(self, reset_state: bool = False) -> Dict[str, Any]:
+        """
+        Initializes the harness state.
+        Loads from file if it exists and reset_state is False.
+        Otherwise, returns a fresh state.
+        """
         state_file = self.work_dir / "harness_state.json"
-        logging.info(f"Attempting to load state from {state_file}...")
-        if state_file.is_file(): # Check if it's a file specifically
+
+        if not reset_state and state_file.is_file(): # Check reset_state flag
+            logging.info(f"Attempting to load state from {state_file}...")
             try:
                 with open(state_file, 'r') as f:
                     state = json.load(f)
@@ -119,8 +125,10 @@ class Harness:
                 logging.warning(f"Could not load or parse state file {state_file}: {e}. Initializing fresh state.")
             except Exception as e:
                  logging.error(f"Unexpected error loading state file {state_file}: {e}. Initializing fresh state.")
-        else:
-            logging.info(f"State file {state_file} not found or is not a file. Initializing fresh state.")
+        elif reset_state:
+            logging.info(f"Resetting state as requested. Ignoring existing state file {state_file} if present.")
+        else: # File not found and not resetting
+            logging.info(f"State file {state_file} not found. Initializing fresh state.")
 
         # Default state if no valid state file is found or loading fails
         logging.info("Initializing fresh state.")
