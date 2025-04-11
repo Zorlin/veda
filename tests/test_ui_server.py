@@ -15,6 +15,10 @@ async def test_server(anyio_backend):
         
     server = UIServer(host="127.0.0.1", port=8766) # Use a different port for testing
     
+    # Create a memory stream pair for testing
+    send_stream, receive_stream = anyio.create_memory_object_stream(float('inf'))
+    server.set_receive_stream(receive_stream)
+    
     async with anyio.create_task_group() as tg:
         # Start the server in the background using the test's task group
         server_task = await tg.start(server.start)
@@ -28,6 +32,7 @@ async def test_server(anyio_backend):
         
         # Cleanup: Signal the server to stop and cancel the task group
         server.stop()
+        await send_stream.aclose()
         tg.cancel_scope.cancel()
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
