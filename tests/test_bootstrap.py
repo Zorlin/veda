@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 import subprocess
-import os
+# import os # Unused import
 import requests # For Ollama check - keeping for now, but will switch
 import ollama # Use the official ollama library
 

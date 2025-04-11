@@ -1,5 +1,4 @@
 import asyncio
-import asyncio
 import json
 import logging
 import websockets
@@ -229,8 +228,10 @@ class UIServer:
             await self.stop_event.wait()
         finally:
             logger.info("Stop event received or server task cancelled, shutting down WebSocket server...")
-            server.close()
-            await server.wait_closed()
+            # Use the correct variable name holding the server object
+            if websocket_server:
+                websocket_server.close()
+                await websocket_server.wait_closed()
             logger.info("WebSocket server stopped.")
 
         # Start the server and listener tasks concurrently

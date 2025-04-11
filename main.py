@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-import time # Import the time module
+# import time # Unused import
 from pathlib import Path
 import rich
 from rich.console import Console
@@ -224,10 +224,10 @@ This harness must be able to work on any project with a `pytest`-compatible test
     # --- Start UI Servers Early (if enabled) ---
     ui_server = None
     ws_server_thread = None # Renamed from ui_server_thread
-    http_server = None # Added for HTTP server handle (though not used for shutdown here)
+    # http_server = None # Variable assigned but never used
     http_server_thread = None # Added for HTTP server thread
     # Determine UI dir path relative to main.py's location
-    ui_dir_path = Path(__file__).parent / "ui" 
+    ui_dir_path = Path(__file__).parent / "ui"
 
     if ui_enabled:
         logger.info("UI is enabled. Starting WebSocket and HTTP servers...")

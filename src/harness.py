@@ -53,11 +53,12 @@ class Harness:
         if ollama_model:
             logging.info(f"Overriding configured Ollama model with __init__ argument: {ollama_model}")
             self.config["ollama_model"] = ollama_model
-            
-        # Override UI settings if provided in __init__
-        if enable_ui is not None:
-            self.config["enable_ui"] = enable_ui
-            logging.info(f"UI enabled status set by __init__ argument: {enable_ui}")
+
+        # Override UI settings if provided in __init__ arguments (Note: enable_ui is not an argument here)
+        # Let's log the final determined UI setting after potential overrides below
+        # if enable_ui is not None: # This argument doesn't exist
+        #     self.config["enable_ui"] = enable_ui
+        #     logging.info(f"UI enabled status set by __init__ argument: {enable_ui}")
         if websocket_host is not None:
             self.config["websocket_host"] = websocket_host
             logging.info(f"WebSocket host set by __init__ argument: {websocket_host}")
@@ -111,6 +112,7 @@ class Harness:
         logging.info(f"Storage type: {storage_type}")
         logging.info(f"VESPER.MIND council enabled: {self.enable_council}") # Use self.enable_council
         logging.info(f"Code review enabled: {self.enable_code_review}") # Use self.enable_code_review
+        # Log the final UI enabled status after config loading and potential overrides
         logging.info(f"UI enabled: {self.config.get('enable_ui', False)}")
         logging.info(f"WebSocket Host: {self.config.get('websocket_host', 'N/A')}")
         logging.info(f"WebSocket Port: {self.config.get('websocket_port', 'N/A')}")
