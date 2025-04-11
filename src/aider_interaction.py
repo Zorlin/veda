@@ -132,19 +132,34 @@ def run_aider(
 
                 try:
                     if child.isalive():
-                        # Go straight to SIGKILL for more reliable termination in this context
-                        logger.warning("Sending SIGKILL to Aider process.")
-                        child.terminate(force=True)
-                        time.sleep(0.1) # Short pause after kill
+                        logger.warning("Attempting graceful termination (SIGTERM) of Aider process.")
+                        child.terminate(force=False) # Send SIGTERM first
+                        # Wait briefly to see if it terminates gracefully
+                        graceful_shutdown = child.wait(timeout=2) # Wait up to 2 seconds
+                        if graceful_shutdown is None: # Check if wait timed out (process still alive)
+                             logger.warning("Aider did not terminate gracefully. Sending SIGKILL.")
+                             child.terminate(force=True) # Force kill
+                             time.sleep(0.1) # Short pause after kill
+                        else:
+                             logger.info("Aider terminated gracefully after SIGTERM.")
                     else:
-                        logger.info("Aider process already terminated before explicit kill.")
+                        logger.info("Aider process already terminated before explicit signal.")
+                except pexpect.exceptions.TIMEOUT:
+                    # This can happen if wait() times out, even though we check isalive() before
+                    logger.warning("Timeout waiting for Aider graceful shutdown. Sending SIGKILL.")
+                    if child.isalive(): # Double check
+                        child.terminate(force=True)
+                        time.sleep(0.1)
                 except Exception as term_exc:
                     logger.error(f"Error while trying to terminate Aider: {term_exc}")
                 finally:
                     # Ensure the child is closed, regardless of termination success
-                    if not child.closed:
-                        logger.info("Closing pexpect child process after interrupt.")
-                        child.close() # Close the pexpect object itself
+                    if child.isalive(): # If still alive after all attempts, log error and force close pexpect
+                        logger.error("Aider process still alive after termination attempts. Force closing pexpect connection.")
+                        child.close(force=True) # Force close the pexpect object
+                    elif not child.closed:
+                        logger.info("Closing pexpect child process after termination.")
+                        child.close() # Close the pexpect object itself (already terminated)
                 return None, "INTERRUPTED" # Special return value
 
             try:

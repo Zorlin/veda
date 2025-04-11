@@ -166,11 +166,19 @@ def test_interrupt_stops_aider_process():
 
 @pytest.mark.control
 def test_interrupt_cleans_up_resources():
-    """Ensure resources (threads, processes) are cleaned up after an interrupt."""
+    """Ensure resources (threads, processes) are cleaned up after an interrupt (SIGTERM then SIGKILL)."""
 
 @pytest.mark.control
-def test_goal_prompt_changes_trigger_reinit():
-    """Verify that modifying goal.prompt causes the harness to reinitialize Aider with the new goal."""
+def test_interrupt_stops_aider_promptly():
+    """Verify that Aider stops processing quickly after an interrupt signal."""
+
+@pytest.mark.control
+def test_goal_prompt_changes_are_detected():
+    """Verify that modifying the goal prompt file during a run is detected by the harness."""
+
+@pytest.mark.control
+def test_reloaded_goal_prompt_is_used():
+    """Ensure that after a goal prompt reload, subsequent evaluations/retries use the new goal."""
 
 ```
 
