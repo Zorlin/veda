@@ -222,12 +222,17 @@ This harness must be able to work on any project with a `pytest`-compatible test
 
     # --- Start UI Servers Early (if enabled) ---
     ui_server = None
-    ui_server_thread = None
-    if ui_enabled:
-        logger.info("UI is enabled. Starting UI server...")
-        ui_server = UIServer(host=ui_host, port=ui_port)
+    ws_server_thread = None # Renamed from ui_server_thread
+    http_server = None # Added for HTTP server handle (though not used for shutdown here)
+    http_server_thread = None # Added for HTTP server thread
+    ui_dir_path = Path(__file__).parent.parent / "ui" # Determine UI dir path
 
-        def run_server():
+    if ui_enabled:
+        logger.info("UI is enabled. Starting WebSocket and HTTP servers...")
+        
+        # Start WebSocket Server
+        ui_server = UIServer(host=ws_host, port=ws_port)
+        def run_ws_server(): # Renamed from run_server
             try:
                 asyncio.run(ui_server.start())
             except Exception as e:
@@ -312,7 +317,13 @@ This harness must be able to work on any project with a `pytest`-compatible test
             if ws_server_thread.is_alive():
                  logger.warning("WebSocket server thread did not stop cleanly.")
             else:
-                 logger.info("UI WebSocket server stopped.")
+                 logger.info("WebSocket server stopped.") # Corrected log message
+        
+        # Log HTTP server thread status (it's a daemon, so it will exit, but we can check)
+        if http_server_thread and http_server_thread.is_alive():
+            logger.info("HTTP server thread is still running (expected for daemon thread).")
+        elif http_server_thread:
+            logger.info("HTTP server thread has stopped.")
 
 
 if __name__ == "__main__":
