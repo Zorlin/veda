@@ -233,13 +233,13 @@ class UIServer:
                     # If websockets.serve() succeeds without raising an exception, break the loop.
                     break # Correct indentation level
                 except OSError as e:
-                if "Address already in use" in str(e) and attempt < max_attempts - 1:
-                    logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
-                    current_port += 1
-                else:
-                    logger.error(f"Failed to start WebSocket server on {self.host}:{current_port}: {e}")
-                    logger.error("Check if the port is already in use or if you have permissions.")
-                    return # Exit start method if failed
+                    if "Address already in use" in str(e) and attempt < max_attempts - 1:
+                        logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
+                        current_port += 1
+                    else:
+                        logger.error(f"Failed to start WebSocket server on {self.host}:{current_port}: {e}")
+                        logger.error("Check if the port is already in use or if you have permissions.")
+                        return # Exit start method if failed
                 except Exception as e:
                     logger.exception(f"An unexpected error occurred during server startup: {e}")
                     # Let the loop continue to the next attempt or finish
