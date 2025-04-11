@@ -341,11 +341,12 @@
                     this.outputBuffer = ''; // Clear buffer before processing
                     console.log("Processing buffer content:", bufferToProcess); // <-- Log buffer content
 
-                    // Process the entire buffered chunk
-                    this.processAiderChunk(bufferToProcess);
-                    console.log("After processAiderChunk. New liveAiderOutput length:", this.liveAiderOutput.length); // <-- Log updated length
+                    // Directly append the raw buffer content to liveAiderOutput
+                    // Let ansi_up handle the conversion in the x-html directive
+                    this.liveAiderOutput += bufferToProcess;
+                    console.log("After appending buffer. New liveAiderOutput length:", this.liveAiderOutput.length); // <-- Log updated length
 
-                    // Limit scrollback after processing
+                    // Limit scrollback after appending and before rendering
                     const lines = this.liveAiderOutput.split('\n');
                     const maxLines = 10000; // Keep the limit
                     if (lines.length > maxLines) {
