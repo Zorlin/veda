@@ -90,8 +90,8 @@ def run_aider(
             cwd=work_dir,
             encoding='utf-8',
             timeout=AIDER_TIMEOUT, # Overall timeout for the whole command
-            logfile=None, # Set to sys.stdout to see Aider's full output during run
-            # logfile=sys.stdout, # Uncomment for debugging Aider interaction
+            # logfile=None, # Set to sys.stdout to see Aider's full output during run
+            logfile=sys.stdout, # Uncomment for debugging Aider interaction
         )
 
         # Interaction loop - primarily waiting for Add File or completion/error
