@@ -18,14 +18,13 @@ APPLY_PROMPT_PATTERN = r"Apply changes\? \[y/n/q/a/v\]"
 PROCEED_PROMPT_PATTERN = r"Proceed\? \[y/n\]"
 # Pattern for the "Add file to chat?" prompt
 ADD_FILE_PROMPT_PATTERN = r"Add file .* to the chat\? \(Y\)es/\(N\)o/\(A\)ll/\(S\)kip all/\(D\)on't ask again"
-# Pattern for the "Attempt to fix test errors?" prompt
-FIX_TESTS_PROMPT_PATTERN = r"Attempt to fix test errors\? \(Y\)es/\(N\)o"
+# Pattern for the "Add file to chat?" prompt
+ADD_FILE_PROMPT_PATTERN = r"Add file .* to the chat\? \(Y\)es/\(N\)o/\(A\)ll/\(S\)kip all/\(D\)on't ask again"
 
 AIDER_PROMPT_PATTERNS = [
     APPLY_PROMPT_PATTERN,
     PROCEED_PROMPT_PATTERN,
     ADD_FILE_PROMPT_PATTERN, # Handle add file prompt
-    FIX_TESTS_PROMPT_PATTERN, # Handle fix tests prompt
     # Add other patterns if Aider has more interactive prompts
 ]
 # Default timeout for waiting for Aider output
@@ -70,6 +69,16 @@ def run_aider(
     command_args.append("--yes")
     logger.info("Adding --yes flag to Aider command.")
 
+    # Add --auto-test to enable Aider's internal testing loop
+    command_args.append("--auto-test")
+    logger.info("Adding --auto-test flag to Aider command.")
+
+    # Add --test-cmd, getting the command from config or using default
+    test_command = config.get("aider_test_command", "pytest -v")
+    quoted_test_command = shlex.quote(test_command)
+    command_args.append(f"--test-cmd {quoted_test_command}")
+    logger.info(f"Adding --test-cmd {quoted_test_command} flag to Aider command.")
+
     # Add the message argument
     command_args.append(f"--message {quoted_prompt}")
 
@@ -106,9 +115,8 @@ def run_aider(
                 # Define patterns to expect
                 patterns_to_expect = [
                     ADD_FILE_PROMPT_PATTERN,    # Index 0
-                    FIX_TESTS_PROMPT_PATTERN,   # Index 1
-                    pexpect.EOF,                # Index 2
-                    pexpect.TIMEOUT             # Index 3
+                    pexpect.EOF,                # Index 1
+                    pexpect.TIMEOUT             # Index 2
                 ]
                 index = child.expect(patterns_to_expect, timeout=AIDER_TIMEOUT)
 
@@ -126,13 +134,7 @@ def run_aider(
                     logger.info(f"Detected 'Add file' prompt: '{matched_prompt.strip()}'. Automatically responding 'n'.")
                     child.sendline('n') # Send 'n' automatically
                     # Continue waiting for next output
-                elif index == 1: # Matched FIX_TESTS_PROMPT_PATTERN
-                    matched_prompt = child.after # The matched prompt text
-                    full_output += matched_prompt
-                    logger.info(f"Detected 'Attempt to fix test errors?' prompt: '{matched_prompt.strip()}'. Automatically responding 'n'.")
-                    child.sendline('n') # Send 'n' automatically
-                    # Continue waiting for next output
-                elif index == 2: # EOF
+                elif index == 1: # EOF
                     logger.info("Aider process finished (EOF detected).")
                     # Output after the last match (if any) is in child.before upon EOF
                     output_before_eof = child.before
@@ -141,7 +143,7 @@ def run_aider(
                         # logger.debug(f"Final output chunk before EOF:\n>>>\n{output_before_eof}\n<<<")
                     child.close() # Close explicitly now that EOF is reached
                     break # Exit interaction loop, process finished normally
-                elif index == 3: # Timeout
+                elif index == 2: # Timeout
                     logger.error(f"Timeout waiting for Aider output after {AIDER_TIMEOUT} seconds.")
                     # Output before timeout is already accumulated in full_output
                     child.close(force=True) # Force close on timeout

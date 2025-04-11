@@ -10,6 +10,7 @@ ollama_options:
 
 # Aider Configuration
 aider_command: "aider"
+aider_test_command: "pytest -v" # Command Aider uses with --auto-test
 project_dir: "."
 
 # VESPER.MIND Council Configuration

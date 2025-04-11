@@ -81,6 +81,7 @@ class Harness:
             "ollama_model": "gemma3:12b", # Set default to gemma3:12b
             "ollama_api_url": "http://localhost:11434/api/generate", # TODO: Use this
             "aider_command": "aider", # Adjust if aider is not in PATH
+            "aider_test_command": "pytest -v", # Default test command for Aider
             "project_dir": ".", # Directory Aider should operate on
             # TODO: Add other necessary config like pytest command, etc.
         }
