@@ -164,7 +164,7 @@ def test_generate_changelog(temp_work_dir, sample_ledger, sample_config, monkeyp
     changelog = council.generate_changelog(run_id, iteration_id, "SUCCESS")
     
     # Check that changelog contains expected content (version header + mocked LLM response)
-    assert f"## v{run_id}.{iteration_id}-vesper" in changelog # Check for version header
+    assert f"## v0.{run_id}.{iteration_id}-vesper" in changelog # Check for version header (includes v0 prefix)
     assert "## Changes" in changelog
     assert "- Implemented feature X" in changelog
     assert "- Fixed bug Y" in changelog

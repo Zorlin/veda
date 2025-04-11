@@ -253,7 +253,7 @@ def test_initialize_state_load_valid_resumes_run(resumable_ledger):
     
     # Check if the state reflects the resumed run
     assert harness.state["run_id"] == expected_run_id
-    assert harness.state["current_iteration"] == 1 # Resumes at the start of iteration 2 (index 1)
+    assert harness.state["current_iteration"] == 2 # Ledger reports 2 iterations started
     assert not harness.state["converged"] # Run wasn't finished
     assert harness.state["last_error"] is None # Run wasn't finished with an error
     
