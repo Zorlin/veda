@@ -17,11 +17,11 @@ project_dir: "."
 # VESPER.MIND Council Configuration
 enable_council: true
 # Open-Source Thinkers
-theorist_model: "qwen:14b"
-architect_model: "deepseek-coder:16b"
-skeptic_model: "gemma:7b"
-historian_model: "yi:34b"
-coordinator_model: "command-r-plus"
+theorist_model: "qwen2.5:14b"
+architect_model: "deepcoder:14b"
+skeptic_model: "gemma3:12b"
+historian_model: "qwen2.5:14b"
+coordinator_model: "command-r7b"
 # Final Authority (Closed-Source Models - using open-source fallbacks)
 arbiter_model: "claude-3-sonnet" # Fallback to ollama_model if not available
 canonizer_model: "gemini-2.5-pro" # Fallback to ollama_model if not available
