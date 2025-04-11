@@ -597,11 +597,23 @@ def test_harness_aider_output_callback_processing(
 
     def simulated_callback(chunk):
         nonlocal last_sent_chunk_test # Allow modification
+        # 1. Strip ANSI codes
         stripped = ansi_pattern.sub('', chunk)
-        processed = re.sub(r'.\b', '', stripped)
-        processed = processed.replace('\b', '')
+        
+        # 2. Manual backspace processing
+        processed_list = []
+        for char in stripped:
+            if char == '\b':
+                if processed_list:
+                    processed_list.pop() # Remove previous char if backspace encountered
+            else:
+                processed_list.append(char)
+        processed = "".join(processed_list)
+        
+        # 3. Handle carriage return (optional, keep as is for now)
         # processed = processed.replace('\r', '\n') # If replacing CR
-
+ 
+        # 4. Send update if changed and non-empty
         if processed and processed != last_sent_chunk_test:
             simulated_send_update({"type": "aider_output", "chunk": processed})
             last_sent_chunk_test = processed
