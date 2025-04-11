@@ -136,9 +136,16 @@
 
                             // Check message type
                             if (data.type === 'aider_output') {
-                                // Append raw chunk
+                                // Process and append raw chunk
                                 if (data.chunk) {
-                                    this.liveAiderOutput += data.chunk;
+                                    this.processAiderChunk(data.chunk);
+                                    // Limit scrollback
+                                    const lines = this.liveAiderOutput.split('\n');
+                                    const maxLines = 10000;
+                                    if (lines.length > maxLines) {
+                                        // Keep the last maxLines lines
+                                        this.liveAiderOutput = lines.slice(-maxLines).join('\n');
+                                    }
                                     // Use nextTick to ensure DOM updates before scrolling
                                     this.$nextTick(() => {
                                         this.scrollToBottom('aiderLogContainer');
@@ -257,6 +264,39 @@
                             document.body.removeChild(notification);
                         }, 500);
                     }, 3000);
+                },
+
+                processAiderChunk(chunk) {
+                    // Basic handling for carriage return (\r) to simulate line overwrites
+                    // More complex ANSI codes (cursor movement, screen clear) are not fully handled here.
+                    let currentOutput = this.liveAiderOutput;
+                    // Process chunk potentially containing multiple \r
+                    const parts = chunk.split('\r');
+                    
+                    parts.forEach((part, index) => {
+                        if (index === 0) {
+                            // First part (or only part if no \r) is appended normally
+                            currentOutput += part;
+                        } else {
+                            // Subsequent parts (after a \r) overwrite the last line
+                            const lastNewlineIndex = currentOutput.lastIndexOf('\n');
+                            if (lastNewlineIndex === -1) {
+                                // No newline found, overwrite the entire buffer
+                                currentOutput = part;
+                            } else {
+                                // Overwrite content after the last newline
+                                currentOutput = currentOutput.substring(0, lastNewlineIndex + 1) + part;
+                            }
+                        }
+                    });
+                    
+                    // Basic stripping of some other common ANSI escape sequences that ansi_up might miss
+                    // This is not exhaustive and might need refinement.
+                    // Pattern: ESC [ <optional numbers/semicolons> <letter>
+                    const ansiEscapePattern = /\x1b\[[0-9;]*[a-zA-Z]/g;
+                    this.liveAiderOutput = currentOutput.replace(ansiEscapePattern, '');
+                    
+                    // Note: ansi_up will handle color codes later during rendering (x-html)
                 }
             }
         }
