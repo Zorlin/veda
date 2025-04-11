@@ -149,11 +149,20 @@ def run_aider(
                 logger.debug(f"Waiting for Aider output/prompt (timeout={AIDER_TIMEOUT}s)...")
                 index = child.expect(AIDER_PROMPT_PATTERNS + [pexpect.EOF, pexpect.TIMEOUT], timeout=AIDER_TIMEOUT)
                 output_before = child.before
-                output_after = child.after
-                full_output += output_before + output_after # Accumulate output
+                output_after = child.after # This might be EOF/TIMEOUT type
+
+                # Always accumulate output *before* the match
+                if output_before:
+                    full_output += output_before
+
                 logger.debug(f"Pexpect matched index: {index}")
                 logger.debug(f"Output BEFORE match:\n>>>\n{output_before}\n<<<")
                 logger.debug(f"Output AFTER match (triggering pattern/EOF/Timeout):\n>>>\n{output_after}\n<<<")
+
+                # Only accumulate output_after if it's part of a matched pattern (string)
+                if index < len(AIDER_PROMPT_PATTERNS):
+                    if output_after and isinstance(output_after, str): # Check it's a string
+                         full_output += output_after
 
 
                 if index < len(AIDER_PROMPT_PATTERNS):
