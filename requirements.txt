@@ -8,6 +8,7 @@ sqlite3 # For SQLite database support
 requests # For API interactions
 rich # For better console output
 tqdm # For progress bars
+websockets # For UI communication
 
 # VESPER.MIND council dependencies
 transformers # For model loading and inference

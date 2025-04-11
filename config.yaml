@@ -27,3 +27,8 @@ enable_code_review: false
 
 # Storage Configuration
 storage_type: "sqlite"  # "sqlite" or "json"
+
+# UI Configuration
+enable_ui: false
+websocket_host: "localhost"
+websocket_port: 8765

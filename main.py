@@ -84,6 +84,24 @@ def main():
         action="store_true",
         help="Enable code review for successful iterations.",
     )
+    parser.add_argument(
+        "--enable-ui",
+        action="store_true",
+        help="Enable the WebSocket server for the Alpine.js/Tailwind UI (overrides config).",
+    )
+    parser.add_argument(
+        "--ui-host",
+        type=str,
+        default=None, # Default comes from config
+        help="WebSocket host for the UI (overrides config).",
+    )
+    parser.add_argument(
+        "--ui-port",
+        type=int,
+        default=None, # Default comes from config
+        help="WebSocket port for the UI (overrides config).",
+    )
+
 
     args = parser.parse_args()
 
@@ -146,8 +164,14 @@ This harness must be able to work on any project with a `pytest`-compatible test
             ollama_model=args.ollama_model,
             storage_type=args.storage_type,
             enable_council=not args.disable_council,
-            enable_code_review=args.enable_code_review
+            enable_code_review=args.enable_code_review,
+            # UI settings can be overridden by CLI args
+            enable_ui=args.enable_ui or None, # Pass None if not set, Harness will use config
+            websocket_host=args.ui_host,      # Pass None if not set
+            websocket_port=args.ui_port       # Pass None if not set
         )
+        
+        # TODO: Start WebSocket server if enabled (in a separate thread/process)
         
         # Run the harness and get results
         result = harness.run(initial_goal_prompt)

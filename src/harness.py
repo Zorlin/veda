@@ -33,7 +33,11 @@ class Harness:
         ollama_model: Optional[str] = None,
         storage_type: str = "sqlite",  # "sqlite" or "json"
         enable_council: bool = True,
-        enable_code_review: bool = False
+        enable_code_review: bool = False,
+        # Allow overriding UI settings via init
+        enable_ui: Optional[bool] = None,
+        websocket_host: Optional[str] = None,
+        websocket_port: Optional[int] = None
     ):
         self.config_file = config_file
         self.max_retries = max_retries
@@ -42,9 +46,20 @@ class Harness:
         
         # Override config model if CLI argument is provided
         if ollama_model:
-            logging.info(f"Overriding configured Ollama model with command-line argument: {ollama_model}")
+            logging.info(f"Overriding configured Ollama model with __init__ argument: {ollama_model}")
             self.config["ollama_model"] = ollama_model
-        
+            
+        # Override UI settings if provided in __init__
+        if enable_ui is not None:
+            self.config["enable_ui"] = enable_ui
+            logging.info(f"UI enabled status set by __init__ argument: {enable_ui}")
+        if websocket_host is not None:
+            self.config["websocket_host"] = websocket_host
+            logging.info(f"WebSocket host set by __init__ argument: {websocket_host}")
+        if websocket_port is not None:
+            self.config["websocket_port"] = websocket_port
+            logging.info(f"WebSocket port set by __init__ argument: {websocket_port}")
+            
         # Initialize ledger for persistent state
         self.ledger = Ledger(
             work_dir=self.work_dir,
@@ -72,8 +87,11 @@ class Harness:
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
         logging.info(f"Working directory: {self.work_dir.resolve()}")
         logging.info(f"Storage type: {storage_type}")
-        logging.info(f"VESPER.MIND council enabled: {enable_council}")
-        logging.info(f"Code review enabled: {enable_code_review}")
+        logging.info(f"VESPER.MIND council enabled: {self.enable_council}") # Use self.enable_council
+        logging.info(f"Code review enabled: {self.enable_code_review}") # Use self.enable_code_review
+        logging.info(f"UI enabled: {self.config.get('enable_ui', False)}")
+        logging.info(f"WebSocket Host: {self.config.get('websocket_host', 'N/A')}")
+        logging.info(f"WebSocket Port: {self.config.get('websocket_port', 'N/A')}")
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads configuration from the YAML file."""
@@ -84,6 +102,10 @@ class Harness:
             "aider_test_command": "pytest -v", # Default test command for Aider
             "project_dir": ".", # Directory Aider should operate on
             "ollama_request_timeout": 300, # Default timeout for Ollama requests (seconds)
+            # UI Config Defaults
+            "enable_ui": False,
+            "websocket_host": "localhost",
+            "websocket_port": 8765,
             # TODO: Add other necessary config like pytest command, etc.
         }
         config = default_config.copy()
