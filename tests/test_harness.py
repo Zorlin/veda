@@ -615,10 +615,10 @@ def test_harness_aider_output_callback_processing(
     simulated_callback(chunk5) # Duplicate of processed chunk4 (should be skipped)
     simulated_callback("")     # Empty chunk (should be skipped)
     simulated_callback("\x1b[32mOK\x1b[0m") # ANSI only (should send "OK")
-
+ 
     # --- Assertions ---
-    assert len(sent_updates) == 4 # Should have sent 4 non-duplicate, non-empty updates
-
+    assert len(sent_updates) == 5 # Should have sent 5 non-duplicate, non-empty updates (Error, Proc, Done, Backspace, OK)
+ 
     # Check content of sent updates
     assert sent_updates[0]["chunk"] == "Error: Something went wrong.\n"
     assert sent_updates[1]["chunk"] == "Processing file.txt...\r" # \r kept for now
