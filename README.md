@@ -29,21 +29,28 @@ The following is the full implementation plan, goal prompt, and an exhaustive te
 ## ✅ Goal Prompt for Aider
 
 ```text
-Your task is to build a Python-based test harness that:
+You are improving aiderbot according to the information laid out in README.md
 
-1. Launches an Aider subprocess to apply a code or test change.
-2. Runs pytest against the updated project.
-3. Evaluates the outcome using a local LLM (via Ollama) that decides if the result was:
-   - Successful
-   - Retry-worthy with suggestions
-   - A structural failure
-4. Logs diffs, outcomes, and retry metadata in a stateful SQLite or JSON ledger.
-5. Supports a prompt history chain so Aider can reason over its own history.
-6. Continues looping until a 'converged' verdict is reached or max attempts.
-7. Optionally allows another Aider process to act as a code reviewer.
+Look for anything missing, any tests that can be added, anything you can do to make it run unstoppably and controllably
 
-You are allowed to modify files, install packages, and manage subprocesses.
-This harness must be able to work on any project with a `pytest`-compatible test suite.
+And expand on the concepts used if needed
+
+You should:
+1. Make Live Aider Output respect Aider's control codes (like \c for cancel)
+2. Ensure scrollback never exceeds 10,000 lines to prevent browser crashes
+3. Prevent text duplication in both the Live Log and Diff Viewers
+4. Keep the Live Log focused on current state and recent activity
+5. Implement a working interrupt system that actually stops Aider
+6. Respect changes to goal.prompt even after initial run if they're edited
+
+You should make sure:
+- All output follows proper formatting control codes
+- Diffs are displayed with clear syntax highlighting
+- The Live Log only shows relevant, non-duplicated activity
+- Interrupt process sends proper signals and cleans up resources
+- Goal changes trigger reinitialization of Aider with new instructions
+
+Expand testing to cover these new requirements and edge cases
 ```
 
 ---
@@ -126,6 +133,49 @@ def test_prompt_chain_can_be_reconstructed():
 
 ---
 
+### ✨ UI, Control & Dynamic Goals
+
+```python
+@pytest.mark.ui
+def test_aider_control_codes_are_handled():
+    """Verify Aider output correctly interprets control codes (e.g., \c for cancel)."""
+
+@pytest.mark.ui
+def test_live_log_scrollback_limit():
+    """Ensure the live log UI element enforces the maximum line limit."""
+
+@pytest.mark.ui
+def test_live_log_prevents_duplication():
+    """Check that identical consecutive messages are not repeatedly added to the live log."""
+
+@pytest.mark.ui
+def test_diff_viewer_prevents_duplication():
+    """Ensure diff viewers don't display duplicated content chunks."""
+
+@pytest.mark.ui
+def test_live_log_focuses_on_recent_activity():
+    """Verify the live log primarily shows current status and recent events."""
+
+@pytest.mark.ui
+def test_diff_syntax_highlighting():
+    """Check that code diffs are displayed with appropriate syntax highlighting."""
+
+@pytest.mark.control
+def test_interrupt_stops_aider_process():
+    """Validate that the interrupt command successfully terminates the Aider subprocess."""
+
+@pytest.mark.control
+def test_interrupt_cleans_up_resources():
+    """Ensure resources (threads, processes) are cleaned up after an interrupt."""
+
+@pytest.mark.control
+def test_goal_prompt_changes_trigger_reinit():
+    """Verify that modifying goal.prompt causes the harness to reinitialize Aider with the new goal."""
+
+```
+
+---
+
 ### 🚦 Convergence Criteria
 
 ```python
@@ -150,5 +200,10 @@ def test_loop_detects_stuck_cycle_and_aborts():
 - ✅ Realtime status logging to a web dashboard (Flask or Streamlit)
 - ✅ Agent-slot coordination system (one reviewer, one implementer)
 - ✅ TUI or keyboard CLI interface for human-assisted nudges
+- ✅ Handle Aider control codes in live output
+- ✅ Enforce scrollback limits in UI
+- ✅ Prevent UI text duplication
+- ✅ Implement robust interrupt mechanism
+- ✅ Dynamically reload goal prompt changes
 
 ---
