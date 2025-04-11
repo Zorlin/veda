@@ -2,6 +2,7 @@ import pytest
 import asyncio
 import json
 import websockets
+import anyio # Import the anyio library
 from unittest.mock import patch, MagicMock
 
 from src.ui_server import UIServer
