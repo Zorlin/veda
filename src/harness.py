@@ -121,7 +121,7 @@ class Harness:
         logging.info("Initializing fresh state.")
         return {
             "current_iteration": 0,
-            "prompt_history": [],
+            "prompt_history": [], # Stores conversation: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
             "converged": False,
             "last_error": None,
         }
