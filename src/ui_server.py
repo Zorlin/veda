@@ -199,9 +199,9 @@ class UIServer:
                     ping_timeout=20
                 )
                 # These lines should be inside the try block, executed on success
-                self.port = current_port # Update port if successful
-                logger.info(f"WebSocket server started successfully on ws://{self.host}:{self.port}")
-                break # Exit loop on success
+                    self.port = current_port # Update port if successful
+                    logger.info(f"WebSocket server started successfully on ws://{self.host}:{self.port}")
+                    break # Exit loop on success
             except OSError as e:
                 if "Address already in use" in str(e) and attempt < max_attempts - 1:
                     logger.warning(f"Port {current_port} is already in use. Trying port {current_port + 1}.")
