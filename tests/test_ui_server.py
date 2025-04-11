@@ -8,24 +8,12 @@ from unittest.mock import patch, MagicMock
 
 from src.ui_server import UIServer
 
-# Detect the backend being used by anyio for conditional skipping
-# Note: This relies on anyio's internal function, which might change,
-# but it's a common pattern for backend-specific test logic.
-# Alternatively, check if 'trio' is installed.
-try:
-    import trio
-    TRIO_INSTALLED = True
-except ImportError:
-    TRIO_INSTALLED = False
-
-current_backend = anyio.get_backend()
+# Removed backend detection logic
 
 @pytest.fixture
 async def test_server(): # No anyio_backend parameter needed
     """Fixture to start and stop the UIServer within the test's anyio event loop."""
-    # Skip this fixture entirely if running with trio backend
-    if current_backend == "trio":
-         pytest.skip("Skipping UI server tests on trio backend due to websockets incompatibility")
+    # Removed backend skipping logic
 
     # Use a different port for testing
     server = UIServer(host="127.0.0.1", port=8766) 
@@ -50,8 +38,7 @@ async def test_server(): # No anyio_backend parameter needed
         await send_stream.aclose()
         tg.cancel_scope.cancel()
 
-# Mark all tests in this file to potentially be skipped if trio is the backend
-pytestmark = pytest.mark.skipif(current_backend == "trio", reason="Skipping UI server tests on trio backend")
+# Removed pytestmark skip logic
 
 @pytest.mark.anyio # Use the correct marker for the anyio plugin
 async def test_ui_server_connection(test_server): # No anyio_backend parameter needed
