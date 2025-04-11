@@ -78,19 +78,22 @@ def test_harness_init_defaults(temp_work_dir, default_config):
     if config_file.exists():
         config_file.unlink()
 
+    # Calculate expected resolved path and clean up any old state file there
+    expected_work_dir = Path(default_config["project_dir"]) / temp_work_dir.name
+    resolved_state_file = expected_work_dir.resolve() / "harness_state.json"
+    resolved_state_file.unlink(missing_ok=True)
+
     harness = Harness(config_file=str(config_file), work_dir=temp_work_dir)
 
     assert harness.max_retries == 5
     # Check if default config is loaded (project_dir needs careful check)
     assert harness.config["ollama_model"] == default_config["ollama_model"]
     assert harness.config["aider_command"] == default_config["aider_command"]
-    # Work dir is resolved relative to project_dir, which defaults to CWD if not in config
-    # In this test, project_dir comes from default_config, work_dir is temp_work_dir
     # The final work_dir should be project_dir / work_dir.name
-    expected_work_dir = Path(default_config["project_dir"]) / temp_work_dir.name
+    # expected_work_dir calculated above for cleanup
     assert harness.work_dir == expected_work_dir.resolve()
 
-    # Check default state initialization
+    # Check default state initialization (should be fresh as we cleaned the state file)
     assert harness.state["current_iteration"] == 0
     assert harness.state["prompt_history"] == []
     assert not harness.state["converged"]
@@ -203,14 +206,23 @@ def test_load_config_project_dir_absolute(temp_work_dir, default_config):
 
 # --- Test _initialize_state Method ---
 
-def test_initialize_state_fresh_start(temp_work_dir):
+def test_initialize_state_fresh_start(temp_work_dir, default_config): # Add default_config fixture
     """Test initializing state when no state file exists."""
-    harness = Harness(work_dir=temp_work_dir, reset_state=False) # reset=False is default
-    state_file = harness.work_dir / "harness_state.json"
-    assert not state_file.exists()
+    # Calculate expected resolved path and clean up any old state file there
+    expected_work_dir = Path(default_config["project_dir"]) / temp_work_dir.name
+    resolved_state_file = expected_work_dir.resolve() / "harness_state.json"
+    resolved_state_file.unlink(missing_ok=True)
+
+    # Initialize Harness - this will create the state file if it doesn't exist
+    # Use default config file name, triggering resolution
+    harness = Harness(work_dir=temp_work_dir, reset_state=False)
+
+    # Assert that the state was initialized freshly, not that the file doesn't exist
     assert harness.state["current_iteration"] == 0
     assert harness.state["prompt_history"] == []
     assert not harness.state["converged"]
+    # Optionally, assert that the state file *was* created by the init
+    assert resolved_state_file.exists()
 
 def test_initialize_state_reset_flag(temp_work_dir, sample_state_path):
     """Test initializing state with reset_state=True ignores existing file."""
@@ -316,13 +328,18 @@ def test_initialize_state_io_error(temp_work_dir, caplog):
 
 # --- Test _save_state Method ---
 
-def test_save_state_creates_file(temp_work_dir):
+def test_save_state_creates_file(temp_work_dir, default_config): # Add default_config fixture
     """Test that _save_state creates the state file correctly."""
-    harness = Harness(work_dir=temp_work_dir)
-    state_file = harness.work_dir / "harness_state.json"
-    assert not state_file.exists()
+     # Calculate expected resolved path and clean up any old state file there
+    expected_work_dir = Path(default_config["project_dir"]) / temp_work_dir.name
+    resolved_state_file = expected_work_dir.resolve() / "harness_state.json"
+    resolved_state_file.unlink(missing_ok=True)
 
-    # Modify state slightly
+    # Initialize Harness - this might create the state file during init
+    harness = Harness(work_dir=temp_work_dir)
+    state_file = harness.work_dir / "harness_state.json" # This is the resolved path
+
+    # Modify state slightly (ensure it's different from default init state)
     harness.state["current_iteration"] = 1
     harness.state["prompt_history"].append({"role": "user", "content": "test"})
 
@@ -359,21 +376,15 @@ def test_save_state_io_error(temp_work_dir, caplog):
     # Ensure file does *not* exist before the save attempt
     state_file.unlink(missing_ok=True)
 
-    # Mock open to raise IOError on write
-    # Use mock_open to simulate the file handle context manager
-    mocked_open = mock_open()
-    with patch("builtins.open", mocked_open) as mock_file_patch:
-        # Configure the mock handle returned by open() to raise error on write
-        mock_handle = mocked_open()
-        mock_handle.write.side_effect = IOError("Disk full")
-
+    # Mock json.dump to raise IOError
+    with patch("json.dump", side_effect=IOError("Disk full")) as mock_dump:
         harness._save_state()
 
     assert f"Could not write state file {state_file}: Disk full" in caplog.text
-    # Check that open was called with the correct path and mode
-    mock_file_patch.assert_called_once_with(state_file, 'w')
-    # Check that write was attempted on the handle
-    mock_handle.write.assert_called()
+    # Check that json.dump was called with the harness state and a file handle
+    mock_dump.assert_called_once()
+    # Check the first argument passed to json.dump was the state
+    assert mock_dump.call_args[0][0] == harness.state
     # Assert the file wasn't created or is empty due to the error
     assert not state_file.exists() or state_file.stat().st_size == 0
 

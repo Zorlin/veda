@@ -45,7 +45,6 @@ class Harness:
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads configuration from the YAML file."""
-        logging.info(f"Loading configuration from {self.config_file}...")
         default_config = {
             "ollama_model": "gemma3:12b", # Set default to gemma3:12b
             "ollama_api_url": "http://localhost:11434/api/generate", # TODO: Use this
@@ -54,12 +53,30 @@ class Harness:
             # TODO: Add other necessary config like pytest command, etc.
         }
         config = default_config.copy()
-        try:
-            # Ensure config file exists before trying to open it
-            config_path = Path(self.config_file)
-            if config_path.is_file():
-                with open(config_path, 'r') as f:
-                    user_config = yaml.safe_load(f)
+        config_path = None # Initialize config_path
+
+        # Handle config_file=None case explicitly
+        if self.config_file is None:
+            logging.info("No config file specified. Using default configuration.")
+            # project_dir defaults to "." from default_config
+            project_dir_path = Path(config.get("project_dir", "."))
+            if not project_dir_path.is_absolute():
+                project_dir_path = Path.cwd() / project_dir_path
+            config["project_dir"] = str(project_dir_path.resolve())
+            # IMPORTANT: When config_file is None, use work_dir directly as passed in __init__
+            # Do not resolve it relative to project_dir here. Ensure it's absolute.
+            self.work_dir = self.work_dir.resolve()
+            logging.info(f"Using provided working directory directly: {self.work_dir}")
+            # State initialization happens after this method returns in __init__
+            return config
+        else:
+             # Proceed with loading from the specified config file
+             logging.info(f"Loading configuration from {self.config_file}...")
+             config_path = Path(self.config_file)
+             try:
+                 if config_path.is_file():
+                     with open(config_path, 'r') as f:
+                         user_config = yaml.safe_load(f)
                     if user_config: # Ensure file is not empty and is a dict
                         if isinstance(user_config, dict):
                             config.update(user_config)
@@ -76,32 +93,31 @@ class Harness:
                  #         yaml.dump(default_config, f, default_flow_style=False)
                  #     logging.info(f"Created default config file at {self.config_file}")
                  # except IOError as e_write:
-                 #     logging.error(f"Could not write default config file {self.config_file}: {e_write}")
+                     #     logging.error(f"Could not write default config file {config_path}: {e_write}")
 
-        except yaml.YAMLError as e:
-            logging.error(f"Error parsing config file {self.config_file}: {e}. Using default configuration.")
-        except IOError as e:
-            logging.error(f"Error reading config file {self.config_file}: {e}. Using default configuration.")
-        except Exception as e:
-            logging.error(f"Unexpected error loading config file {self.config_file}: {e}. Using default configuration.")
+             except yaml.YAMLError as e:
+                 logging.error(f"Error parsing config file {config_path}: {e}. Using default configuration.")
+             except IOError as e:
+                 logging.error(f"Error reading config file {config_path}: {e}. Using default configuration.")
+             except Exception as e:
+                 logging.error(f"Unexpected error loading config file {config_path}: {e}. Using default configuration.")
 
-        # Ensure work_dir exists *after* config is loaded (in case it's specified)
-        # If project_dir is relative, resolve it relative to the project root (where main.py likely runs)
+        # This part runs only if config_file was not None
+        # Resolve project_dir (relative to CWD if needed)
         project_dir_path = Path(config.get("project_dir", "."))
         if not project_dir_path.is_absolute():
              # Assuming the script runs from the project root
              project_dir_path = Path.cwd() / project_dir_path
         config["project_dir"] = str(project_dir_path.resolve()) # Store absolute path
 
-        # Resolve work_dir relative to project_dir *before* initializing state
+        # Resolve work_dir relative to the loaded/default project_dir
         # Use the name attribute of the Path object passed in __init__
-        # Ensure work_dir is resolved relative to the project dir from config
-        self.work_dir = project_dir_path / self.work_dir.name
+        resolved_work_dir = project_dir_path / self.work_dir.name
+        self.work_dir = resolved_work_dir.resolve() # Ensure it's absolute
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Resolved working directory: {self.work_dir.resolve()}")
+        logging.info(f"Resolved working directory relative to project dir: {self.work_dir}")
 
-        # State initialization moved to __init__ after this method returns
-
+        # State initialization happens after this method returns in __init__
         return config
 
     def _initialize_state(self, reset_state: bool) -> Dict[str, Any]:
