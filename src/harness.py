@@ -3,14 +3,16 @@ import os
 import subprocess
 import time
 from pathlib import Path
+import json
 from typing import Dict, Any, Optional
+
+import yaml
 
 # Placeholder for future imports
 # from .aider_interaction import run_aider
 # from .ollama_interaction import evaluate_output
 # from .persistence import Logger
 # from .pytest_interaction import run_pytest
-# import yaml
 
 
 class Harness:
@@ -35,43 +37,88 @@ class Harness:
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads configuration from the YAML file."""
-        # Placeholder: Load config from self.config_file using PyYAML
         logging.info(f"Loading configuration from {self.config_file}...")
-        # Example default config if file doesn't exist
         default_config = {
             "ollama_model": "llama3",
-            "ollama_api_url": "http://localhost:11434/api/generate",
+            "ollama_api_url": "http://localhost:11434/api/generate", # TODO: Use this
             "aider_command": "aider", # Adjust if aider is not in PATH
             "project_dir": ".", # Directory Aider should operate on
+            # TODO: Add other necessary config like pytest command, etc.
         }
-        # In a real implementation, load from YAML and merge with defaults
-        # try:
-        #     with open(self.config_file, 'r') as f:
-        #         config = yaml.safe_load(f)
-        #     # Merge default_config with loaded config
-        # except FileNotFoundError:
-        #     logging.warning(f"Config file {self.config_file} not found. Using defaults.")
-        #     config = default_config
-        # except yaml.YAMLError as e:
-        #     logging.error(f"Error parsing config file {self.config_file}: {e}")
-        #     config = default_config # Fallback to defaults on error
-        # return config
-        logging.warning(f"Config loading not implemented. Using defaults.")
-        return default_config # Placeholder return
+        config = default_config.copy()
+        try:
+            # Ensure config file exists before trying to open it
+            config_path = Path(self.config_file)
+            if config_path.is_file():
+                with open(config_path, 'r') as f:
+                    user_config = yaml.safe_load(f)
+                    if user_config: # Ensure file is not empty and is a dict
+                        if isinstance(user_config, dict):
+                            config.update(user_config)
+                            logging.info(f"Loaded and merged configuration from {self.config_file}")
+                        else:
+                            logging.warning(f"Config file {self.config_file} does not contain a valid dictionary. Using defaults.")
+                    else:
+                        logging.info(f"Config file {self.config_file} is empty. Using defaults.")
+            else:
+                 logging.warning(f"Config file {self.config_file} not found. Using default configuration.")
+                 # Optionally create a default config file here
+                 # try:
+                 #     with open(config_path, 'w') as f:
+                 #         yaml.dump(default_config, f, default_flow_style=False)
+                 #     logging.info(f"Created default config file at {self.config_file}")
+                 # except IOError as e_write:
+                 #     logging.error(f"Could not write default config file {self.config_file}: {e_write}")
+
+        except yaml.YAMLError as e:
+            logging.error(f"Error parsing config file {self.config_file}: {e}. Using default configuration.")
+        except IOError as e:
+            logging.error(f"Error reading config file {self.config_file}: {e}. Using default configuration.")
+        except Exception as e:
+            logging.error(f"Unexpected error loading config file {self.config_file}: {e}. Using default configuration.")
+
+        # Ensure work_dir exists *after* config is loaded (in case it's specified)
+        # If project_dir is relative, resolve it relative to the project root (where main.py likely runs)
+        project_dir_path = Path(config.get("project_dir", "."))
+        if not project_dir_path.is_absolute():
+             # Assuming the script runs from the project root
+             project_dir_path = Path.cwd() / project_dir_path
+        config["project_dir"] = str(project_dir_path.resolve()) # Store absolute path
+
+        # Resolve work_dir relative to project_dir
+        self.work_dir = project_dir_path / self.work_dir.name # Use name to avoid nesting if work_dir was relative
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        logging.info(f"Using working directory: {self.work_dir.resolve()}")
+
+        return config
 
     def _initialize_state(self) -> Dict[str, Any]:
-        """Initializes the harness state."""
-        # Placeholder: Load previous state if exists, otherwise start fresh
+        """Initializes the harness state, loading from file if exists."""
         state_file = self.work_dir / "harness_state.json"
-        logging.info("Initializing harness state...")
-        # if state_file.exists():
-        #     try:
-        #         with open(state_file, 'r') as f:
-        #             state = json.load(f)
-        #         logging.info(f"Loaded previous state from {state_file}")
-        #         return state
-        #     except (json.JSONDecodeError, IOError) as e:
-        #         logging.warning(f"Could not load state file {state_file}: {e}. Starting fresh.")
+        logging.info(f"Attempting to load state from {state_file}...")
+        if state_file.is_file(): # Check if it's a file specifically
+            try:
+                with open(state_file, 'r') as f:
+                    state = json.load(f)
+                # Basic validation: check if it's a dictionary and has expected keys
+                if isinstance(state, dict) and "current_iteration" in state and "prompt_history" in state:
+                    logging.info(f"Successfully loaded and validated previous state from {state_file}")
+                    # Ensure prompt_history is a list
+                    if not isinstance(state.get("prompt_history"), list):
+                        logging.warning("Loaded state has invalid 'prompt_history'. Resetting history.")
+                        state["prompt_history"] = []
+                    return state
+                else:
+                    logging.warning(f"State file {state_file} has invalid format. Initializing fresh state.")
+            except (json.JSONDecodeError, IOError) as e:
+                logging.warning(f"Could not load or parse state file {state_file}: {e}. Initializing fresh state.")
+            except Exception as e:
+                 logging.error(f"Unexpected error loading state file {state_file}: {e}. Initializing fresh state.")
+        else:
+            logging.info(f"State file {state_file} not found or is not a file. Initializing fresh state.")
+
+        # Default state if no valid state file is found or loading fails
+        logging.info("Initializing fresh state.")
         return {
             "current_iteration": 0,
             "prompt_history": [],
@@ -84,12 +131,20 @@ class Harness:
         """Saves the current harness state."""
         state_file = self.work_dir / "harness_state.json"
         logging.info(f"Saving harness state to {state_file}...")
-        # try:
-        #     with open(state_file, 'w') as f:
-        #         json.dump(self.state, f, indent=4)
-        # except IOError as e:
-        #     logging.error(f"Could not save state file {state_file}: {e}")
-        logging.warning("State saving not implemented.") # Placeholder
+        try:
+            # Ensure the directory exists before writing
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(state_file, 'w') as f:
+                json.dump(self.state, f, indent=4)
+            logging.info(f"Successfully saved state to {state_file}")
+        except IOError as e:
+            logging.error(f"Could not write state file {state_file}: {e}")
+        except TypeError as e:
+            # This can happen if non-serializable objects are in the state
+            logging.error(f"Could not serialize state to JSON: {e}. State: {self.state}")
+        except Exception as e:
+            logging.error(f"Unexpected error saving state: {e}")
+
 
     def run(self, initial_goal_prompt: str):
         """Runs the main Aider-Pytest-Ollama loop."""
