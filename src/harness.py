@@ -470,7 +470,7 @@ class Harness:
                         self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
                         self.ledger.add_message(self.current_run_id, None, "system", goal_change_message) # Associate with run, not specific iteration
                         # Update the variable used in evaluation prompts etc.
-                        initial_goal_prompt = current_goal_prompt
+                        initial_goal_for_run = current_goal_prompt # Update the correct variable used by eval/retry
                         self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."})
 
                     except Exception as e:
@@ -650,7 +650,8 @@ class Harness:
                     )
                     break
 
-                if aider_diff is None:
+                # Check for unexpected None diff only if there was no error reported by run_aider
+                if aider_diff is None and aider_error is None:
                     logging.error("Aider returned None for diff without error. Stopping.")
                     self.state["last_error"] = "Aider returned None diff unexpectedly."
                     self._send_ui_update({"status": "Error", "log_entry": "Aider returned None diff unexpectedly."})
