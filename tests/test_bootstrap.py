@@ -36,7 +36,7 @@ def test_ollama_model_is_accessible():
     """Validate Ollama can be called and returns basic output."""
     # Assuming default Ollama URL from harness defaults for now
     # Using the ollama library instead of requests
-    ollama_model = "llama3" # Assuming default model
+    ollama_model = "gemma3:12b" # Use the intended default model
 
     try:
         # Check connection and model availability implicitly
