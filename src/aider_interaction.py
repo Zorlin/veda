@@ -198,6 +198,8 @@ def run_aider(
 
                 elif index == len(AIDER_PROMPT_PATTERNS): # EOF
                     logger.info("Aider process finished (EOF detected).")
+                    # Explicitly close before checking status
+                    child.close()
                     break # Exit loop, process finished normally
                 elif index == len(AIDER_PROMPT_PATTERNS) + 1: # Timeout
                     logger.error(f"Timeout waiting for Aider output after {AIDER_TIMEOUT} seconds.")
