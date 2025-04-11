@@ -109,6 +109,7 @@
                 isProcessingScheduled: false, // Flag for debouncing
                 lastInterruptStatus: '', // To store the status of the last interrupt request
                 ansiUp: null, // To hold the ansi_up instance
+                lastLogEntry: null, // Track last log entry to prevent duplicates
 
                 init() {
                     console.log('Initializing Harness UI...');
@@ -172,8 +173,31 @@
                                 if (!Array.isArray(this.status.log)) {
                                     this.status.log = [JSON.stringify(this.status.log)];
                                 }
+                                // Ensure log is always an array
+                                if (!Array.isArray(this.status.log)) {
+                                    this.status.log = [JSON.stringify(this.status.log)];
+                                }
+                                // Prevent adding duplicate consecutive log entries
+                                const newLogEntry = data.log_entry; // Check if log_entry exists in the update
+                                if (newLogEntry && newLogEntry !== this.lastLogEntry) {
+                                    // Note: The backend already limits the log array size.
+                                    // We just prevent adding duplicates here.
+                                    // The backend update logic merges 'log_entry' into the 'log' array.
+                                    this.lastLogEntry = newLogEntry;
+                                } else if (newLogEntry) {
+                                     console.log("Skipping duplicate log entry:", newLogEntry);
+                                     // Remove the duplicate log_entry from the received data
+                                     // before merging, so it doesn't overwrite status.log
+                                     delete data.log_entry;
+                                }
+
+                                // Merge new data (potentially without duplicate log_entry)
+                                this.status = { ...this.status, ...data };
+
                                 // Scroll main log container to bottom
-                                this.scrollToBottom('logContainer');
+                                this.$nextTick(() => { // Ensure DOM is updated before scrolling
+                                    this.scrollToBottom('logContainer');
+                                });
                             }
                         } catch (e) {
                             console.error('Failed to parse message:', e);
