@@ -219,41 +219,6 @@ This harness must be able to work on any project with a `pytest`-compatible test
             logger.error(f"HTTP server thread encountered an error: {e}", exc_info=True)
         finally:
             logger.info(f"HTTP server on {host}:{port} stopped.")
-
-
-    # --- Start UI Servers Early (if enabled) ---
-    ui_server = None
-    ws_server_thread = None # Renamed from ui_server_thread
-    # http_server = None # Variable assigned but never used
-    http_server_thread = None # Added for HTTP server thread
-    # Determine UI dir path relative to main.py's location
-    ui_dir_path = Path(__file__).parent / "ui"
-
-    if ui_enabled:
-        logger.info("UI is enabled. Starting WebSocket and HTTP servers...")
-        
-        # Start WebSocket Server
-        ui_server = UIServer(host=ws_host, port=ws_port)
-        def run_ws_server(): # Renamed from run_server
-            try:
-                asyncio.run(ui_server.start())
-            except Exception as e:
-                logger.error(f"WebSocket server thread encountered an error: {e}", exc_info=True)
- 
-        ws_server_thread = threading.Thread(target=run_ws_server, daemon=True, name="WebSocketServerThread")
-        ws_server_thread.start()
-        logger.info(f"WebSocket server starting in background thread on ws://{ws_host}:{ws_port}")
-
-        # Start HTTP Server
-        http_server_thread = threading.Thread(
-            target=start_http_server, 
-            args=(http_host, http_port, ui_dir_path), 
-            daemon=True,
-            name="HttpServerThread"
-        )
-        http_server_thread.start()
-        # Note: We don't have a direct handle to the httpd object to call shutdown cleanly from here.
-        # Daemon threads will exit when the main thread exits. For cleaner shutdown,
     # Create the communication stream for UI updates *before* initializing UIServer
     # Use infinite buffer to prevent blocking harness if UI server lags/crashes
     send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size=float('inf'))
