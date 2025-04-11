@@ -195,6 +195,13 @@
                                 // Merge new data (potentially without duplicate log_entry)
                                 this.status = { ...this.status, ...data };
 
+                                // Limit the size of the status.log array
+                                const maxLogEntries = 200; // Keep the last 200 entries
+                                if (this.status.log.length > maxLogEntries) {
+                                    // console.log(`Trimming status.log from ${this.status.log.length} to ${maxLogEntries} entries.`); // Optional: log trimming
+                                    this.status.log = this.status.log.slice(-maxLogEntries);
+                                }
+
                                 // Scroll main log container to bottom
                                 this.$nextTick(() => { // Ensure DOM is updated before scrolling
                                     this.scrollToBottom('logContainer');
