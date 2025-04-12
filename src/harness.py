@@ -757,10 +757,9 @@ class Harness:
                     else:
                         # Standard LLM evaluation
                         logging.info("Evaluating outcome with standard LLM...")
-                        # Pass the goal as it was *at the start* of this iteration
-                        goal_for_this_eval = self.current_goal_prompt # This should hold the reloaded goal if applicable
+                        # Pass the current instance goal prompt directly
                         verdict, suggestions = self._evaluate_outcome(
-                            goal_for_this_eval,
+                            self.current_goal_prompt,
                             aider_diff if aider_diff is not None else "",
                             pytest_output,
                             pytest_passed
@@ -771,10 +770,9 @@ class Harness:
                     logging.error(f"Error during evaluation: {e}")
                     self._send_ui_update({"status": "Error", "log_entry": f"Error during evaluation: {e}"})
                     logging.info("Falling back to standard LLM evaluation")
-                    # Pass the goal as it was *at the start* of this iteration
-                    goal_for_this_eval = self.current_goal_prompt
+                    # Pass the current instance goal prompt directly
                     verdict, suggestions = self._evaluate_outcome(
-                        goal_for_this_eval,
+                        self.current_goal_prompt,
                         aider_diff if aider_diff is not None else "",
                         pytest_output,
                         pytest_passed
@@ -831,10 +829,9 @@ class Harness:
                         break
  
                     logging.info("Creating retry prompt...")
-                    # Create retry prompt using the goal as it was *at the start* of this iteration
-                    goal_for_this_retry = self.current_goal_prompt
+                    # Create retry prompt using the current instance goal prompt
                     current_prompt = self._create_retry_prompt( # Update local var for next Aider run
-                        goal_for_this_retry,
+                        self.current_goal_prompt,
                         aider_diff if aider_diff is not None else "",
                         pytest_output,
                         suggestions
