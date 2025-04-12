@@ -324,13 +324,13 @@ def main():
         )
 
         # Always reload PLAN.md before checking for changes
+        import re
         plan_updated = False
-        old_plan = read_file(plan_path)
-        for _ in range(2):  # Give human a chance, then auto-append if not updated
+        for attempt in range(2):  # One human chance, then auto-append
+            old_plan = read_file(plan_path)
             console.print("\n[bold cyan]Waiting for PLAN.md to be updated with a new council round entry...[/bold cyan]")
             console.print("[italic]Please add a new checklist item or summary for this round in PLAN.md, then press Enter.[/italic]")
             input()
-            # Always reload PLAN.md from disk after user input
             new_plan = read_file(plan_path)
             if new_plan != old_plan:
                 # Show a diff for transparency
@@ -364,16 +364,13 @@ def main():
                     break
                 else:
                     console.print("[bold red]PLAN.md does not appear to have a new actionable item, council summary, or reference to README.md/high-level goals. Please update accordingly.[/bold red]")
-                old_plan = new_plan
             else:
                 console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
 
         # If still not updated, auto-append a new council round entry
         if not plan_updated:
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # Try to infer the next round number by counting council summaries
             plan_content = read_file(plan_path)
-            import re
             council_rounds = re.findall(r"Summary of Last Round:", plan_content)
             round_num = len(council_rounds) + 1
             new_entry = (
