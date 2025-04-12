@@ -1,4 +1,9 @@
 make it so the open source council convenes each round to work on planning,
- and together collaboratively update goal.prompt (rare)
-and PLAN.md (very frequent)
+ and together collaboratively update PLAN.md (very frequent)
+and goal.prompt (rare, only for major shifts)
 the high level goals set out in README.md should always be respected
+
+Instructions:
+- At the end of each round, the open source council must review and update PLAN.md to reflect the current actionable plan, strategies, and next steps.
+- Only update goal.prompt if a significant change in overall direction is required.
+- All planning and actions must always respect the high-level goals and constraints in README.md.
