@@ -55,6 +55,36 @@ Expand testing to cover these new requirements and edge cases
 
 ---
 
+#### 🚨 Edge Case & Robustness Tests
+
+```python
+@pytest.mark.control
+def test_interrupt_escalates_to_sigkill():
+    """If SIGTERM fails to stop Aider, SIGKILL is sent and process is forcibly terminated."""
+
+@pytest.mark.control
+def test_backend_recovers_after_forced_stop():
+    """After a crash or forced stop, the harness and UI can be restarted and resume operation."""
+
+@pytest.mark.control
+def test_goal_prompt_reload_applies_immediately():
+    """After editing the goal prompt, the *very next* Aider run uses the new prompt."""
+
+@pytest.mark.ui
+def test_live_log_handles_malformed_control_codes():
+    """Malformed or partial Aider control codes in output do not break the live log."""
+
+@pytest.mark.ui
+def test_scrollback_limit_under_rapid_output():
+    """Scrollback limit is enforced even when output is produced rapidly."""
+
+@pytest.mark.persistence
+def test_ledger_recovers_from_interrupted_write():
+    """Ledger/database recovers gracefully if interrupted mid-write (no corruption)."""
+```
+
+---
+
 ## 🧪 Exhaustive Test Plan
 
 ### 🏁 Bootstrap Tests
@@ -213,5 +243,6 @@ def test_loop_detects_stuck_cycle_and_aborts():
 - ✅ Prevent UI text duplication (Backend prevents duplicate raw chunks; Frontend handles rendered view)
 - ✅ Implement robust interrupt mechanism (SIGTERM/SIGKILL sequence)
 - ✅ Dynamically reload goal prompt changes (File hashing check)
+- ✅ Edge-case and robustness tests for unstoppable, controllable operation
 
 ---
