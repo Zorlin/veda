@@ -155,6 +155,8 @@
                     console.log('Initializing Harness UI...');
                     // Initialize ansi-to-html with desired options
                     try {
+                        // Get the AnsiToHtml constructor from the browserify bundle
+                        const AnsiToHtml = require('ansi-to-html');
                         this.ansiConverter = new AnsiToHtml({ newline: true, escapeXML: true });
                         console.log("AnsiToHtml initialized successfully");
                     } catch (e) {
