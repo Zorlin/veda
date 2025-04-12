@@ -760,7 +760,7 @@ class Harness:
                         # Standard LLM evaluation
                         logging.info("Evaluating outcome with standard LLM...")
                         # Log the goal being passed to evaluation
-                        logging.info(f"Passing goal to _evaluate_outcome: '{self.current_goal_prompt}'")
+                        logging.info(f"Using current goal for evaluation: '{self.current_goal_prompt}'")
                         # Pass the current instance goal prompt directly
                         verdict, suggestions = self._evaluate_outcome(
                             self.current_goal_prompt,
@@ -782,8 +782,8 @@ class Harness:
                         pytest_passed
                     )
                     logging.info(f"Fallback LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
-                    # Also log goal passed during fallback
-                    logging.info(f"Passing goal to fallback _evaluate_outcome: '{self.current_goal_prompt}'")
+                    # Also log goal used during fallback
+                    logging.info(f"Used current goal for fallback evaluation: '{self.current_goal_prompt}'")
 
 
                 # Update ledger with iteration results
@@ -954,8 +954,9 @@ class Harness:
             - str: The verdict ("SUCCESS", "RETRY", "FAILURE").
             - str: Suggestions from the LLM (empty if not RETRY).
         """
+        # Always use self.current_goal_prompt to ensure we're using the latest goal
         evaluation_prompt = self._create_evaluation_prompt(
-            current_goal, # Pass the current goal
+            self.current_goal_prompt, # Always use the instance variable for latest goal
             self.state["prompt_history"],
             aider_diff,
             pytest_output,
@@ -1051,11 +1052,13 @@ FAILURE = Fundamental issues that require a different approach
         else:
             iteration_context = f"This is iteration {self.state['current_iteration'] + 1} of maximum {self.max_retries}. Consider the progress made across iterations."
 
+        # Always use the most up-to-date goal (self.current_goal_prompt) instead of the passed argument
+        # This ensures we're using the latest goal content if it was reloaded from a file
         prompt = f"""
 Analyze the results of an automated code generation step in a test harness.
 
 Current Goal:
-{current_goal}
+{self.current_goal_prompt}
 
 Iteration Context:
 {iteration_context}
@@ -1171,11 +1174,11 @@ Focus on implementing the suggested improvements while maintaining code quality 
 
         logging.info(f"Using model '{model_name}' for code review.")
 
-        # Create code review prompt
+        # Create code review prompt - always use self.current_goal_prompt for latest goal
         review_prompt = f"""
 Act as a senior code reviewer. Review the following code changes that were made to achieve this goal:
 
-Goal: {current_goal}
+Goal: {self.current_goal_prompt}
 
 Code Changes:
 ```diff
