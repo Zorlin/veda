@@ -123,7 +123,13 @@ def run_aider(
         # --- Send the prompt via stdin ---
         # Aider expects the prompt on stdin after startup
         logger.debug("Sending prompt to Aider via stdin...")
-        child.sendline(prompt)
+        # Fix the bytes vs string issue by ensuring we send bytes to pexpect
+        if child.encoding:
+            # If child has encoding set, use it to encode the prompt
+            child.sendline(prompt)
+        else:
+            # Otherwise, encode with utf-8 (common default)
+            child.sendline(prompt.encode('utf-8'))
         # No need to explicitly wait for a prompt *from* Aider here,
         # as it should start processing the stdin prompt immediately.
 
@@ -140,38 +146,51 @@ def run_aider(
                 # Send callback immediately to indicate interruption attempt
                 if output_callback:
                     try:
-                        output_callback("\n[Harness: Interrupt signal received. Terminating Aider...]\n")
+                        # Send a special control code that the UI will recognize
+                        output_callback("\n[Harness: Interrupt signal received. Terminating Aider...]\n\c")
                     except Exception as cb_err:
                         logger.error(f"Error in output_callback during interrupt: {cb_err}")
 
                 try:
-                    # --- Termination Sequence ---
-                    # 1. Try graceful termination (SIGTERM) first. This allows Aider
-                    #    to potentially clean up resources or save state if it handles the signal.
-                    # 2. Wait for a short period.
-                    # 3. If still alive, force termination (SIGKILL). SIGKILL cannot be caught
-                    #    or ignored and guarantees the process stops.
+                    # --- Enhanced Termination Sequence ---
+                    # 1. Try sending Ctrl+C (SIGINT) first, which is more graceful than SIGTERM
+                    # 2. Try graceful termination (SIGTERM) if SIGINT doesn't work
+                    # 3. If still alive, force termination (SIGKILL)
                     if child.isalive():
-                        logger.warning("Attempting graceful termination (SIGTERM) of Aider process.")
-                        child.terminate(force=False) # Send SIGTERM
+                        # First try sending Ctrl+C (SIGINT) which is more graceful
+                        logger.warning("Attempting graceful interrupt (SIGINT/Ctrl+C) of Aider process.")
                         try:
-                            # Wait briefly to see if it terminates gracefully
-                            child.wait(timeout=2) # Wait up to 2 seconds
-                            logger.info("Aider terminated gracefully after SIGTERM.")
-                        except pexpect.exceptions.TIMEOUT:
-                            # wait() timed out, process still alive
-                            logger.warning("Aider did not terminate gracefully after SIGTERM. Sending SIGKILL.")
-                            if child.isalive(): # Double-check before SIGKILL
-                                child.terminate(force=True) # Send SIGKILL
-                                time.sleep(0.1) # Short pause after kill
-                            else:
-                                logger.info("Aider terminated between SIGTERM check and SIGKILL attempt.")
-                        except Exception as wait_exc:
-                            # Handle potential errors during wait() itself
-                            logger.error(f"Error during Aider SIGTERM wait: {wait_exc}. Attempting SIGKILL.")
-                            if child.isalive():
-                                child.terminate(force=True)
-                                time.sleep(0.1)
+                            # Send Ctrl+C character
+                            child.sendcontrol('c')
+                            # Wait briefly to see if it terminates
+                            time.sleep(1)
+                        except Exception as ctrl_c_exc:
+                            logger.error(f"Error sending Ctrl+C to Aider: {ctrl_c_exc}")
+                            
+                        # If still alive after Ctrl+C, try SIGTERM
+                        if child.isalive():
+                            logger.warning("Aider still running after Ctrl+C. Attempting SIGTERM.")
+                            child.terminate(force=False) # Send SIGTERM
+                            try:
+                                # Wait briefly to see if it terminates gracefully
+                                child.wait(timeout=2) # Wait up to 2 seconds
+                                logger.info("Aider terminated gracefully after SIGTERM.")
+                            except pexpect.exceptions.TIMEOUT:
+                                # wait() timed out, process still alive
+                                logger.warning("Aider did not terminate gracefully after SIGTERM. Sending SIGKILL.")
+                                if child.isalive(): # Double-check before SIGKILL
+                                    child.terminate(force=True) # Send SIGKILL
+                                    time.sleep(0.1) # Short pause after kill
+                                else:
+                                    logger.info("Aider terminated between SIGTERM check and SIGKILL attempt.")
+                            except Exception as wait_exc:
+                                # Handle potential errors during wait() itself
+                                logger.error(f"Error during Aider SIGTERM wait: {wait_exc}. Attempting SIGKILL.")
+                                if child.isalive():
+                                    child.terminate(force=True)
+                                    time.sleep(0.1)
+                        else:
+                            logger.info("Aider terminated successfully after Ctrl+C.")
                     else:
                         logger.info("Aider process already terminated before explicit signal.")
                 except pexpect.exceptions.TIMEOUT:

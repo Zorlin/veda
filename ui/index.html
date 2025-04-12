@@ -374,11 +374,28 @@
                     console.log("Processing buffer content:", bufferToProcess.substring(0, 100) + (bufferToProcess.length > 100 ? "..." : "")); // Log start of buffer
                     this.lastProcessedChunk = bufferToProcess; // Store raw chunk
 
-                    // --- Process buffer for control codes (\r, \b) ---
+                    // --- Process buffer for control codes (\r, \b, \c) ---
                     let currentOutput = this.liveAiderOutput; // Get current state
-                    for (let i = 0; i < bufferToProcess.length; i++) {
-                        const char = bufferToProcess[i];
-                        if (char === '\r') {
+                    let i = 0;
+                    while (i < bufferToProcess.length) {
+                        // Check for Aider's cancel code '\c' (represented as a single character)
+                        if (bufferToProcess[i] === '\u0003' || bufferToProcess.substring(i, i+2) === '\\c') {
+                            // Cancel code detected - clear the current line
+                            const lastNewline = currentOutput.lastIndexOf('\n');
+                            if (lastNewline !== -1) {
+                                currentOutput = currentOutput.substring(0, lastNewline + 1);
+                                // Add a visual indicator that cancellation occurred
+                                currentOutput += '[CANCELLED]\n';
+                            } else {
+                                currentOutput = '[CANCELLED]\n'; // If no newline, clear everything
+                            }
+                            
+                            // Skip the cancel code (either 1 or 2 chars depending on representation)
+                            i += (bufferToProcess[i] === '\u0003') ? 1 : 2;
+                            continue;
+                        }
+                        // Handle carriage return
+                        else if (bufferToProcess[i] === '\r') {
                             // Carriage Return: Find last newline and discard text after it
                             const lastNewline = currentOutput.lastIndexOf('\n');
                             if (lastNewline !== -1) {
@@ -386,31 +403,27 @@
                             } else {
                                 currentOutput = ''; // If no newline, clear everything
                             }
-                        } else if (char === '\b') {
+                        } 
+                        // Handle backspace
+                        else if (bufferToProcess[i] === '\b') {
                             // Backspace: Remove last character if output is not empty
                             if (currentOutput.length > 0) {
                                 currentOutput = currentOutput.slice(0, -1);
                             }
-                        } else if (char === '\c') { // Handle Aider's cancel code
-                            // Clear the current line (text after the last newline)
-                            const lastNewline = currentOutput.lastIndexOf('\n');
-                            if (lastNewline !== -1) {
-                                currentOutput = currentOutput.substring(0, lastNewline + 1);
-                            } else {
-                                currentOutput = ''; // If no newline, clear everything
-                            }
-                            // Optionally add a marker? e.g., currentOutput += '[Cancelled]\n';
-                        } else {
+                        } 
+                        // Normal character
+                        else {
                             // Append normal characters
-                            currentOutput += char;
+                            currentOutput += bufferToProcess[i];
                         }
+                        i++; // Move to next character
                     }
                     this.liveAiderOutput = currentOutput; // Update the state
                     // --- End Control Code Processing ---
 
 
                     // Apply scrollback limit after processing
-                    const maxLines = 10000; // Keep the limit
+                    const maxLines = 10000; // Limit to 10,000 lines to prevent browser crashes
                     // Split by newline to estimate lines for scrollback limit
                     const lines = this.liveAiderOutput.split('\n');
                     if (lines.length > maxLines) {
@@ -420,6 +433,7 @@
                         // but it's a necessary tradeoff for scrollback limiting.
                         // ansi_up should hopefully handle broken sequences gracefully.
                         this.liveAiderOutput = lines.slice(startIndex).join('\n');
+                        console.log(`Scrollback limited: removed ${startIndex} lines to keep under ${maxLines} line limit`);
                     }
                     // --- End Simplified Processing ---
 
