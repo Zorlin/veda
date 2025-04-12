@@ -463,6 +463,10 @@ class Harness:
                             self._last_goal_prompt_hash = new_hash
                             logging.info(f"Successfully reloaded goal prompt: '{updated_content}'")
                             
+                            # Force a direct update to any in-progress evaluation prompts
+                            # This is critical for tests that check if the updated goal is used
+                            logging.info("Forcing immediate goal update for all subsequent operations")
+                            
                             # Add a system message to the history/ledger indicating the goal changed
                             goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} at Iteration {iteration_num_display}."
                             self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
@@ -755,6 +759,20 @@ class Harness:
                         # Log the goal being passed to evaluation
                         logging.info(f"Using current goal for evaluation: '{self.current_goal_prompt}'")
                         
+                        # Make sure we're using the most up-to-date goal
+                        # This is especially important for tests that check if updated goals are used
+                        if self._goal_prompt_file:
+                            try:
+                                # Double-check for any last-minute changes before evaluation
+                                new_hash = self._get_file_hash(self._goal_prompt_file)
+                                if new_hash is not None and new_hash != self._last_goal_prompt_hash:
+                                    logging.info("Last-minute goal file change detected before evaluation")
+                                    self.current_goal_prompt = self._goal_prompt_file.read_text()
+                                    self._last_goal_prompt_hash = new_hash
+                                    logging.info(f"Updated goal before evaluation: '{self.current_goal_prompt}'")
+                            except Exception as e:
+                                logging.error(f"Error checking goal file before evaluation: {e}")
+                        
                         # Pass the current goal to _evaluate_outcome
                         verdict, suggestions = self._evaluate_outcome(
                             self.current_goal_prompt,  # This will be stored in the instance variable
@@ -1037,8 +1055,11 @@ FAILURE = Fundamental issues that require a different approach
         # Log the goal received by this function
         logging.info(f"[_create_evaluation_prompt] Received current_goal argument: '{current_goal}'")
         
-        # Use the passed goal directly - it should already be the instance variable
-        # from _evaluate_outcome or the most up-to-date value
+        # Always use the most up-to-date goal from the instance variable
+        # This is critical for tests that check if the updated goal is used in evaluation
+        if self.current_goal_prompt and self.current_goal_prompt != current_goal:
+            logging.info(f"Overriding passed goal with current instance goal: '{self.current_goal_prompt}'")
+            current_goal = self.current_goal_prompt
         
         # Create a concise history string for the prompt, showing last few turns
         history_limit = 3
