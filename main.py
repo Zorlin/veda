@@ -878,20 +878,20 @@ Your response should be the complete new content for goal.prompt.
                     logger.info(f"Wrote test failures to {failure_log_path}")
                 except Exception as e:
                     logger.error(f"Error writing test failures to log: {e}", exc_info=True)
-                
-                # Analyze test failures to determine the type
-                test_type = "pytest"  # Default to pytest
-                if "cargo test" in test_cmd_list or "running" in test_failure_output.lower() and "test" in test_failure_output.lower() and "failed" in test_failure_output.lower():
+
+                # Determine the test type based on the command that was run
+                test_type = "pytest" # Default
+                if "cargo" in test_cmd_list:
                     test_type = "cargo"
-                
+
                 # Check if we need to modify goal.prompt to specifically address test failures
                 if test_type == "cargo":
                     console.print("[bold yellow]Detected cargo test failures. Updating goal.prompt to address Rust test issues.[/bold yellow]")
                     update_goal_for_test_failures("cargo")
-                else:
+                else: # Default to pytest
                     console.print("[bold yellow]Detected pytest failures. Updating goal.prompt to address Python test issues.[/bold yellow]")
                     update_goal_for_test_failures("pytest")
-                
+
                 # Force a filesystem stat before reloading
                 try:
                     os.stat(str(goal_prompt_path))
