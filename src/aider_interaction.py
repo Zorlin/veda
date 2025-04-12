@@ -126,7 +126,7 @@ def run_aider(
             cwd=work_dir,
             encoding='utf-8',
             timeout=AIDER_TIMEOUT, # Overall timeout for the whole command
-            logfile=sys.stdout, # Log all I/O to standard output (text mode for encoding)
+            # logfile=sys.stdout, # Removed: we handle printing below
             # Use echo=False to prevent command input from being echoed back into the output buffer
             echo=False, # Ensure echo is False
         )
@@ -267,6 +267,8 @@ def run_aider(
                         full_output = '\n'.join(full_output.split('\n')[-MAX_SCROLLBACK_LINES:])
                         logger.info(f"Scrollback limited to {MAX_SCROLLBACK_LINES} lines")
 
+                    # Always print to terminal as well, regardless of callback
+                    print(output_chunk, end='', flush=True)
                     if output_callback:
                         try:
                             # Log before sending for debugging potential UI duplication
@@ -276,8 +278,6 @@ def run_aider(
                         except Exception as cb_err:
                             # Log callback error but don't crash the interaction
                             logger.error(f"Error in output_callback: {cb_err}")
-                    # Always print to terminal as well
-                    print(output_chunk, end='', flush=True)
 
                 # Process based on which pattern matched
                 if index == 0: # EOF
