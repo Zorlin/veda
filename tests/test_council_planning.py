@@ -432,6 +432,14 @@ def test_update_goal_for_test_failures(monkeypatch, temp_plan_and_goal):
     with open(temp_plan_and_goal["goal_path"], "r") as f:
         initial_goal = f.read()
     
+    # Mock the console.print function to avoid output during tests
+    mock_console_print = MagicMock()
+    monkeypatch.setattr("main.console.print", mock_console_print)
+    
+    # Mock the logger to avoid logging during tests
+    mock_logger = MagicMock()
+    monkeypatch.setattr("main.logger", mock_logger)
+    
     # Update goal.prompt for pytest failures
     update_goal_for_test_failures("pytest")
     
@@ -440,6 +448,11 @@ def test_update_goal_for_test_failures(monkeypatch, temp_plan_and_goal):
         updated_goal = f.read()
     
     assert "fix the pytest test failures" in updated_goal.lower()
+    assert "CRITICAL: Fix pytest test failures" in updated_goal
+    assert "system has detected pytest test failures" in updated_goal
+    
+    # Verify that the original content is preserved
+    assert initial_goal in updated_goal
     
     # Reset goal.prompt
     with open(temp_plan_and_goal["goal_path"], "w") as f:
@@ -453,3 +466,69 @@ def test_update_goal_for_test_failures(monkeypatch, temp_plan_and_goal):
         updated_goal = f.read()
     
     assert "fix the cargo test failures" in updated_goal.lower()
+    assert "CRITICAL: Fix cargo test failures" in updated_goal
+    assert "system has detected cargo test failures" in updated_goal
+    
+    # Test that duplicate updates are prevented
+    # Reset the mock to check new calls
+    mock_console_print.reset_mock()
+    
+    # Try to update again with the same test type
+    update_goal_for_test_failures("cargo")
+    
+    # Verify that the function detected the existing guidance and didn't update
+    assert any("already contains" in str(call) for call in mock_logger.info.call_args_list)
+@pytest.mark.council_planning
+@pytest.mark.resilience
+def test_council_planning_resilience_to_file_corruption(monkeypatch, temp_plan_and_goal):
+    """
+    Test that council planning is resilient to file corruption and can recover.
+    """
+    # Import the function
+    from main import council_planning_enforcement, CouncilPlanningTestFailure
+    
+    # Mock subprocess.Popen to simulate successful test runs
+    class MockPopen:
+        def __init__(self, cmd, cwd, stdout, stderr, text):
+            if hasattr(stdout, 'name'):
+                with open(stdout.name, 'w') as f:
+                    f.write("All tests passed.\n0 tests collected.")
+            self._returncode = 0
+            
+        def wait(self, timeout=None):
+            return self._returncode
+            
+    monkeypatch.setattr(subprocess, "Popen", MockPopen)
+    
+    # Corrupt the PLAN.md file with invalid content
+    with open(temp_plan_and_goal["plan_path"], "w") as f:
+        f.write("Corrupted content\n" * 10)
+    
+    # Mock input to simulate user pressing Enter
+    monkeypatch.setattr("builtins.input", lambda: None)
+    
+    # Run the council planning enforcement
+    council_planning_enforcement(iteration_number=1, automated=False, testing_mode=True)
+    
+    # Check that PLAN.md was recovered/updated with a valid council round entry
+    with open(temp_plan_and_goal["plan_path"], "r") as f:
+        updated_content = f.read()
+    
+    assert "Council Round" in updated_content
+    assert "Summary of Last Round" in updated_content
+    assert "Next Steps/Tasks" in updated_content
+    
+    # Now test with a completely empty file
+    with open(temp_plan_and_goal["plan_path"], "w") as f:
+        f.write("")
+    
+    # Run the council planning enforcement again
+    council_planning_enforcement(iteration_number=2, automated=False, testing_mode=True)
+    
+    # Check that PLAN.md was recovered/updated with a valid council round entry
+    with open(temp_plan_and_goal["plan_path"], "r") as f:
+        updated_content = f.read()
+    
+    assert "Council Round" in updated_content
+    assert "Summary of Last Round" in updated_content
+    assert "Next Steps/Tasks" in updated_content

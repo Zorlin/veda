@@ -168,20 +168,39 @@ def update_goal_for_test_failures(test_type):
             logger.info(f"Goal prompt already contains guidance for {test_type} test failures.")
             return
         
-        # Create the test failure addendum
+        # Create a backup of the current goal prompt
+        backup_path = f"{goal_prompt_path}.bak.{int(time.time())}"
+        try:
+            with open(goal_prompt_path, 'r', encoding='utf-8') as src:
+                with open(backup_path, 'w', encoding='utf-8') as dst:
+                    dst.write(src.read())
+            logger.info(f"Created backup of goal.prompt at {backup_path}")
+        except Exception as e:
+            logger.warning(f"Failed to create backup of goal.prompt: {e}")
+        
+        # Create the test failure addendum with more detailed guidance
         test_failure_addendum = f"""
 
-IMPORTANT: The council has detected {test_type} test failures that need to be fixed.
-Please prioritize fixing these test failures before proceeding with other tasks.
-Carefully review the test output and make the necessary changes to fix the {test_type} test failures.
+## CRITICAL: Fix {test_type} test failures
+
+The system has detected {test_type} test failures that must be fixed before proceeding with other tasks.
+This is now your highest priority task.
+
+Please:
+1. Carefully analyze the test output to understand the specific failures
+2. Fix each failing test systematically
+3. Ensure your changes don't introduce new regressions
+4. Add additional tests to prevent similar failures in the future
+5. Focus on making the system more resilient to unexpected conditions
 
 If using {test_type}, ensure:
-1. All test cases pass without errors
-2. No regressions are introduced
-3. The code meets the project's quality standards
-4. The test failures are addressed in the next iteration
+- All test cases pass without errors
+- Error handling is robust and graceful
+- Resource cleanup happens properly even during failures
+- The code meets the project's quality standards
+- The system can recover from similar failures automatically in the future
 
-The council will continue to monitor test results and provide guidance.
+Remember that improving system resilience is the highest priority according to the project goals.
 """
         
         # Append the test failure guidance to the goal prompt with file locking
