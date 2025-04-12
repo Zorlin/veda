@@ -1012,9 +1012,6 @@ class Harness:
                     logging.error(f"Unknown test_cmd '{test_cmd}'. Skipping test run.")
                     pytest_passed = False
                     pytest_output = f"Unknown test_cmd '{test_cmd}'. No tests run."
-                    try:
-                        import anyio
-                        from anyio import get_running_loop
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
