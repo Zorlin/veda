@@ -406,9 +406,9 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
         if msg["role"] == "user":
             last_user_prompt = msg["content"]
             break
-    assert last_user_prompt is not None
-    # The retry prompt is generated *before* the next iteration's file check
-    assert f'Current Goal:\n"{initial_content}"' in last_user_prompt
+    assert last_user_prompt is not None, "Could not find last user prompt in history"
+    # The retry prompt is generated at the end of iteration 1, using the goal from that iteration
+    assert f'Current Goal:\n"{initial_content}"' in last_user_prompt, f"Retry prompt did not contain initial goal. Found: {last_user_prompt}" # This remains correct
  
  
 # --- Test Interrupt Handling ---
