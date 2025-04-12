@@ -754,21 +754,60 @@ Your response should be the complete new content for goal.prompt.
     # --- Test Enforcement ---
     max_test_retries = 3
     test_failure_output = None
-    
+        
     for attempt in range(1, max_test_retries + 1):
         console.print(f"\n[bold]Running test suite (attempt {attempt}/{max_test_retries})...[/bold]")
         # Use the test command from config if available, otherwise default
         test_cmd_list = ["pytest", "-v"] # Default test command
-        
+            
         # Check if we should run cargo test instead (for Rust projects)
         cargo_toml_exists = Path("Cargo.toml").exists()
         if cargo_toml_exists:
             console.print("[bold cyan]Detected Rust project (Cargo.toml). Will run cargo test.[/bold cyan]")
             test_cmd_list = ["cargo", "test"]
-        
+            
         logger.info(f"Running test command: {' '.join(test_cmd_list)}")
-        test_result = subprocess.run(test_cmd_list, cwd=".", capture_output=True, text=True)
-        console.print(test_result.stdout)
+            
+        # Run the test command with proper terminal handling to prevent display issues
+        try:
+            # Create a temporary file to capture output
+            with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+                temp_path = temp_file.name
+                
+            # Run the command and redirect output to the temp file
+            with open(temp_path, 'w') as output_file:
+                process = subprocess.Popen(
+                    test_cmd_list,
+                    cwd=".",
+                    stdout=output_file,
+                    stderr=subprocess.STDOUT,
+                    text=True
+                )
+                    
+                # Wait for the process to complete
+                return_code = process.wait()
+                
+            # Read the output from the temp file
+            with open(temp_path, 'r') as output_file:
+                output = output_file.read()
+                
+            # Clean up the temp file
+            os.unlink(temp_path)
+                
+            # Create a result object similar to what subprocess.run would return
+            class TestResult:
+                def __init__(self, returncode, stdout):
+                    self.returncode = returncode
+                    self.stdout = stdout
+                
+            test_result = TestResult(return_code, output)
+                
+            # Print the output
+            console.print(test_result.stdout)
+        except Exception as e:
+            logger.error(f"Error running test command: {e}", exc_info=True)
+            test_result = TestResult(1, f"Error running test command: {str(e)}")
+            console.print(f"[bold red]Error running test command: {str(e)}[/bold red]")
         
         if test_result.returncode == 0:
             console.print("[bold green]All tests passed![/bold green]")
