@@ -1044,6 +1044,61 @@ class Harness:
                         }))
                     except RuntimeError:
                         pass
+                elif test_cmd.startswith("cargo test"):
+                    logging.info("Running cargo test...")
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "Running Cargo Test", "log_entry": "Running cargo test..."}))
+                    except RuntimeError:
+                        pass
+                    try:
+                        result = subprocess.run(
+                            test_cmd.split(),
+                            cwd=self.config["project_dir"],
+                            capture_output=True,
+                            text=True,
+                            timeout=600
+                        )
+                        pytest_passed = result.returncode == 0
+                        pytest_output = result.stdout + "\n" + result.stderr
+                    except Exception as e:
+                        pytest_passed = False
+                        pytest_output = f"Error running cargo test: {e}"
+                    summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
+                    logging.info(f"Cargo test finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({
+                            "status": "Cargo Test Finished",
+                            "pytest_passed": pytest_passed,
+                            "pytest_output": pytest_output,
+                            "log_entry": f"Cargo test finished. Passed: {pytest_passed}. Output:\n{summary_output}"
+                        }))
+                    except RuntimeError:
+                        pass
+                else:
+                    logging.error(f"Unknown test_cmd '{test_cmd}'. Skipping test run.")
+                    pytest_passed = False
+                    pytest_output = f"Unknown test_cmd '{test_cmd}'. No tests run."
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({
+                            "status": "Test Command Error",
+                            "pytest_passed": pytest_passed,
+                            "pytest_output": pytest_output,
+                            "log_entry": f"Unknown test_cmd '{test_cmd}'. No tests run."
+                        }))
+                    except RuntimeError:
+                        pass
 
                 # 3. Evaluate with VESPER.MIND council or standard LLM
                 evaluation_status = "Evaluating (Council)" if self.enable_council and self.council else "Evaluating (LLM)"
