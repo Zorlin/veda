@@ -931,17 +931,7 @@ class Harness:
                         )
                         break # Exit the main loop
 
-                test_cmd = self.config.get("test_cmd", "pytest -v").strip()
-                if test_cmd.startswith("pytest"):
-                    logging.info("Running pytest...")
-                    try:
-                        import anyio
-                        from anyio import get_running_loop
-                        get_running_loop()
-                        import asyncio
-                        asyncio.create_task(self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."}))
-                    except RuntimeError:
-                        pass
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
