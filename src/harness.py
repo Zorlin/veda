@@ -754,27 +754,8 @@ class Harness:
                         logging.info("Evaluating outcome with standard LLM...")
                         # Log the goal being passed to evaluation
                         logging.info(f"Using current goal for evaluation: '{self.current_goal_prompt}'")
-                        # Pass the current instance goal prompt directly
-                        # Check if goal file was updated and reload it if needed
-                        if self._goal_prompt_file:
-                            try:
-                                new_hash = self._get_file_hash(self._goal_prompt_file)
-                                if new_hash is not None and new_hash != self._last_goal_prompt_hash:
-                                    logging.info("Reloading goal prompt before evaluation...")
-                                    try:
-                                        self.current_goal_prompt = self._goal_prompt_file.read_text()
-                                        self._last_goal_prompt_hash = new_hash
-                                        
-                                        # Add a system message about the goal reload
-                                        goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} before evaluation."
-                                        self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
-                                        self.ledger.add_message(self.current_run_id, None, "system", goal_change_message)
-                                    except Exception as e:
-                                        logging.error(f"Failed to reload goal prompt: {e}")
-                            except Exception as e:
-                                # Handle exceptions from _get_file_hash to prevent test failures
-                                logging.error(f"Error checking goal prompt file hash before evaluation: {e}")
-                    
+                        
+                        # Always use the most up-to-date goal from the instance variable
                         verdict, suggestions = self._evaluate_outcome(
                             self.current_goal_prompt,
                             aider_diff if aider_diff is not None else "",
