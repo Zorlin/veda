@@ -24,6 +24,8 @@ DEFAULT_CONFIG = {
     "websocket_port": 9940, # Default WebSocket port
     "http_port": 9950, # Default HTTP port
     "enable_ui": False,
+    # Set project_dir to the project root (parent of this file)
+    "project_dir": str(Path(__file__).parent.resolve()),
     # Add other essential defaults if needed for early access
 }
 
