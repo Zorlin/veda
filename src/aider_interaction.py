@@ -268,8 +268,11 @@ def run_aider(
                         logger.info(f"Scrollback limited to {MAX_SCROLLBACK_LINES} lines")
 
                     # Always print to terminal as well, regardless of callback
-                    sys.stdout.write(output_chunk)
-                    sys.stdout.flush()
+                    try:
+                        sys.stdout.write(output_chunk)
+                        sys.stdout.flush()
+                    except Exception as print_exc:
+                        logger.error(f"Error writing output to terminal: {print_exc}")
                     if output_callback:
                         try:
                             # Log before sending for debugging potential UI duplication
