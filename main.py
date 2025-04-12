@@ -400,6 +400,7 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
             # Prepare context for Gemma3:12b
             readme_content = read_file(readme_path)
             goal_prompt_content = read_file(goal_prompt_path)
+            plan_content = read_file(plan_path)
             
             # Create a prompt for Gemma3:12b to generate a plan update
             plan_prompt = f"""
@@ -410,6 +411,9 @@ Current README.md (project goals):
 
 Current goal.prompt:
 {goal_prompt_content}
+
+Current PLAN.md (read this carefully to understand the project's current state and direction):
+{plan_content}
 
 Current iteration: {iteration_number}
 
@@ -469,12 +473,16 @@ Another AI (Gemma3:12b) has generated a plan update, and you need to review it f
 3. Completeness of the blockers/issues section
 4. Overall quality and usefulness
 5. Use of plain language and high-level strategic direction
+6. Consistency with the existing PLAN.md content
 
 Current README.md (project goals):
 {readme_content}
 
 Current goal.prompt:
 {goal_prompt_content}
+
+Current PLAN.md (read this carefully to understand the project's current state and direction):
+{plan_content}
 
 Generated plan update:
 {generated_entry}
@@ -489,6 +497,7 @@ Your improved version should:
 - Focus on high-level strategic direction rather than technical details
 - Be concise but comprehensive
 - Avoid AI-like language patterns and technical jargon
+- Ensure continuity with previous council rounds in PLAN.md
 
 Remember that PLAN.md is meant to contain plain language, high-level direction that guides the project.
 """
@@ -618,6 +627,7 @@ Remember that PLAN.md is meant to contain plain language, high-level direction t
                 # Create a prompt for Gemma3:12b to update goal.prompt
                 readme_content = read_file(readme_path)
                 current_goal = read_file(goal_prompt_path)
+                plan_content = read_file(plan_path)
                 
                 goal_update_prompt = f"""
 You are the council of AIs responsible for updating the project's goal prompt when a major shift in direction is needed.
@@ -626,10 +636,10 @@ A major shift has been detected in the project plan, and you need to update the 
 Current README.md (project goals):
 {readme_content}
 
-Current goal.prompt:
+Current goal.prompt (read this carefully as you'll need to preserve critical elements):
 {current_goal}
 
-Current PLAN.md (contains the major shift marker):
+Current PLAN.md (contains the major shift marker and project history):
 {plan_content}
 
 Based on this information, please generate a new goal.prompt that:
@@ -637,6 +647,7 @@ Based on this information, please generate a new goal.prompt that:
 2. Maintains alignment with the high-level goals in README.md
 3. Provides clear, actionable guidance for the next phase of development
 4. Preserves any critical instructions from the original goal.prompt
+5. Reflects the project's evolution as documented in PLAN.md
 
 Your response should be in plain language, high-level direction that a human would write.
 Be concise, clear, and focused on strategic direction rather than technical implementation details.
