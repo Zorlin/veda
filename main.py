@@ -3,6 +3,7 @@ import logging
 import os
 import sys # Add sys import for exiting
 import time # Import the time module
+import re # Add re import for regex operations
 from pathlib import Path
 import rich
 from rich.console import Console
