@@ -245,8 +245,14 @@ class Harness:
             config["project_dir"] = str(project_dir_path.resolve())
             # IMPORTANT: When config_file is None, use work_dir directly as passed in __init__
             # Do not resolve it relative to project_dir here. Ensure it's absolute.
-            self.work_dir = self.work_dir.resolve()
-            logging.info(f"Using provided working directory directly: {self.work_dir}")
+            try:
+                resolved_work_dir = self.work_dir.resolve()
+                self.work_dir = resolved_work_dir # Update self.work_dir with the resolved Path object
+                self.work_dir.mkdir(parents=True, exist_ok=True) # Ensure it exists
+                logging.info(f"Using provided working directory directly (resolved): {self.work_dir}")
+            except Exception as e:
+                 logging.error(f"Failed to resolve or create working directory {self.work_dir} when config_file is None: {e}. Attempting to continue.")
+                 # Keep self.work_dir as the original Path object
             # State initialization happens after this method returns in __init__
             return config
         else:
@@ -289,13 +295,25 @@ class Harness:
         if not project_dir_path.is_absolute():
              # Assuming the script runs from the project root
              project_dir_path = Path.cwd() / project_dir_path
-        config["project_dir"] = str(project_dir_path.resolve()) # Store absolute path
+        try:
+            resolved_project_dir = project_dir_path.resolve()
+            config["project_dir"] = str(resolved_project_dir) # Store absolute path
+            logging.info(f"Resolved project directory: {resolved_project_dir}")
+        except Exception as e:
+            logging.error(f"Failed to resolve project directory path {project_dir_path}: {e}. Using relative path.")
+            config["project_dir"] = str(project_dir_path) # Fallback to potentially relative path
 
         # Resolve work_dir passed from __init__ relative to CWD and ensure it's absolute
         # This should happen *independently* of the project_dir
-        self.work_dir = self.work_dir.resolve()
-        self.work_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Using working directory (resolved relative to CWD): {self.work_dir}")
+        try:
+            resolved_work_dir = self.work_dir.resolve()
+            self.work_dir = resolved_work_dir # Update self.work_dir with the resolved Path object
+            self.work_dir.mkdir(parents=True, exist_ok=True)
+            logging.info(f"Using working directory (resolved relative to CWD): {self.work_dir}")
+        except Exception as e:
+            logging.error(f"Failed to resolve or create working directory {self.work_dir}: {e}. Attempting to continue, but state/logs might be affected.")
+            # Keep self.work_dir as the original Path object, hoping it might work relatively
+            # Or consider raising the error if work_dir is critical: raise RuntimeError(f"Cannot resolve/create work_dir: {e}") from e
 
         # State initialization happens after this method returns in __init__
         return config
