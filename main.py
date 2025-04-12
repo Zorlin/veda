@@ -322,6 +322,43 @@ def main():
         review_dir = work_dir_path / "reviews"
         if review_dir.exists() and any(review_dir.iterdir()):
             console.print(f"Code Reviews: {review_dir}")
+
+        # --- Council Planning Enforcement ---
+        console.print("\n[bold yellow]Council Planning Required[/bold yellow]")
+        console.print(
+            "[italic]At the end of each round, the open source council must collaboratively review and update [bold]PLAN.md[/bold] "
+            "(very frequently) to reflect the current actionable plan, strategies, and next steps. "
+            "Only update [bold]goal.prompt[/bold] if a significant change in overall direction is required (rare). "
+            "All planning and actions must always respect the high-level goals and constraints in [bold]README.md[/bold].[/italic]"
+        )
+        console.print(
+            "\n[bold]Please review and update PLAN.md now.[/bold] "
+            "If a major shift in direction is needed, update goal.prompt as well."
+        )
+        console.print(
+            "[italic]After updating, ensure all tests pass before proceeding. "
+            "If tests fail after a few tries, the council should revert to a working commit using [bold]git revert[/bold].[/italic]"
+        )
+
+        # --- Test Enforcement ---
+        import subprocess
+        max_test_retries = 3
+        for attempt in range(1, max_test_retries + 1):
+            console.print(f"\n[bold]Running test suite (attempt {attempt}/{max_test_retries})...[/bold]")
+            test_result = subprocess.run(["pytest", "-v"], cwd=".", capture_output=True, text=True)
+            console.print(test_result.stdout)
+            if test_result.returncode == 0:
+                console.print("[bold green]All tests passed![/bold green]")
+                break
+            else:
+                console.print(f"[bold red]Tests failed (attempt {attempt}).[/bold red]")
+                if attempt < max_test_retries:
+                    console.print("[italic]Please fix the issues and update PLAN.md as needed, then press Enter to retry tests.[/italic]")
+                    input()
+        else:
+            console.print("[bold red]Tests failed after multiple attempts.[/bold red]")
+            console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
+            sys.exit(1)
             
     except Exception as e:
         logger.exception(f"Harness execution failed: {e}")
