@@ -1034,6 +1034,8 @@ FAILURE = Fundamental issues that require a different approach
         pytest_passed: bool
     ) -> str:
         """Creates an enhanced prompt for the LLM evaluation step."""
+        # Log the goal received by this function
+        logging.info(f"[_create_evaluation_prompt] Received current_goal argument: '{current_goal}'")
         # Create a concise history string for the prompt, showing last few turns
         history_limit = 3
         limited_history = history[-(history_limit * 2):] if len(history) > history_limit * 2 else history
