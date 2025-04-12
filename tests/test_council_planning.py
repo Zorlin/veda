@@ -201,7 +201,7 @@ def test_council_planning_enforcement_detects_goal_prompt_update(mock_llm, monke
             nonlocal plan_updated
             if not plan_updated:
                 with open(temp_plan_and_goal["plan_path"], "a") as f:
-                f.write("""
+                    f.write("""
 ---
 
 ### Council Round 2 (2023-01-01 12:00:00)
@@ -221,7 +221,7 @@ def test_council_planning_enforcement_detects_goal_prompt_update(mock_llm, monke
             nonlocal goal_updated
             if not goal_updated:
                 with open(temp_plan_and_goal["goal_path"], "w") as f:
-                f.write("""
+                    f.write("""
 Updated goal prompt with new direction.
 The open source council has determined a major shift is needed.
 
