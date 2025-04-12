@@ -280,82 +280,27 @@ def main():
              logger.error("HTTP Server thread failed to start. Check logs.")
 
 
-    # Initialize and run the harness
-    try:
-        # Create harness, passing determined UI settings and the send stream
-        harness = Harness(
-            config_file=args.config_file, # Harness still loads its full config internally
-            max_retries=args.max_retries,
-            work_dir=work_dir_path,
-            reset_state=args.reset_state,
-            ollama_model=args.ollama_model,
-            aider_model=args.aider_model,  # Pass the Aider model argument
-            storage_type=args.storage_type,
-            enable_council=not args.disable_council,
-            enable_code_review=args.enable_code_review,
-            # Pass the final determined UI settings to Harness constructor
-            # These might override what Harness loads from its config again, which is fine.
-            enable_ui=ui_enabled,
-            websocket_host=ws_host, # Pass WS host/port
-            websocket_port=ws_port,
-            # http_port=http_port # Harness doesn't need the HTTP port directly
-            ui_send_stream=send_stream if ui_enabled else None, # Pass the send stream
-            per_iteration_callback=council_planning_enforcement # <-- NEW: enforce council planning after each round
-        )
+    # --- Council Planning Enforcement Function ---
+    import subprocess
+    import difflib
 
-        # Link the harness instance to the UI server for interrupt callbacks
-        if ui_server:
-            ui_server.set_harness_instance(harness)
-            # Stream is already set during UIServer initialization
-            # ui_server.set_receive_stream(receive_stream) # No longer needed
-            logger.info("Linked Harness instance to UI server.") # Updated log message
+    plan_path = Path("PLAN.md")
+    goal_prompt_path = Path("goal.prompt")
+    readme_path = Path("README.md")
 
-        # Run the harness and get results, passing the filename or prompt string
-        result = harness.run(prompt_source_arg)
-        
-        # Display summary
-        console.print("\n[bold green]Harness Run Complete[/bold green]")
-        console.print(f"Run ID: {result['run_id']}")
-        console.print(f"Iterations: {result['iterations']}")
-        console.print(f"Converged: {'Yes' if result['converged'] else 'No'}")
-        console.print(f"Final Status: {result['final_status']}")
-        
-        # Suggest viewing results
-        console.print("\n[bold]To view detailed results:[/bold]")
-        if args.storage_type == "sqlite":
-            console.print(f"SQLite database: {work_dir_path}/harness_ledger.db")
-        else:
-            console.print(f"JSON state file: {work_dir_path}/harness_state.json")
-        
-        # Check for changelogs and reviews
-        changelog_dir = work_dir_path / "changelogs"
-        if changelog_dir.exists() and any(changelog_dir.iterdir()):
-            console.print(f"Changelogs: {changelog_dir}")
-        
-        review_dir = work_dir_path / "reviews"
-        if review_dir.exists() and any(review_dir.iterdir()):
-            console.print(f"Code Reviews: {review_dir}")
+    def get_file_mtime(path):
+        try:
+            return path.stat().st_mtime
+        except Exception:
+            return 0
 
-        # --- Council Planning Enforcement & PLAN.md Update Check ---
-        import subprocess
-        import difflib
+    def read_file(path):
+        try:
+            return path.read_text(encoding="utf-8")
+        except Exception:
+            return ""
 
-        plan_path = Path("PLAN.md")
-        goal_prompt_path = Path("goal.prompt")
-        readme_path = Path("README.md")
-
-        def get_file_mtime(path):
-            try:
-                return path.stat().st_mtime
-            except Exception:
-                return 0
-
-        def read_file(path):
-            try:
-                return path.read_text(encoding="utf-8")
-            except Exception:
-                return ""
-
+    def council_planning_enforcement():
         # Record PLAN.md and goal.prompt mtimes before prompting
         plan_mtime_before = get_file_mtime(plan_path)
         goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
@@ -448,9 +393,63 @@ def main():
             console.print("[bold red]Tests failed after multiple attempts.[/bold red]")
             console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
             sys.exit(1)
-        # Remove single call to council planning enforcement here; now handled per-iteration
-        # council_planning_enforcement()
-            
+
+    # Initialize and run the harness
+    try:
+        # Create harness, passing determined UI settings and the send stream
+        harness = Harness(
+            config_file=args.config_file, # Harness still loads its full config internally
+            max_retries=args.max_retries,
+            work_dir=work_dir_path,
+            reset_state=args.reset_state,
+            ollama_model=args.ollama_model,
+            aider_model=args.aider_model,  # Pass the Aider model argument
+            storage_type=args.storage_type,
+            enable_council=not args.disable_council,
+            enable_code_review=args.enable_code_review,
+            # Pass the final determined UI settings to Harness constructor
+            # These might override what Harness loads from its config again, which is fine.
+            enable_ui=ui_enabled,
+            websocket_host=ws_host, # Pass WS host/port
+            websocket_port=ws_port,
+            # http_port=http_port # Harness doesn't need the HTTP port directly
+            ui_send_stream=send_stream if ui_enabled else None, # Pass the send stream
+            per_iteration_callback=council_planning_enforcement # <-- ENFORCE council planning after each round
+        )
+
+        # Link the harness instance to the UI server for interrupt callbacks
+        if ui_server:
+            ui_server.set_harness_instance(harness)
+            # Stream is already set during UIServer initialization
+            # ui_server.set_receive_stream(receive_stream) # No longer needed
+            logger.info("Linked Harness instance to UI server.") # Updated log message
+
+        # Run the harness and get results, passing the filename or prompt string
+        result = harness.run(prompt_source_arg)
+        
+        # Display summary
+        console.print("\n[bold green]Harness Run Complete[/bold green]")
+        console.print(f"Run ID: {result['run_id']}")
+        console.print(f"Iterations: {result['iterations']}")
+        console.print(f"Converged: {'Yes' if result['converged'] else 'No'}")
+        console.print(f"Final Status: {result['final_status']}")
+        
+        # Suggest viewing results
+        console.print("\n[bold]To view detailed results:[/bold]")
+        if args.storage_type == "sqlite":
+            console.print(f"SQLite database: {work_dir_path}/harness_ledger.db")
+        else:
+            console.print(f"JSON state file: {work_dir_path}/harness_state.json")
+        
+        # Check for changelogs and reviews
+        changelog_dir = work_dir_path / "changelogs"
+        if changelog_dir.exists() and any(changelog_dir.iterdir()):
+            console.print(f"Changelogs: {changelog_dir}")
+        
+        review_dir = work_dir_path / "reviews"
+        if review_dir.exists() and any(review_dir.iterdir()):
+            console.print(f"Code Reviews: {review_dir}")
+
     except Exception as e:
         logger.exception(f"Harness execution failed: {e}")
         console.print(f"\n[bold red]Error:[/bold red] {str(e)}")
