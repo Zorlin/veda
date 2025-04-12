@@ -334,7 +334,8 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
     # Mock file hashing: return initial hash, then updated hash
     initial_hash = "hash1"
     updated_hash = "hash2"
-    mock_get_hash.side_effect = [initial_hash, updated_hash, updated_hash] # Initial check, check before iter 1, check before iter 2
+    # Initial load, check before iter 1 (no change yet), check before iter 2 (after change)
+    mock_get_hash.side_effect = [initial_hash, initial_hash, updated_hash] 
 
     # Mock subprocesses and LLM response to allow loop progression
     with patch('src.harness.run_aider') as mock_run_aider, \
