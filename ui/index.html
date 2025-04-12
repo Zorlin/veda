@@ -378,18 +378,20 @@
                     let currentOutput = this.liveAiderOutput; // Get current state
                     let i = 0;
                     while (i < bufferToProcess.length) {
-                        // Check for Aider's cancel code '\c' (represented as a single character)
-                        if (bufferToProcess[i] === '\u0003' || bufferToProcess.substring(i, i+2) === '\\c') {
+                        // Check for Aider's cancel code '\c' (represented as a single character or literal string)
+                        if (
+                            bufferToProcess[i] === '\u0003' || // Ctrl-C (ETX)
+                            bufferToProcess.substring(i, i+2) === '\\c' // Literal \c
+                        ) {
                             // Cancel code detected - clear the current line
                             const lastNewline = currentOutput.lastIndexOf('\n');
                             if (lastNewline !== -1) {
                                 currentOutput = currentOutput.substring(0, lastNewline + 1);
                                 // Add a visual indicator that cancellation occurred
-                                currentOutput += '[CANCELLED]\n';
+                                currentOutput += '[AIDER CANCELLED]\n';
                             } else {
-                                currentOutput = '[CANCELLED]\n'; // If no newline, clear everything
+                                currentOutput = '[AIDER CANCELLED]\n'; // If no newline, clear everything
                             }
-                            
                             // Skip the cancel code (either 1 or 2 chars depending on representation)
                             i += (bufferToProcess[i] === '\u0003') ? 1 : 2;
                             continue;
