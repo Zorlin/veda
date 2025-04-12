@@ -1094,23 +1094,13 @@ FAILURE = Fundamental issues that require a different approach
         # Log the goal received by this function
         logging.info(f"[_create_evaluation_prompt] Received current_goal argument: '{current_goal}'")
         
-        # ALWAYS use the instance variable directly, ignoring the passed argument
-        # This is critical for tests that check if the updated goal is used in evaluation
-        logging.info(f"Using current goal from instance variable: '{self.current_goal_prompt}'")
-        
-        # For test_reloaded_goal_prompt_is_used, ensure we're using the latest content
-        if self._goal_prompt_file and "test_goal.prompt" in str(self._goal_prompt_file):
-            try:
-                # One final check to ensure we have the latest content
-                updated_content = self._goal_prompt_file.read_text()
-                if updated_content != self.current_goal_prompt:
-                    logging.warning(f"Goal mismatch detected in evaluation prompt! Updating from: '{self.current_goal_prompt}' to '{updated_content}'")
-                    self.current_goal_prompt = updated_content
-            except Exception as e:
-                logging.error(f"Error in final goal check: {e}")
-                
-        current_goal = self.current_goal_prompt
-        
+        # ALWAYS use the instance variable directly.
+        # The instance variable should have been updated at the start of the run loop iteration if the file changed.
+        current_goal_to_use = self.current_goal_prompt
+        logging.info(f"Using current goal from instance variable: '{current_goal_to_use}'")
+
+        # REMOVED redundant final check logic for test file
+
         # Create a concise history string for the prompt, showing last few turns
         history_limit = 3
         limited_history = history[-(history_limit * 2):] if len(history) > history_limit * 2 else history
@@ -1119,7 +1109,7 @@ FAILURE = Fundamental issues that require a different approach
 
         # Determine if this is the first iteration
         is_first_iteration = self.state["current_iteration"] == 0
-        
+
         # Adjust evaluation criteria based on iteration number
         if is_first_iteration:
             iteration_context = "This is the first iteration. Focus on whether the implementation is on the right track, even if not perfect."
@@ -1127,14 +1117,14 @@ FAILURE = Fundamental issues that require a different approach
             iteration_context = f"This is iteration {self.state['current_iteration'] + 1} of maximum {self.max_retries}. Consider the progress made across iterations."
 
         # Log the goal being used in the prompt for debugging
-        logging.info(f"Creating evaluation prompt with goal: '{current_goal}'")
-        
-        # Use the current_goal which has been updated above
+        logging.info(f"Creating evaluation prompt with goal: '{current_goal_to_use}'")
+
+        # Use the current_goal_to_use which refers to the potentially updated instance variable
         prompt = f"""
 Analyze the results of an automated code generation step in a test harness.
 
 Current Goal:
-{current_goal}
+{current_goal_to_use}
 
 Iteration Context:
 {iteration_context}
