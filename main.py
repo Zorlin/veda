@@ -42,6 +42,172 @@ logging.basicConfig(
 logger = logging.getLogger("aider_harness")
 
 
+# --- Council Planning Enforcement Function ---
+import subprocess
+import difflib
+import datetime
+import re
+import sys # Ensure sys is imported here if needed by council func
+
+# Define paths globally or pass them as arguments if preferred
+plan_path = Path("PLAN.md")
+goal_prompt_path = Path("goal.prompt")
+readme_path = Path("README.md")
+
+def get_file_mtime(path):
+    """Helper to get file modification time."""
+    try:
+        return path.stat().st_mtime
+    except Exception:
+        return 0
+
+def read_file(path):
+    """Helper to read file content."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+def council_planning_enforcement(iteration_number=None):
+    """
+    Enforce that the open source council convenes each round to collaboratively update PLAN.md,
+    and only update goal.prompt for major shifts. All planning must respect README.md.
+    All tests must pass to continue; after a few tries, the council can revert to a working commit.
+    """
+    plan_mtime_before = get_file_mtime(plan_path)
+    goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
+
+    console.print("\n[bold yellow]Council Planning Required[/bold yellow]")
+    console.print(
+        "[italic]At the end of each round, the open source council must collaboratively review and update [bold]PLAN.md[/bold] "
+        "(very frequently) to reflect the current actionable plan, strategies, and next steps. "
+        "Only update [bold]goal.prompt[/bold] if a significant change in overall direction is required (rare). "
+        "All planning and actions must always respect the high-level goals and constraints in [bold]README.md[/bold].[/italic]"
+    )
+    console.print(
+        "\n[bold]Please review and update PLAN.md now.[/bold] "
+        "If a major shift in direction is needed, update goal.prompt as well."
+    )
+    console.print(
+        "[italic]After updating, ensure all tests pass before proceeding. "
+        "If tests fail after a few tries, the council should revert to a working commit using [bold]git revert[/bold].[/italic]"
+    )
+
+    plan_updated = False
+    for attempt in range(2):  # One human chance, then auto-append
+        old_plan = read_file(plan_path)
+        console.print("\n[bold cyan]Waiting for PLAN.md to be updated with a new council round entry...[/bold cyan]")
+        console.print("[italic]Please add a new checklist item or summary for this round in PLAN.md, then press Enter.[/italic]")
+        input() # This will block execution, intended for interactive use?
+        new_plan = read_file(plan_path)
+        if new_plan != old_plan:
+            # Show a diff for transparency
+            diff = list(difflib.unified_diff(
+                old_plan.splitlines(), new_plan.splitlines(),
+                fromfile="PLAN.md (before)", tofile="PLAN.md (after)", lineterm=""
+            ))
+            if diff:
+                console.print("[bold green]PLAN.md updated. Diff:[/bold green]")
+                for line in diff:
+                    if line.startswith("+"):
+                        console.print(f"[green]{line}[/green]")
+                    elif line.startswith("-"):
+                        console.print(f"[red]{line}[/red]")
+                    else:
+                        console.print(line)
+            else:
+                console.print("[yellow]PLAN.md changed, but no diff detected.[/yellow]")
+
+            # Check for a new council round entry (e.g., a new checklist item or timestamp)
+            has_actionable = ("- [ ]" in new_plan or "- [x]" in new_plan)
+            has_summary = ("Summary of Last Round:" in new_plan)
+            mentions_readme = ("README.md" in new_plan or "high-level goals" in new_plan.lower())
+            if not has_summary:
+                console.print("[bold yellow]Reminder:[/bold yellow] Please include a summary of the council's discussion and planning in PLAN.md for this round (add 'Summary of Last Round:').")
+            if not mentions_readme:
+                console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always reference the high-level goals and constraints in README.md.")
+                console.print("Please ensure your plan does not contradict the project's core direction.")
+            if has_actionable and has_summary and mentions_readme:
+                plan_updated = True
+                break
+            else:
+                console.print("[bold red]PLAN.md does not appear to have a new actionable item, council summary, or reference to README.md/high-level goals. Please update accordingly.[/bold red]")
+        else:
+            console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
+
+    # If still not updated, auto-append a new council round entry
+    if not plan_updated:
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        plan_content = read_file(plan_path)
+        council_rounds = re.findall(r"Summary of Last Round:", plan_content)
+        round_num = len(council_rounds) + 1
+        new_entry = (
+            f"\n---\n\n"
+            f"### Council Round {round_num} ({now})\n"
+            f"*   **Summary of Last Round:** [Auto-generated placeholder. Council did not update this round.]\n"
+            f"*   **Blockers/Issues:** [None reported.]\n"
+            f"*   **Next Steps/Tasks:**\n"
+            f"    *   [ ] [Auto-generated] Review and update PLAN.md for next round.\n"
+            f"*   **Reference:** This plan must always respect the high-level goals and constraints in README.md.\n"
+        )
+        with open(plan_path, "a", encoding="utf-8") as f:
+            f.write(new_entry)
+        console.print(f"[bold yellow]PLAN.md was not updated by a human. Auto-appended a new council round entry for round {round_num}.[/bold yellow]")
+        # Show the new diff
+        updated_plan = read_file(plan_path)
+        diff = list(difflib.unified_diff(
+            plan_content.splitlines(), updated_plan.splitlines(),
+            fromfile="PLAN.md (before)", tofile="PLAN.md (after)", lineterm=""
+        ))
+        if diff:
+            console.print("[bold green]Auto-update diff:[/bold green]")
+            for line in diff:
+                if line.startswith("+"):
+                    console.print(f"[green]{line}[/green]")
+                elif line.startswith("-"):
+                    console.print(f"[red]{line}[/red]")
+                else:
+                    console.print(line)
+        plan_updated = True
+
+    # --- Check for major shift marker in PLAN.md to suggest goal.prompt update ---
+    plan_content = read_file(plan_path)
+    if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
+        console.print("[bold magenta]A major shift was detected in PLAN.md. Please update goal.prompt accordingly.[/bold magenta]")
+        console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
+        input() # Block execution
+    # Also, if goal.prompt was updated, require explicit confirmation
+    goal_prompt_mtime_after = get_file_mtime(goal_prompt_path)
+    if goal_prompt_mtime_after > goal_prompt_mtime_before:
+        console.print("[bold magenta]goal.prompt was updated. Please confirm the new direction is correct.[/bold magenta]")
+        console.print("[italic]Press Enter to continue.[/italic]")
+        input() # Block execution
+
+    # --- Test Enforcement ---
+    max_test_retries = 3
+    for attempt in range(1, max_test_retries + 1):
+        console.print(f"\n[bold]Running test suite (attempt {attempt}/{max_test_retries})...[/bold]")
+        # Use the test command from config if available, otherwise default
+        # Note: This requires access to the 'config' dict, which isn't available if moved outside main()
+        # We need to either pass config or use a fixed command here. Using fixed for now.
+        test_cmd_list = ["pytest", "-v"] # Default test command
+        # TODO: Consider how to get the configured test command here if needed.
+        test_result = subprocess.run(test_cmd_list, cwd=".", capture_output=True, text=True)
+        console.print(test_result.stdout)
+        if test_result.returncode == 0:
+            console.print("[bold green]All tests passed![/bold green]")
+            break
+        else:
+            console.print(f"[bold red]Tests failed (attempt {attempt}).[/bold red]")
+            if attempt < max_test_retries:
+                console.print("[italic]Please fix the issues and update PLAN.md as needed, then press Enter to retry tests.[/italic]")
+                input() # Block execution
+    else:
+        console.print("[bold red]Tests failed after multiple attempts.[/bold red]")
+        console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
+        sys.exit(1) # Exit if tests fail repeatedly
+
+
 def main():
     """Main entry point for the Aider Autoloop Harness."""
     parser = argparse.ArgumentParser(
