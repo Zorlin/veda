@@ -286,11 +286,12 @@ def test_council_planning_integration_with_harness(monkeypatch, temp_plan_and_go
     """
     council_calls = []
     
-    def mock_council_planning(iteration_number=None, test_failure_info=None, automated=True):
+    def mock_council_planning(iteration_number=None, test_failure_info=None, automated=True, testing_mode=False):
         council_calls.append({
             "iteration": iteration_number,
             "test_failure": bool(test_failure_info),
-            "automated": automated
+            "automated": automated,
+            "testing_mode": testing_mode
         })
     
     # Mock the council planning function
