@@ -780,8 +780,9 @@ class Harness:
                         get_running_loop()
                         import asyncio
                         asyncio.create_task(self._send_ui_update({"status": "Aider Interrupted", "log_entry": "Aider process stopped by user interrupt signal."}))
-                    except RuntimeError:
-                        pass
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
+                    summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
+                    logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
                     
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
                     iteration_interrupted = True # Mark iteration as interrupted
