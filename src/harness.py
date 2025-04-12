@@ -948,10 +948,6 @@ class Harness:
                         asyncio.create_task(self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."}))
                     except RuntimeError:
                         pass
-                    }))
-                except RuntimeError:
-                    pass
->>>>>>> main
 =======
                 test_cmd = self.config.get("test_cmd", "pytest -v").strip()
                 if test_cmd.startswith("pytest"):
