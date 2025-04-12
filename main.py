@@ -630,9 +630,19 @@ Remember that PLAN.md is meant to contain plain language, high-level direction t
 
     # --- Check for major shift marker in PLAN.md to suggest goal.prompt update ---
     # Force reload plan content to ensure we have the latest version
+    # First force a filesystem stat to clear any potential caching
+    try:
+        os.stat(str(plan_path))
+    except Exception as e:
+        logger.warning(f"Error getting plan file stats before major shift check: {e}")
+    
+    # Now reload the file content
     plan_content = reload_file(plan_path)
     logger.info(f"Checking PLAN.md for major shift markers...")
-    if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
+    
+    # Check for various major shift markers with case insensitivity
+    if any(marker.lower() in plan_content.lower() for marker in 
+           ["UPDATE_GOAL_PROMPT", "MAJOR_SHIFT", "SIGNIFICANT CHANGE", "DIRECTION CHANGE"]):
         if automated:
             console.print("[bold magenta]A major shift was detected in PLAN.md. The system will automatically update goal.prompt using Gemma3:12b.[/bold magenta]")
             
