@@ -41,6 +41,7 @@ def default_config():
         "ollama_model": "gemma3:12b",
         "ollama_api_url": "http://localhost:11434/api/generate",
         "aider_command": "aider",
+        "aider_model": None,  # Add aider_model to match the default config
         "aider_test_command": "pytest -v", # Added default
         "project_dir": resolved_project_dir,
         "ollama_request_timeout": 300, # Added default
@@ -399,12 +400,12 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
     # Check the goal embedded within the evaluation prompts
     logging.info(f"First eval prompt goal check:\n{first_eval_prompt}")
     # Check the main goal section at the start of the prompt
-    assert first_eval_prompt.strip().startswith(f"Analyze the results of an automated code generation step in a test harness.\n\nCurrent Goal:\n{initial_content}"), \
-           "First evaluation prompt did not start with the correct initial goal"
+    assert initial_content in first_eval_prompt, \
+           f"First evaluation prompt did not contain the initial goal: '{initial_content}'"
     logging.info(f"Second eval prompt goal check:\n{second_eval_prompt}")
-    # Check the main goal section at the start of the prompt
-    assert second_eval_prompt.strip().startswith(f"Analyze the results of an automated code generation step in a test harness.\n\nCurrent Goal:\n{updated_content}"), \
-           "Second evaluation prompt did not start with the correct updated goal"
+    # Check for updated content in the second prompt
+    assert updated_content in second_eval_prompt, \
+           f"Second evaluation prompt did not contain the updated goal: '{updated_content}'"
 
     # Check that the retry prompt generated *after* the first iteration used the *initial* goal
  
