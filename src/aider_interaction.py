@@ -115,7 +115,7 @@ def run_aider(
             cwd=work_dir,
             encoding='utf-8',
             timeout=AIDER_TIMEOUT, # Overall timeout for the whole command
-            logfile=sys.stdout.buffer, # Log all I/O to standard output (use buffer for bytes)
+            logfile=sys.stdout, # Log all I/O to standard output (text mode for encoding)
             # Use echo=False to prevent command input from being echoed back into the output buffer
             echo=False, # Ensure echo is False
         )
