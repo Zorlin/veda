@@ -15,6 +15,7 @@ from main import (
     get_file_mtime,
     update_goal_for_test_failures
 )
+import sys # Import sys for mocking
 
 @pytest.fixture
 def temp_planning_files():
@@ -208,10 +209,69 @@ def test_council_planning_creates_error_file_on_test_failure(temp_planning_files
                 error_content = reload_file(error_file)
                 assert "Test Failures" in error_content
                 assert "AssertionError" in error_content
-                
+
                 # Clean up
                 os.unlink(temp_path)
-                os.unlink(error_file)
+                # No need to unlink error_file here, fixture handles temp_dir cleanup
+
+@pytest.mark.council_planning
+def test_council_planning_creates_error_file_on_test_failure(temp_planning_files, monkeypatch): # Add monkeypatch
+    """Test that council planning creates an error file when tests fail repeatedly."""
+    # Mock subprocess.Popen to simulate test failures
+    mock_process = MagicMock()
+    # Make wait accept timeout and return failure code
+    mock_process.wait = MagicMock(return_value=1)
+
+    # Mock input to allow retries in manual mode
+    input_calls = [0]
+    def mock_input(*args, **kwargs):
+        input_calls[0] += 1
+        return "" # Simulate pressing Enter
+    monkeypatch.setattr("builtins.input", mock_input)
+
+    with patch("subprocess.Popen", return_value=mock_process):
+        # Mock tempfile to use our controlled temp file
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix=".log") as temp_file:
+            temp_path = temp_file.name
+
+            # Write some test failure output
+            with open(temp_path, 'w') as f:
+                f.write("Test failures: AssertionError: expected True but got False")
+
+            # Mock open to return our controlled temp file content when reading the log
+            original_open = open
+            def mock_open(*args, **kwargs):
+                # Ensure we only intercept the read for the specific temp file path
+                if len(args) > 0 and args[0] == temp_path and 'r' in kwargs.get('mode', 'r'):
+                    # Re-open the temp file for reading
+                    return original_open(temp_path, 'r')
+                # Let other file operations (like writing COUNCIL_ERROR.md) proceed normally
+                return original_open(*args, **kwargs)
+
+            with patch("builtins.open", mock_open):
+                 # Run council planning with automated=False and testing_mode=True
+                 # It should now complete the loop after 3 failures and write the error file
+                 # without raising CouncilPlanningTestFailure or calling sys.exit
+                council_planning_enforcement(
+                    iteration_number=1,
+                    automated=False, # Run in manual mode to reach the error file logic
+                    testing_mode=True
+                )
+
+                # Check that the error file was created
+                error_file = Path("COUNCIL_ERROR.md")
+                assert error_file.exists(), "Error file was not created"
+
+                # Check the content
+                error_content = reload_file(error_file)
+                assert "Test Failures" in error_content
+                assert "AssertionError" in error_content
+
+                # Clean up the specific temp file we created for output capture
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass # Ignore if already deleted or doesn't exist
 
 @pytest.mark.council_planning
 def test_file_locking_during_updates(temp_planning_files):
