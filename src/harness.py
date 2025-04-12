@@ -471,9 +471,11 @@ class Harness:
                         self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
                         self.ledger.add_message(self.current_run_id, None, "system", goal_change_message) # Associate with run, not specific iteration
                         # No need to update initial_goal_for_run (it's the original goal)
-                        # Update the local current_prompt for the *next* Aider run if needed,
-                        # although it will likely be overwritten by retry logic if RETRY occurs.
-                        current_prompt = self.current_goal_prompt # Update local var from instance var
+                        # The local `current_prompt` (which holds the retry prompt for the upcoming
+                        # Aider run) should NOT be overwritten here. The reloaded goal affects
+                        # future prompt *generation* (_create_evaluation_prompt, _create_retry_prompt).
+                        # Remove the incorrect update:
+                        # current_prompt = self.current_goal_prompt
                         self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."})
 
                     except Exception as e:
