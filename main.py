@@ -79,11 +79,57 @@ def reload_file(path):
         logger.error(f"Error reloading file {path}: {e}")
         return ""
 
-def council_planning_enforcement(iteration_number=None):
+def update_goal_for_test_failures(test_type):
+    """
+    Update goal.prompt to specifically address test failures.
+    
+    Args:
+        test_type: The type of test that failed ("pytest" or "cargo")
+    """
+    try:
+        # Get the current goal prompt
+        current_goal = reload_file(goal_prompt_path)
+        
+        # Check if we've already added test failure guidance
+        if f"fix the {test_type} test failures" in current_goal.lower():
+            logger.info(f"Goal prompt already contains guidance for {test_type} test failures.")
+            return
+        
+        # Create the test failure addendum
+        test_failure_addendum = f"""
+
+IMPORTANT: The council has detected {test_type} test failures that need to be fixed.
+Please prioritize fixing these test failures before proceeding with other tasks.
+Carefully review the test output and make the necessary changes to fix the failing tests.
+
+If using {test_type}, ensure:
+1. All test cases pass without errors
+2. No regressions are introduced
+3. The code meets the project's quality standards
+4. The test failures are addressed in the next iteration
+
+The council will continue to monitor test results and provide guidance.
+"""
+        
+        # Append the test failure guidance to the goal prompt
+        with open(goal_prompt_path, "a", encoding="utf-8") as f:
+            f.write(test_failure_addendum)
+        
+        logger.info(f"Updated goal.prompt with guidance for {test_type} test failures.")
+        console.print(f"[bold green]Updated goal.prompt with guidance for {test_type} test failures.[/bold green]")
+        
+    except Exception as e:
+        logger.error(f"Failed to update goal.prompt for test failures: {e}")
+
+def council_planning_enforcement(iteration_number=None, test_failure_info=None):
     """
     Enforce that the open source council convenes each round to collaboratively update PLAN.md,
     and only update goal.prompt for major shifts. All planning must respect README.md.
     All tests must pass to continue; after a few tries, the council can revert to a working commit.
+    
+    Args:
+        iteration_number: The current iteration number (None for initial/final)
+        test_failure_info: Optional information about test failures to guide the council
     """
     # Reload files first to ensure we have the latest content
     reload_file(plan_path)
@@ -97,6 +143,12 @@ def council_planning_enforcement(iteration_number=None):
     # Log which iteration we're in
     if iteration_number is not None:
         console.print(f"\n[bold yellow]Council Planning for Iteration {iteration_number}[/bold yellow]")
+    
+    # If we have test failure information, highlight it
+    if test_failure_info:
+        console.print(f"\n[bold red]Test Failures Detected:[/bold red]")
+        console.print(f"[red]{test_failure_info}[/red]")
+        console.print("[bold yellow]The council should address these test failures in the updated plan.[/bold yellow]")
 
     console.print("\n[bold yellow]Council Planning Required[/bold yellow]")
     console.print(
@@ -213,26 +265,58 @@ def council_planning_enforcement(iteration_number=None):
 
     # --- Test Enforcement ---
     max_test_retries = 3
+    test_failure_output = None
+    
     for attempt in range(1, max_test_retries + 1):
         console.print(f"\n[bold]Running test suite (attempt {attempt}/{max_test_retries})...[/bold]")
         # Use the test command from config if available, otherwise default
-        # Note: This requires access to the 'config' dict, which isn't available if moved outside main()
-        # We need to either pass config or use a fixed command here. Using fixed for now.
         test_cmd_list = ["pytest", "-v"] # Default test command
-        # TODO: Consider how to get the configured test command here if needed.
+        
+        # Check if we should run cargo test instead (for Rust projects)
+        cargo_toml_exists = Path("Cargo.toml").exists()
+        if cargo_toml_exists:
+            console.print("[bold cyan]Detected Rust project (Cargo.toml). Will run cargo test.[/bold cyan]")
+            test_cmd_list = ["cargo", "test"]
+        
         test_result = subprocess.run(test_cmd_list, cwd=".", capture_output=True, text=True)
         console.print(test_result.stdout)
+        
         if test_result.returncode == 0:
             console.print("[bold green]All tests passed![/bold green]")
             break
         else:
             console.print(f"[bold red]Tests failed (attempt {attempt}).[/bold red]")
+            test_failure_output = test_result.stdout
+            
+            # If this is the first failure, check if we need to update goal.prompt
+            if attempt == 1:
+                # Store the test failure information for potential goal.prompt update
+                with open("test_failures.log", "w", encoding="utf-8") as f:
+                    f.write(test_failure_output)
+                
+                # Check if we need to modify goal.prompt to specifically address test failures
+                if "cargo test" in test_cmd_list:
+                    console.print("[bold yellow]Detected cargo test failures. Updating goal.prompt to address Rust test issues.[/bold yellow]")
+                    update_goal_for_test_failures("cargo")
+                else:
+                    console.print("[bold yellow]Detected pytest failures. Updating goal.prompt to address Python test issues.[/bold yellow]")
+                    update_goal_for_test_failures("pytest")
+            
             if attempt < max_test_retries:
                 console.print("[italic]Please fix the issues and update PLAN.md as needed, then press Enter to retry tests.[/italic]")
                 input() # Block execution
     else:
         console.print("[bold red]Tests failed after multiple attempts.[/bold red]")
         console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
+        
+        # Create a special marker in PLAN.md to indicate test failures that need addressing
+        with open(plan_path, "a", encoding="utf-8") as f:
+            f.write("\n\n## CRITICAL: Test Failures Need Addressing\n")
+            f.write("The council must address the following test failures before proceeding:\n")
+            f.write("```\n")
+            f.write(test_failure_output or "Unknown test failures")
+            f.write("\n```\n")
+        
         sys.exit(1) # Exit if tests fail repeatedly
 
 
@@ -491,21 +575,45 @@ def main():
             enable_code_review=args.enable_code_review or config.get("enable_code_review", False)
         )
 
-        # Run initial council planning before starting
-        console.print("\n[bold blue]Running initial council planning enforcement...[/bold blue]")
-        council_planning_enforcement(iteration_number=0)
+        # No need for this call here as it's now integrated in the run_with_council_planning method
         
-        # Store the original run method
+        # Store the original run and evaluate_outcome methods
         original_run = harness.run
+        original_evaluate = harness._evaluate_outcome if hasattr(harness, "_evaluate_outcome") else None
+        
+        # Define a new evaluation method that integrates with council planning
+        if original_evaluate:
+            def evaluate_with_council(current_goal, aider_diff, pytest_output, pytest_passed):
+                # Get the original evaluation result
+                result = original_evaluate(current_goal, aider_diff, pytest_output, pytest_passed)
+                
+                # If tests failed, pass the information to the council planning
+                if not pytest_passed:
+                    console.print("\n[bold blue]Running council planning for test failures...[/bold blue]")
+                    council_planning_enforcement(
+                        iteration_number=harness.state.get("current_iteration", 0),
+                        test_failure_info=pytest_output
+                    )
+                
+                return result
+            
+            # Replace the evaluation method
+            harness._evaluate_outcome = evaluate_with_council
         
         # Define a new run method that includes council planning
         def run_with_council_planning(initial_goal_prompt_or_file=None):
+            # Run initial council planning
+            console.print("\n[bold blue]Running initial council planning enforcement...[/bold blue]")
+            council_planning_enforcement(iteration_number=0)
+            
             # Run the original method
             result = original_run(initial_goal_prompt_or_file)
             
             # Run final council planning after all iterations
             console.print("\n[bold blue]Running final council planning enforcement...[/bold blue]")
-            council_planning_enforcement(iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final")
+            council_planning_enforcement(
+                iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final"
+            )
             
             return result
         

@@ -278,6 +278,13 @@ def test_council_planning_enforcement_handles_test_failures(monkeypatch, temp_pl
     assert run_count[0] == 3, f"Tests should be run 3 times (max_test_retries), but were run {run_count[0]} times"
     assert exit_called[0], "System exit should be called when all test attempts fail"
     assert exit_code[0] == 1, f"Exit code should be 1 when tests fail, but was {exit_code[0]}"
+    
+    # Verify goal.prompt was updated with test failure guidance
+    assert Path("test_failures.log").exists(), "Test failures log should be created"
+    
+    # Check if PLAN.md was updated with test failure information
+    plan_content = Path("PLAN.md").read_text()
+    assert "CRITICAL: Test Failures Need Addressing" in plan_content, "PLAN.md should be updated with test failure information"
 def test_council_planning_integration_with_harness(monkeypatch, temp_plan_and_goal):
     """
     Test that council planning is properly integrated with the harness run cycle.
@@ -365,3 +372,50 @@ def test_council_planning_integration_with_harness(monkeypatch, temp_plan_and_go
     assert len(council_calls) == 2, f"Council planning should be called twice, but was called {len(council_calls)} times"
     assert council_calls[0] == 0, f"First council call should be for iteration 0, but was {council_calls[0]}"
     assert council_calls[1] == 3, f"Second council call should be for iteration 3, but was {council_calls[1]}"
+def test_update_goal_for_test_failures(monkeypatch, temp_plan_and_goal):
+    """
+    Test that the goal prompt is properly updated when test failures are detected.
+    """
+    import importlib.util
+    import sys
+
+    main_path = Path(__file__).parent.parent / "main.py"
+    temp_dir = tempfile.mkdtemp()
+    temp_main = Path(temp_dir) / "main.py"
+    shutil.copy(main_path, temp_main)
+    os.chdir(temp_dir)
+
+    plan, goal, readme = temp_plan_and_goal
+    shutil.copy(plan, temp_dir + "/PLAN.md")
+    shutil.copy(goal, temp_dir + "/goal.prompt")
+    shutil.copy(readme, temp_dir + "/README.md")
+    
+    # Import main.py as a module
+    spec = importlib.util.spec_from_file_location("main", str(temp_main))
+    main_mod = importlib.util.module_from_spec(spec)
+    sys.modules["main"] = main_mod
+    spec.loader.exec_module(main_mod)
+    
+    # Get the original goal prompt content
+    original_goal = Path("goal.prompt").read_text()
+    
+    # Call the update function for pytest failures
+    main_mod.update_goal_for_test_failures("pytest")
+    
+    # Verify goal.prompt was updated
+    updated_goal = Path("goal.prompt").read_text()
+    assert "fix the pytest test failures" in updated_goal.lower(), "Goal prompt should be updated with pytest failure guidance"
+    assert len(updated_goal) > len(original_goal), "Goal prompt should be longer after update"
+    
+    # Call the update function again - should not duplicate the guidance
+    main_mod.update_goal_for_test_failures("pytest")
+    second_update = Path("goal.prompt").read_text()
+    assert second_update == updated_goal, "Goal prompt should not be updated again if guidance already exists"
+    
+    # Test with cargo test failures
+    Path("goal.prompt").write_text(original_goal)  # Reset to original
+    main_mod.update_goal_for_test_failures("cargo")
+    
+    # Verify goal.prompt was updated for cargo
+    cargo_updated_goal = Path("goal.prompt").read_text()
+    assert "fix the cargo test failures" in cargo_updated_goal.lower(), "Goal prompt should be updated with cargo failure guidance"
