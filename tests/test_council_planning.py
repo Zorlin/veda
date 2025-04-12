@@ -99,10 +99,9 @@ def test_council_planning_enforcement_blocks_without_plan_update(monkeypatch, te
     # Get the initial content of PLAN.md
     with open(temp_plan_and_goal["plan_path"], "r") as f:
         initial_content = f.read()
-    
-    # Run the council planning enforcement with automated=False to test manual mode
-    council_planning_enforcement(iteration_number=1, automated=False)
-    
+    # Run the council planning enforcement with automated=False and testing_mode=True
+    council_planning_enforcement(iteration_number=1, automated=False, testing_mode=True)
+
     # Check that PLAN.md was updated with an auto-appended entry
     with open(temp_plan_and_goal["plan_path"], "r") as f:
         updated_content = f.read()
@@ -153,10 +152,10 @@ def test_council_planning_enforcement_detects_plan_update(monkeypatch, temp_plan
     # Get the initial content of PLAN.md
     with open(temp_plan_and_goal["plan_path"], "r") as f:
         initial_content = f.read()
-    
-    # Run the council planning enforcement with automated=False to test manual mode
-    council_planning_enforcement(iteration_number=1, automated=False)
-    
+
+    # Run the council planning enforcement with automated=False and testing_mode=True
+    council_planning_enforcement(iteration_number=1, automated=False, testing_mode=True)
+
     # Check that PLAN.md was updated with the user's entry and not auto-appended
     with open(temp_plan_and_goal["plan_path"], "r") as f:
         updated_content = f.read()
@@ -220,10 +219,10 @@ Instructions:
     # Get the initial content of goal.prompt
     with open(temp_plan_and_goal["goal_path"], "r") as f:
         initial_goal = f.read()
-    
-    # Run the council planning enforcement with automated=False to test manual mode
-    council_planning_enforcement(iteration_number=1, automated=False)
-    
+
+    # Run the council planning enforcement with automated=False and testing_mode=True
+    council_planning_enforcement(iteration_number=1, automated=False, testing_mode=True)
+
     # Check that goal.prompt was updated
     with open(temp_plan_and_goal["goal_path"], "r") as f:
         updated_goal = f.read()
