@@ -22,8 +22,13 @@ def check_ollama_model_availability(model_name: str, api_url: str = None) -> boo
     try:
         # Create client with custom API base URL if provided
         if api_url:
-            client = ollama.Client(host=api_url)
-            logger.debug(f"Using custom Ollama API URL: {api_url}")
+            # Sanitize api_url to ensure it is just the base (no /api/generate or /api/)
+            sanitized_url = api_url
+            for suffix in ["/api/generate", "/api/generate/", "/api/", "/api"]:
+                if sanitized_url.endswith(suffix):
+                    sanitized_url = sanitized_url[: -len(suffix)]
+            client = ollama.Client(host=sanitized_url)
+            logger.debug(f"Using custom Ollama API URL: {sanitized_url}")
         else:
             client = ollama.Client() # Uses default host or OLLAMA_HOST env var
 
