@@ -1006,7 +1006,8 @@ class Harness:
                             "pytest_output": pytest_output,
                             "log_entry": f"Cargo test finished. Passed: {pytest_passed}. Output:\n{summary_output}"
                         }))
-                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
+                    except RuntimeError:
+                        pass # No event loop running (e.g., in tests), cannot send UI update.
                 else:
                     logging.error(f"Unknown test_cmd '{test_cmd}'. Skipping test run.")
                     pytest_passed = False
@@ -1022,8 +1023,7 @@ class Harness:
                             "pytest_output": pytest_output,
                             "log_entry": f"Unknown test_cmd '{test_cmd}'. No tests run."
                         }))
-                    except RuntimeError:
-                        pass
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
