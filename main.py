@@ -864,9 +864,15 @@ Your response should be the complete new content for goal.prompt.
                 input() # Block execution
             elif attempt < max_test_retries and automated:
                 console.print("[italic]Automated mode: Proceeding with next test attempt without manual intervention.[/italic]")
-                # In automated mode, we could potentially wait a moment before retrying
-                time.sleep(2)  # Brief pause before next attempt
-    else:
+                # In automated mode, we should exit/raise immediately after the first failure
+                # The goal.prompt update happens above (if attempt == 1)
+                logger.error("Automated mode detected test failure. Exiting loop.")
+                if testing_mode:
+                    raise CouncilPlanningTestFailure("Tests failed in automated mode (first attempt)")
+                else:
+                    sys.exit(1) # Exit immediately in automated mode after first failure
+            # If not automated, continue loop allowing for manual intervention
+    else: # This else block runs if the loop completes without a break (only possible in manual mode now)
         console.print("[bold red]Tests failed after multiple attempts.[/bold red]")
         console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
         
