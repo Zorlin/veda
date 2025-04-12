@@ -97,9 +97,19 @@ def get_llm_response(
     """
     # Use the specific model from config, fall back to a default if necessary
     ollama_model = config.get("ollama_model", "gemma3:12b") # Updated default
+    ollama_api_url = config.get("ollama_api_url", None) # Get the API URL from config
     ollama_options = config.get("ollama_options", {}).copy() # Copy to avoid modifying original
     request_timeout = config.get("ollama_request_timeout", 300) # Default 5 minutes
-    # ollama_host = config.get("ollama_host", None) # Optional: configure host if not default localhost
+
+    # Sanitize api_url if provided
+    sanitized_url = None
+    if ollama_api_url:
+        sanitized_url = ollama_api_url
+        for suffix in ["/api/generate", "/api/generate/", "/api/", "/api"]:
+            if sanitized_url.endswith(suffix):
+                sanitized_url = sanitized_url[: -len(suffix)]
+        logger.debug(f"Using sanitized Ollama API URL: {sanitized_url}")
+
 
     messages = []
     if system_prompt:
@@ -114,9 +124,14 @@ def get_llm_response(
     logger.debug(f"Messages (count: {len(messages)}): {messages}") # Log full messages at debug
 
     try:
-        # Initialize client - host can be configured via OLLAMA_HOST env var or passed explicitly
-        # client = ollama.Client(host=ollama_host) # Example if using explicit host config
-        client = ollama.Client() # Uses default host (http://localhost:11434) or OLLAMA_HOST env var
+        # Initialize client, explicitly setting the host if sanitized_url is available
+        if sanitized_url:
+            client = ollama.Client(host=sanitized_url)
+            logger.debug(f"Ollama client initialized with host: {sanitized_url}")
+        else:
+            client = ollama.Client() # Uses default host (http://localhost:11434) or OLLAMA_HOST env var
+            logger.debug("Ollama client initialized with default host.")
+
 
         response_data = client.chat(
             model=ollama_model,
