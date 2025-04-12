@@ -194,14 +194,23 @@ class Harness:
 
         # Send UI update acknowledging the request
         status_msg = "Interrupting Aider & Queuing Guidance" if interrupt_now else "Guidance Queued for Next Iteration"
-        import anyio
-        anyio.from_thread.run(self._send_ui_update, {
-            "status": status_msg, 
-            "log_entry": f"{status_msg}: '{message[:50]}...'",
-            "type": "interrupt_ack",
-            "message": status_msg,
-            "interrupt_now": interrupt_now
-        })
+        # Only try to send UI update if we're in a running event loop (ie, not in tests)
+        try:
+            import anyio
+            from anyio import get_running_loop
+            get_running_loop()
+            # If this doesn't raise, we're in an event loop, so we can await
+            import asyncio
+            asyncio.create_task(self._send_ui_update({
+                "status": status_msg, 
+                "log_entry": f"{status_msg}: '{message[:50]}...'",
+                "type": "interrupt_ack",
+                "message": status_msg,
+                "interrupt_now": interrupt_now
+            }))
+        except RuntimeError:
+            # Not in an event loop (eg, during tests), so skip UI update
+            pass
 
 
     def _load_config(self) -> Dict[str, Any]:
@@ -387,8 +396,15 @@ class Harness:
             initial_goal_prompt_or_file: The initial goal prompt string OR path to a file containing the goal.
         """
         logging.info("Starting harness run...")
-        import anyio
-        anyio.from_thread.run(self._send_ui_update, {"status": "Starting Run", "log_entry": "Harness run initiated."})
+        # Only try to send UI update if we're in a running event loop (ie, not in tests)
+        try:
+            import anyio
+            from anyio import get_running_loop
+            get_running_loop()
+            import asyncio
+            asyncio.create_task(self._send_ui_update({"status": "Starting Run", "log_entry": "Harness run initiated."}))
+        except RuntimeError:
+            pass
 
         # Determine if input is a file path or a string
         goal_prompt_path = Path(initial_goal_prompt_or_file)
@@ -497,8 +513,14 @@ class Harness:
                     if new_hash is not None and new_hash != self._last_goal_prompt_hash:
                         # Force reload the file content to ensure we have the latest version
                         logging.warning(f"Change detected in goal prompt file: {self._goal_prompt_file}")
-                        import anyio
-                        anyio.from_thread.run(self._send_ui_update, {"status": "Goal Updated", "log_entry": f"Goal prompt file '{self._goal_prompt_file.name}' changed. Reloading..."})
+                        try:
+                            import anyio
+                            from anyio import get_running_loop
+                            get_running_loop()
+                            import asyncio
+                            asyncio.create_task(self._send_ui_update({"status": "Goal Updated", "log_entry": f"Goal prompt file '{self._goal_prompt_file.name}' changed. Reloading..."}))
+                        except RuntimeError:
+                            pass
                         try:
                             # Read the updated content
                             updated_content = self._goal_prompt_file.read_text()
@@ -555,12 +577,24 @@ class Harness:
                                 # Force another hash check to ensure the mock gets enough calls
                                 _ = self._get_file_hash(self._goal_prompt_file)
 
-                            import anyio
-                            anyio.from_thread.run(self._send_ui_update, {"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."})
+                            try:
+                                import anyio
+                                from anyio import get_running_loop
+                                get_running_loop()
+                                import asyncio
+                                asyncio.create_task(self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."}))
+                            except RuntimeError:
+                                pass
                         except Exception as e:
                             logging.error(f"Failed to reload goal prompt file {self._goal_prompt_file}: {e}")
-                            import anyio
-                            anyio.from_thread.run(self._send_ui_update, {"status": "Error", "log_entry": f"Failed to reload goal file: {e}. Continuing with previous goal."})
+                            try:
+                                import anyio
+                                from anyio import get_running_loop
+                                get_running_loop()
+                                import asyncio
+                                asyncio.create_task(self._send_ui_update({"status": "Error", "log_entry": f"Failed to reload goal file: {e}. Continuing with previous goal."}))
+                            except RuntimeError:
+                                pass
                 except Exception as e:
                     # Catch any exceptions from _get_file_hash to prevent thread crashes
                     logging.error(f"Error checking goal prompt file hash: {e}")
@@ -569,8 +603,14 @@ class Harness:
             # Use 'current_prompt' which holds the prompt intended for the *next* Aider run
             if self._interrupt_requested and self._interrupt_message is not None:
                 logging.warning(f"--- Injecting User Guidance before Iteration {iteration_num_display} ---")
-                import anyio
-                anyio.from_thread.run(self._send_ui_update, {"status": "Injecting Guidance", "log_entry": f"Injecting user guidance into prompt for Iteration {iteration_num_display}."})
+                try:
+                    import anyio
+                    from anyio import get_running_loop
+                    get_running_loop()
+                    import asyncio
+                    asyncio.create_task(self._send_ui_update({"status": "Injecting Guidance", "log_entry": f"Injecting user guidance into prompt for Iteration {iteration_num_display}."}))
+                except RuntimeError:
+                    pass
 
                 interrupt_msg = self._interrupt_message
                 guidance_prefix = "[User Guidance]" # Prefix to clearly mark user input in history
@@ -588,8 +628,14 @@ class Harness:
                 current_prompt = f"{guidance_prefix}\n{interrupt_msg}\n\n---\n(Continuing task with this guidance)\n---\n\n{base_prompt_for_guidance}" # Update local var
 
                 logging.info(f"Updated prompt after injecting guidance:\n{current_prompt}")
-                import anyio
-                anyio.from_thread.run(self._send_ui_update, {"status": "Prompt Updated", "log_entry": "Prompt updated with user guidance."})
+                try:
+                    import anyio
+                    from anyio import get_running_loop
+                    get_running_loop()
+                    import asyncio
+                    asyncio.create_task(self._send_ui_update({"status": "Prompt Updated", "log_entry": "Prompt updated with user guidance."}))
+                except RuntimeError:
+                    pass
 
                 # Add guidance message to history and ledger (associated with the *upcoming* iteration)
                 # Use a distinct role or prefix for clarity
@@ -612,8 +658,14 @@ class Harness:
 
             # --- Start Iteration ---
             logging.info(f"--- Starting Iteration {iteration_num_display} ---")
-            import anyio
-            anyio.from_thread.run(self._send_ui_update, {"status": f"Starting Iteration {iteration_num_display}", "iteration": iteration_num_display, "log_entry": f"Starting Iteration {iteration_num_display}"})
+            try:
+                import anyio
+                from anyio import get_running_loop
+                get_running_loop()
+                import asyncio
+                asyncio.create_task(self._send_ui_update({"status": f"Starting Iteration {iteration_num_display}", "iteration": iteration_num_display, "log_entry": f"Starting Iteration {iteration_num_display}"}))
+            except RuntimeError:
+                pass
 
             # Start iteration in ledger (using the local current_prompt for this iteration)
             iteration_id = self.ledger.start_iteration(
@@ -626,10 +678,16 @@ class Harness:
                 # --- 1. Run Aider (in a separate thread) ---
                 logging.info("Starting Aider thread...")
                 # Clear the Aider output in the UI at the start of a new iteration
-                import anyio
-                anyio.from_thread.run(self._send_ui_update, {"type": "aider_output_clear"})
-                # Update status
-                anyio.from_thread.run(self._send_ui_update, {"status": "Running Aider", "log_entry": "Invoking Aider..."})
+                try:
+                    import anyio
+                    from anyio import get_running_loop
+                    get_running_loop()
+                    import asyncio
+                    asyncio.create_task(self._send_ui_update({"type": "aider_output_clear"}))
+                    # Update status
+                    asyncio.create_task(self._send_ui_update({"status": "Running Aider", "log_entry": "Invoking Aider..."}))
+                except RuntimeError:
+                    pass
 
                 self._aider_interrupt_event = threading.Event() # Create event for this run
                 aider_result = {"diff": None, "error": None} # Dictionary to store result from thread
@@ -693,8 +751,14 @@ class Harness:
                 # Check if Aider was forcefully interrupted (error is "INTERRUPTED")
                 if aider_error == "INTERRUPTED":
                     logging.warning(f"Aider run for Iteration {iteration_num_display} was stopped by user interrupt signal.")
-                    import anyio
-                    anyio.from_thread.run(self._send_ui_update, {"status": "Aider Interrupted", "log_entry": "Aider process stopped by user interrupt signal."})
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "Aider Interrupted", "log_entry": "Aider process stopped by user interrupt signal."}))
+                    except RuntimeError:
+                        pass
                     iteration_interrupted = True # Mark iteration as interrupted
 
                     # The user's guidance message (if any) was already stored in self._interrupt_message
@@ -728,8 +792,14 @@ class Harness:
                 elif aider_error:
                     logging.error(f"Aider failed: {aider_error}")
                     self.state["last_error"] = f"Aider failed: {aider_error}"
-                    import anyio
-                    anyio.from_thread.run(self._send_ui_update, {"status": "Error", "log_entry": f"Aider failed: {aider_error}"})
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "Error", "log_entry": f"Aider failed: {aider_error}"}))
+                    except RuntimeError:
+                        pass
                     # Update ledger with error
                     self.ledger.complete_iteration(
                         self.current_run_id,
@@ -746,8 +816,14 @@ class Harness:
                 if aider_diff is None and aider_error is None:
                     logging.error("Aider returned None for diff without error. Stopping.")
                     self.state["last_error"] = "Aider returned None diff unexpectedly."
-                    import anyio
-                    anyio.from_thread.run(self._send_ui_update, {"status": "Error", "log_entry": "Aider returned None diff unexpectedly."})
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "Error", "log_entry": "Aider returned None diff unexpectedly."}))
+                    except RuntimeError:
+                        pass
                     # Update ledger with error
                     self.ledger.complete_iteration(
                         self.current_run_id,
@@ -763,8 +839,14 @@ class Harness:
                 # --- Aider finished normally (not interrupted forcefully) ---
                 log_diff_summary = (aider_diff[:200] + '...' if len(aider_diff) > 200 else aider_diff) if aider_diff else '[No changes detected]'
                 logging.info(f"Aider finished. Diff summary:\n{log_diff_summary}")
-                import anyio
-                anyio.from_thread.run(self._send_ui_update, {"status": "Aider Finished", "aider_diff": aider_diff, "log_entry": f"Aider finished. Diff:\n{log_diff_summary}"})
+                try:
+                    import anyio
+                    from anyio import get_running_loop
+                    get_running_loop()
+                    import asyncio
+                    asyncio.create_task(self._send_ui_update({"status": "Aider Finished", "aider_diff": aider_diff, "log_entry": f"Aider finished. Diff:\n{log_diff_summary}"}))
+                except RuntimeError:
+                    pass
 
                 # Add Aider's response to history and ledger
                 assistant_message = aider_diff if aider_diff is not None else "[Aider encountered an error or produced no output]"
@@ -796,18 +878,30 @@ class Harness:
                 pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
                 summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
                 logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
-                import anyio
-                anyio.from_thread.run(self._send_ui_update, {
-                    "status": "Pytest Finished",
-                    "pytest_passed": pytest_passed,
-                    "pytest_output": pytest_output,
-                    "log_entry": f"Pytest finished. Passed: {pytest_passed}. Output:\n{summary_output}"
-                })
+                try:
+                    import anyio
+                    from anyio import get_running_loop
+                    get_running_loop()
+                    import asyncio
+                    asyncio.create_task(self._send_ui_update({
+                        "status": "Pytest Finished",
+                        "pytest_passed": pytest_passed,
+                        "pytest_output": pytest_output,
+                        "log_entry": f"Pytest finished. Passed: {pytest_passed}. Output:\n{summary_output}"
+                    }))
+                except RuntimeError:
+                    pass
 
                 # 3. Evaluate with VESPER.MIND council or standard LLM
                 evaluation_status = "Evaluating (Council)" if self.enable_council and self.council else "Evaluating (LLM)"
-                import anyio
-                anyio.from_thread.run(self._send_ui_update, {"status": evaluation_status, "log_entry": evaluation_status + "..."})
+                try:
+                    import anyio
+                    from anyio import get_running_loop
+                    get_running_loop()
+                    import asyncio
+                    asyncio.create_task(self._send_ui_update({"status": evaluation_status, "log_entry": evaluation_status + "..."}))
+                except RuntimeError:
+                    pass
                 try:
                     if self.enable_council and self.council:
                         logging.info("Evaluating with VESPER.MIND council...")
@@ -821,8 +915,14 @@ class Harness:
                             self.state["prompt_history"]
                         )
                         logging.info(f"VESPER.MIND council verdict: {verdict}")
-                        import anyio
-                        anyio.from_thread.run(self._send_ui_update, {"status": "Council Evaluated", "verdict": verdict, "suggestions": suggestions, "log_entry": f"Council verdict: {verdict}"})
+                        try:
+                            import anyio
+                            from anyio import get_running_loop
+                            get_running_loop()
+                            import asyncio
+                            asyncio.create_task(self._send_ui_update({"status": "Council Evaluated", "verdict": verdict, "suggestions": suggestions, "log_entry": f"Council verdict: {verdict}"}))
+                        except RuntimeError:
+                            pass
                         
                         # Generate changelog if successful
                         if verdict == "SUCCESS":
@@ -920,12 +1020,24 @@ class Harness:
                             pytest_passed
                         )
                         logging.info(f"LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
-                        import anyio
-                        anyio.from_thread.run(self._send_ui_update, {"status": "LLM Evaluated", "verdict": verdict, "suggestions": suggestions, "log_entry": f"LLM verdict: {verdict}"})
+                        try:
+                            import anyio
+                            from anyio import get_running_loop
+                            get_running_loop()
+                            import asyncio
+                            asyncio.create_task(self._send_ui_update({"status": "LLM Evaluated", "verdict": verdict, "suggestions": suggestions, "log_entry": f"LLM verdict: {verdict}"}))
+                        except RuntimeError:
+                            pass
                 except Exception as e:
                     logging.error(f"Error during evaluation: {e}")
-                    import anyio
-                    anyio.from_thread.run(self._send_ui_update, {"status": "Error", "log_entry": f"Error during evaluation: {e}"})
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "Error", "log_entry": f"Error during evaluation: {e}"}))
+                    except RuntimeError:
+                        pass
                     logging.info("Falling back to standard LLM evaluation")
                     # Pass the current instance goal prompt directly
                     verdict, suggestions = self._evaluate_outcome(
@@ -975,18 +1087,36 @@ class Harness:
 
                     # Stop the loop after success (and optional review)
                     logging.info("Stopping loop due to SUCCESS verdict.")
-                    import anyio
-                    anyio.from_thread.run(self._send_ui_update, {"status": "SUCCESS", "log_entry": "Converged: SUCCESS"})
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "SUCCESS", "log_entry": "Converged: SUCCESS"}))
+                    except RuntimeError:
+                        pass
                     break # Exit the loop
 
                 elif verdict == "RETRY":
                     logging.info("Evaluation suggests RETRY.")
-                    import anyio
-                    anyio.from_thread.run(self._send_ui_update, {"status": "RETRY Suggested", "log_entry": f"RETRY suggested. Suggestions:\n{suggestions}"})
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "RETRY Suggested", "log_entry": f"RETRY suggested. Suggestions:\n{suggestions}"}))
+                    except RuntimeError:
+                        pass
                     if self.state["current_iteration"] + 1 >= self.max_retries:
                         logging.warning(f"Retry suggested, but max retries ({self.max_retries}) reached. Stopping.")
-                        import anyio
-                        anyio.from_thread.run(self._send_ui_update, {"status": "Max Retries Reached", "log_entry": "Max retries reached after RETRY verdict."})
+                        try:
+                            import anyio
+                            from anyio import get_running_loop
+                            get_running_loop()
+                            import asyncio
+                            asyncio.create_task(self._send_ui_update({"status": "Max Retries Reached", "log_entry": "Max retries reached after RETRY verdict."}))
+                        except RuntimeError:
+                            pass
                         self.state["last_error"] = "Max retries reached after RETRY verdict."
                         self.state["converged"] = False # Explicitly set converged to False
                         break
@@ -1005,8 +1135,14 @@ class Harness:
                 else:  # verdict == "FAILURE"
                     logging.error(f"Structural failure detected. Stopping loop. Reason: {suggestions}")
                     self.state["last_error"] = f"Evaluation reported FAILURE: {suggestions}"
-                    import anyio
-                    anyio.from_thread.run(self._send_ui_update, {"status": "FAILURE", "log_entry": f"FAILURE detected: {suggestions}"})
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "FAILURE", "log_entry": f"FAILURE detected: {suggestions}"}))
+                    except RuntimeError:
+                        pass
                     self.state["converged"] = False # Explicitly set converged to False
                     break
  
@@ -1022,8 +1158,14 @@ class Harness:
 
                 logging.exception(f"Critical error during iteration {iteration + 1}: {e}")
                 self.state["last_error"] = str(e)
-                import anyio
-                anyio.from_thread.run(self._send_ui_update, {"status": "Critical Error", "log_entry": f"Critical error: {e}"})
+                try:
+                    import anyio
+                    from anyio import get_running_loop
+                    get_running_loop()
+                    import asyncio
+                    asyncio.create_task(self._send_ui_update({"status": "Critical Error", "log_entry": f"Critical error: {e}"}))
+                except RuntimeError:
+                    pass
                 
                 # Update ledger with error
                 try:
@@ -1078,8 +1220,14 @@ class Harness:
             final_status
         )
         
-        import anyio
-        anyio.from_thread.run(self._send_ui_update, {"status": final_status, "log_entry": final_log_entry, "converged": self.state["converged"]})
+        try:
+            import anyio
+            from anyio import get_running_loop
+            get_running_loop()
+            import asyncio
+            asyncio.create_task(self._send_ui_update({"status": final_status, "log_entry": final_log_entry, "converged": self.state["converged"]}))
+        except RuntimeError:
+            pass
         logging.info("Harness run complete.")
         
         # Return summary
