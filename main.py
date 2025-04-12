@@ -448,6 +448,8 @@ def main():
             console.print("[bold red]Tests failed after multiple attempts.[/bold red]")
             console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
             sys.exit(1)
+        # Remove single call to council planning enforcement here; now handled per-iteration
+        # council_planning_enforcement()
             
     except Exception as e:
         logger.exception(f"Harness execution failed: {e}")
