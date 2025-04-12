@@ -8,18 +8,25 @@ import json # Keep for potential JSON parsing errors if needed, though less like
 # Configure logging for this module
 logger = logging.getLogger(__name__)
 
-def check_ollama_model_availability(model_name: str) -> bool:
+def check_ollama_model_availability(model_name: str, api_url: str = None) -> bool:
     """
     Checks if a specific model tag is available in the local Ollama instance.
 
     Args:
         model_name: The name of the model tag to check (e.g., "llama3:8b").
+        api_url: Optional API URL to use for Ollama (overrides default)
 
     Returns:
         True if the model is available, False otherwise.
     """
     try:
-        client = ollama.Client() # Uses default host or OLLAMA_HOST env var
+        # Create client with custom API base URL if provided
+        if api_url:
+            client = ollama.Client(host=api_url)
+            logger.debug(f"Using custom Ollama API URL: {api_url}")
+        else:
+            client = ollama.Client() # Uses default host or OLLAMA_HOST env var
+            
         # ollama.show() raises ResponseError if the model doesn't exist
         # Pass the model name positionally, not as a keyword argument
         client.show(model_name)

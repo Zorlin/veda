@@ -186,6 +186,17 @@ class Harness:
             if self._aider_thread and self._aider_thread.is_alive() and self._aider_interrupt_event:
                 logging.warning("Signaling running Aider thread to terminate due to user request.")
                 self._aider_interrupt_event.set() # Signal the event
+                
+                # Clean up resources after interrupt
+                try:
+                    # Wait for thread to terminate with timeout
+                    self._aider_thread.join(timeout=10)  # Wait up to 10 seconds
+                    if self._aider_thread.is_alive():
+                        logging.warning("Aider thread did not terminate within timeout")
+                    else:
+                        logging.info("Aider thread terminated successfully")
+                except Exception as e:
+                    logging.error(f"Error while waiting for Aider thread to terminate: {e}")
             else:
                 logging.info("Aider thread not running or already signaled.")
         else:
@@ -196,7 +207,13 @@ class Harness:
 
         # Send UI update acknowledging the request
         status_msg = "Interrupting Aider & Queuing Guidance" if interrupt_now else "Guidance Queued for Next Iteration"
-        self._send_ui_update({"status": status_msg, "log_entry": f"{status_msg}: '{message[:50]}...'"})
+        self._send_ui_update({
+            "status": status_msg, 
+            "log_entry": f"{status_msg}: '{message[:50]}...'",
+            "type": "interrupt_ack",
+            "message": status_msg,
+            "interrupt_now": interrupt_now
+        })
 
 
     def _load_config(self) -> Dict[str, Any]:

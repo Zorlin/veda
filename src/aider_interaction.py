@@ -22,13 +22,24 @@ APPLY_PROMPT_PATTERN = r"Apply changes\? \[y/n/q/a/v\]"
 PROCEED_PROMPT_PATTERN = r"Proceed\? \[y/n\]"
 # Note: ADD_FILE_PROMPT_PATTERN removed as --yes should handle it.
 # If issues arise, it might need to be re-added.
+
+# Control codes that Aider might send in its output
+AIDER_CONTROL_CODES = {
+    r"\c": "cancel",  # Cancel operation
+    r"\q": "quit",    # Quit Aider
+    r"\e": "edit",    # Edit mode
+    r"\d": "diff",    # Show diff
+    r"\h": "help",    # Show help
+}
+
 AIDER_PROMPT_PATTERNS = [
     APPLY_PROMPT_PATTERN,
     PROCEED_PROMPT_PATTERN,
     # Add other patterns if Aider has more interactive prompts that --yes doesn't cover
 ]
-# Default timeout for waiting for Aider output
+
 AIDER_TIMEOUT = 600 # seconds (10 minutes)
+MAX_SCROLLBACK_LINES = 10000  # Maximum number of lines to keep in scrollback
 
 # --- Helper function removed as --yes flag makes it unnecessary ---
 

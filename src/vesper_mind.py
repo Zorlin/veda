@@ -86,6 +86,9 @@ class VesperMind:
         """Check which models are available in the Ollama installation."""
         available_models = []
         
+        # Get Ollama API URL from config
+        api_url = self.config.get("ollama_api_url", None)
+        
         # For testing environments, skip actual model checks to speed up tests
         if os.environ.get("PYTEST_CURRENT_TEST"):
             logger.info("Running in test environment, skipping actual model availability checks")
@@ -99,7 +102,7 @@ class VesperMind:
         # For open-source models, check if they're available in Ollama using the lightweight check
         for role, details in self.open_source_council.items():
             model_name = details["model"]
-            if check_ollama_model_availability(model_name):
+            if check_ollama_model_availability(model_name, api_url):
                 available_models.append(model_name)
                 logger.info(f"Model {model_name} for role {role} is available")
             else:

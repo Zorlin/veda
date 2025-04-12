@@ -314,11 +314,20 @@
                         this.ws.send(JSON.stringify(messagePayload));
                         this.status.log.push(`Sent guidance (Interrupt: ${this.interruptAider}): ${this.userInput.substring(0, 50)}...`);
                         this.userInput = ''; // Clear input after sending
+                        
+                        // Show notification about the action taken
+                        if (this.interruptAider) {
+                            this.showNotification("Interrupting current Aider process and sending guidance");
+                        } else {
+                            this.showNotification("Guidance queued for next iteration");
+                        }
+                        
                         // Optionally uncheck interrupt after sending? User might want it checked for next message.
                         // this.interruptAider = false;
                     } else {
                         console.error('WebSocket not connected. Cannot send message.');
                         this.status.log.push('Error: WebSocket not connected. Cannot send guidance.');
+                        this.showNotification("Error: WebSocket not connected", "error");
                     }
                 },
 
@@ -394,6 +403,38 @@
                             }
                             // Skip the cancel code (either 1 or 2 chars depending on representation)
                             i += (bufferToProcess[i] === '\u0003') ? 1 : 2;
+                            
+                            // Send notification to user about cancellation
+                            this.showNotification("Aider operation cancelled");
+                            continue;
+                        }
+                        // Check for other Aider control codes
+                        else if (bufferToProcess.substring(i, i+2) === '\\q') {
+                            // Quit code detected
+                            currentOutput += '[AIDER QUIT]\n';
+                            i += 2;
+                            this.showNotification("Aider quit requested");
+                            continue;
+                        }
+                        else if (bufferToProcess.substring(i, i+2) === '\\e') {
+                            // Edit code detected
+                            currentOutput += '[AIDER EDIT MODE]\n';
+                            i += 2;
+                            this.showNotification("Aider edit mode activated");
+                            continue;
+                        }
+                        else if (bufferToProcess.substring(i, i+2) === '\\d') {
+                            // Diff code detected
+                            currentOutput += '[AIDER DIFF VIEW]\n';
+                            i += 2;
+                            this.showNotification("Aider diff view requested");
+                            continue;
+                        }
+                        else if (bufferToProcess.substring(i, i+2) === '\\h') {
+                            // Help code detected
+                            currentOutput += '[AIDER HELP]\n';
+                            i += 2;
+                            this.showNotification("Aider help requested");
                             continue;
                         }
                         // Handle carriage return
@@ -436,6 +477,8 @@
                         // ansi_up should hopefully handle broken sequences gracefully.
                         this.liveAiderOutput = lines.slice(startIndex).join('\n');
                         console.log(`Scrollback limited: removed ${startIndex} lines to keep under ${maxLines} line limit`);
+                        // Show notification about scrollback limit
+                        this.showNotification(`Scrollback limited to ${maxLines} lines`);
                     }
                     // --- End Simplified Processing ---
 
