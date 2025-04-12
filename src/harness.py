@@ -759,6 +759,8 @@ class Harness:
                     else:
                         # Standard LLM evaluation
                         logging.info("Evaluating outcome with standard LLM...")
+                        # Log the goal being passed to evaluation
+                        logging.info(f"Passing goal to _evaluate_outcome: '{self.current_goal_prompt}'")
                         # Pass the current instance goal prompt directly
                         verdict, suggestions = self._evaluate_outcome(
                             self.current_goal_prompt,
@@ -780,6 +782,9 @@ class Harness:
                         pytest_passed
                     )
                     logging.info(f"Fallback LLM evaluation result: Verdict={verdict}, Suggestions='{suggestions}'")
+                    # Also log goal passed during fallback
+                    logging.info(f"Passing goal to fallback _evaluate_outcome: '{self.current_goal_prompt}'")
+
 
                 # Update ledger with iteration results
                 self.ledger.complete_iteration(
