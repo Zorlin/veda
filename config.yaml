@@ -18,6 +18,7 @@ aider_model: "gemini"
 #aider_model: "ollama_chat/deepcoder:14b"
 #aider_model: "gpt-4"
 aider_test_command: "pytest -v" # Command Aider uses with --auto-test
+test_cmd: "pytest -v" # Command the harness uses to run tests (configurable)
 project_dir: "."
 
 # VESPER.MIND Council Configuration
