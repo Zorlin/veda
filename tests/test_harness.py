@@ -371,6 +371,9 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
         time.sleep(3.0) # Significantly increased sleep duration
         logging.info("TEST: Simulating goal file update...")
         goal_file.write_text(updated_content) # Update the file content
+        
+        # Force mock to return updated hash for all subsequent calls
+        mock_get_hash.side_effect = lambda x: updated_hash
 
         # Wait for the harness run to complete
         run_task.join(timeout=10) # Increased timeout
