@@ -131,20 +131,21 @@ def run_aider(
             echo=False, # Ensure echo is False
         )
 
-        # --- Send the prompt via stdin ---
-        # Aider expects the prompt on stdin after startup
-        logger.debug("Sending prompt to Aider via stdin...")
-        # Fix the bytes vs string issue by ensuring we send bytes to pexpect
+        # --- Wait for Aider's CLI prompt, then send our prompt as user input ---
+        logger.debug("Waiting for Aider CLI prompt to enter our prompt...")
+        # Wait for the Aider CLI prompt (e.g., "What would you like to do?" or similar)
+        # You may need to adjust the pattern to match Aider's actual prompt
+        aider_cli_prompt_pattern = r"(What would you like to do\?|How can I help you\?|Enter your prompt:|Prompt:)"
         try:
-            # First try to use the child's encoding if available
-            # Always send a string to child.send(); pexpect handles encoding internally
-            child.send(prompt + "\n")
-            logger.debug("Successfully sent prompt to Aider")
+            child.expect(aider_cli_prompt_pattern, timeout=30)
+            logger.debug("Aider CLI prompt detected, sending our prompt as user input...")
+            child.sendline(prompt)
+        except pexpect.exceptions.TIMEOUT:
+            logger.error("Timed out waiting for Aider CLI prompt. Cannot send prompt as user input.")
+            return None, "Timed out waiting for Aider CLI prompt."
         except Exception as e:
-            logger.error(f"Error sending prompt to Aider: {e}")
-            raise
-        # No need to explicitly wait for a prompt *from* Aider here,
-        # as it should start processing the stdin prompt immediately.
+            logger.error(f"Error waiting for/sending prompt to Aider CLI: {e}")
+            return None, f"Error waiting for/sending prompt to Aider CLI: {e}"
 
         # Interaction loop - wait for output, completion, error, or interrupt
         # Use a shorter timeout in the loop to check the interrupt event frequently
