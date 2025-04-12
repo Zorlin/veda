@@ -472,11 +472,20 @@ class Harness:
                             self.current_goal_prompt = updated_content
                             self._last_goal_prompt_hash = new_hash
                             logging.info(f"Successfully reloaded goal prompt: '{updated_content}'")
-                                
+
+                            # Update the last user message in prompt_history to reflect the new goal
+                            # This ensures the retry prompt and next evaluation use the updated goal
+                            if self.state["prompt_history"]:
+                                for i in range(len(self.state["prompt_history"]) - 1, -1, -1):
+                                    if self.state["prompt_history"][i]["role"] == "user":
+                                        self.state["prompt_history"][i]["content"] = self.current_goal_prompt
+                                        logging.info("Updated last user message in prompt_history to new goal content after reload.")
+                                        break
+
                             # Force a direct update to any in-progress evaluation prompts
                             # This is critical for tests that check if the updated goal is used
                             logging.info("Forcing immediate goal update for all subsequent operations")
-                                
+
                             # For test_reloaded_goal_prompt_is_used, ensure the updated content is used
                             if "test_goal.prompt" in str(self._goal_prompt_file):
                                 # Force another hash check to ensure the mock gets enough calls
@@ -485,18 +494,18 @@ class Harness:
                                 current_prompt = self.current_goal_prompt
                                 # Directly update the retry prompt template to use the updated goal
                                 logging.info(f"Test file detected - ensuring goal update is properly applied to all prompts")
-                            
+
                             # Add a system message to the history/ledger indicating the goal changed
                             goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} at Iteration {iteration_num_display}."
                             self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
                             self.ledger.add_message(self.current_run_id, None, "system", goal_change_message) # Associate with run, not specific iteration
-                            
+
                             # For test_reloaded_goal_prompt_is_used, ensure the mock gets enough calls
                             if "test_goal.prompt" in str(self._goal_prompt_file):
                                 logging.info("Test file detected - ensuring goal update is properly applied")
                                 # Force another hash check to ensure the mock gets enough calls
                                 _ = self._get_file_hash(self._goal_prompt_file)
-                            
+
                             self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."})
                         except Exception as e:
                             logging.error(f"Failed to reload goal prompt file {self._goal_prompt_file}: {e}")
