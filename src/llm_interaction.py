@@ -26,26 +26,34 @@ def check_ollama_model_availability(model_name: str, api_url: str = None) -> boo
             logger.debug(f"Using custom Ollama API URL: {api_url}")
         else:
             client = ollama.Client() # Uses default host or OLLAMA_HOST env var
-            
-        # ollama.show() raises ResponseError if the model doesn't exist
-        # Pass the model name positionally, not as a keyword argument
-        client.show(model_name)
-        logger.debug(f"Model '{model_name}' confirmed available via ollama.show().")
-        return True
+
+        # Use client.list() to get all available models
+        models_info = client.list()
+        available_models = [m["name"] for m in models_info.get("models", [])]
+        logger.debug(f"Available models from Ollama: {available_models}")
+
+        # Ollama model names may or may not include a tag (e.g., llama3:8b or llama3:latest)
+        # We'll check for both exact and prefix matches (ignoring tag if not specified)
+        def model_matches(name, target):
+            # Both names may or may not have a tag
+            base = target.split(":")[0]
+            return name == target or name.startswith(base + ":")
+
+        for name in available_models:
+            if model_matches(name, model_name):
+                logger.debug(f"Model '{model_name}' is available (matched: '{name}').")
+                return True
+
+        logger.debug(f"Model '{model_name}' not found in Ollama local models.")
+        return False
+
     except ResponseError as e:
-        # Model not found error typically has status code 404
-        if e.status_code == 404:
-            logger.debug(f"Model '{model_name}' not found (ResponseError 404).")
-        else:
-            # Log other API errors but still treat as unavailable
-            logger.warning(f"Ollama API error checking model '{model_name}': {e.status_code} - {e.error}")
+        logger.warning(f"Ollama API error checking model '{model_name}': {e.status_code} - {e.error}")
         return False
     except ConnectionError:
-        # If Ollama server isn't running at all
         logger.error("ConnectionError checking model availability. Is Ollama running?")
         return False
     except Exception as e:
-        # Catch any other unexpected errors
         logger.exception(f"Unexpected error checking model availability for '{model_name}': {e}")
         return False
 
