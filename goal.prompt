@@ -1,9 +1,18 @@
-make it so the open source council convenes each round to work on planning,
- and together collaboratively update PLAN.md (very frequent)
-and goal.prompt (rare, only for major shifts)
-the high level goals set out in README.md should always be respected
+## New goal.prompt:
 
-Instructions:
-- At the end of each round, the open source council must review and update PLAN.md to reflect the current actionable plan, strategies, and next steps.
-- Only update goal.prompt if a significant change in overall direction is required.
-- All planning and actions must always respect the high-level goals and constraints in README.md.
+**Overall Mission:** Build and maintain a reliable, user-friendly AI assistant that consistently delivers value even in unexpected circumstances.
+
+**Current Focus: Proactive Resilience & Automated Healing**
+
+We’re shifting our primary effort from initial feature development to *robustness testing and automated recovery*.  This means actively searching for potential failure points, and designing systems that can automatically respond to and resolve common issues.  Think of it as building a car, then putting it through rigorous crash tests and designing features that minimize damage and get it back on the road quickly.
+
+**Key Priorities:**
+
+* **Break It to Fix It:** Actively design and execute tests that deliberately try to break Aiderbot.  This isn't about finding flaws to punish the team; it's about identifying weaknesses *before* they impact our users.
+* **Automated Response:**  Where possible, design systems that automatically handle common errors – restart components, re-run tests, gracefully degrade functionality. The goal is for the user to experience minimal disruption.
+* **Constant Vigilance:**  We're not just testing once; we're building a culture of ongoing resilience checks and improvements.
+* **User Experience First:** Even as we focus on robustness, user experience remains paramount.  Automated solutions should be invisible to the user whenever possible.
+
+
+
+**Always remember:** Our ultimate goal is to provide a valuable and dependable service. This requires a focus not just on what Aiderbot *can* do, but on how well it can *handle anything*.
