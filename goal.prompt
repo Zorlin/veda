@@ -4,8 +4,13 @@ Look for anything missing, any tests that can be added, anything you can do to m
 
 And expand on the concepts used if needed
 
-Conceptual Expansion:
+ALL FUNCTIONALITY SHOULD HAVE EXTENSIVE TESTS.
 
+You should make it so if aiderbot detects a bad test (bad cargo test or pytest)
+it will modify the goal before the next iteration starts to specifically
+tell the model to run cargo test
+
+Conceptual Expansion:
 - The harness should be self-healing, able to recover from failures at every layer (subprocess, config, UI, ledger, etc.), and continue operation with minimal human intervention.
 - It should dynamically adapt to changes in the goal prompt or configuration, applying them immediately to allow the agent to evolve its behavior on the fly.
 - All subprocesses (Aider, Ollama, Pytest) must be managed with robust signal handling and resource cleanup, ensuring that interrupts are always effective and no zombie processes remain.
