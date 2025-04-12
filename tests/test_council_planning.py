@@ -88,9 +88,20 @@ def test_council_planning_enforcement_blocks_without_plan_update(mock_llm, monke
         def __init__(self, returncode=0, stdout="All tests passed"):
             self.returncode = returncode
             self.stdout = stdout
-    
-    # Mock subprocess.run to avoid actually running tests
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeCompleted())
+
+    # Mock subprocess.Popen to simulate successful test runs
+    class MockPopen:
+        def __init__(self, cmd, cwd, stdout, stderr, text):
+            # Simulate writing "All tests passed" to the stdout file
+            if hasattr(stdout, 'name'):
+                with open(stdout.name, 'w') as f:
+                    f.write("All tests passed.\n0 tests collected.") # Simulate pytest output
+            self._returncode = 0 # Success
+
+        def wait(self):
+            return self._returncode
+
+    monkeypatch.setattr(subprocess, "Popen", MockPopen)
 
     # Mock input to simulate user pressing Enter twice without updating the file
     input_calls = [0]
@@ -125,10 +136,21 @@ def test_council_planning_enforcement_detects_plan_update(monkeypatch, temp_plan
         def __init__(self, returncode=0, stdout="All tests passed"):
             self.returncode = returncode
             self.stdout = stdout
-    
-    # Mock subprocess.run to avoid actually running tests
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeCompleted())
-    
+
+    # Mock subprocess.Popen to simulate successful test runs
+    class MockPopen:
+        def __init__(self, cmd, cwd, stdout, stderr, text):
+             # Simulate writing "All tests passed" to the stdout file
+            if hasattr(stdout, 'name'):
+                with open(stdout.name, 'w') as f:
+                    f.write("All tests passed.\n0 tests collected.") # Simulate pytest output
+            self._returncode = 0 # Success
+
+        def wait(self):
+            return self._returncode
+
+    monkeypatch.setattr(subprocess, "Popen", MockPopen)
+
     # Create a counter to track input calls
     input_calls = [0]
     
@@ -183,10 +205,21 @@ def test_council_planning_enforcement_detects_goal_prompt_update(mock_llm, monke
         def __init__(self, returncode=0, stdout="All tests passed"):
             self.returncode = returncode
             self.stdout = stdout
-    
-    # Mock subprocess.run to avoid actually running tests
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeCompleted())
-    
+
+    # Mock subprocess.Popen to simulate successful test runs
+    class MockPopen:
+        def __init__(self, cmd, cwd, stdout, stderr, text):
+             # Simulate writing "All tests passed" to the stdout file
+            if hasattr(stdout, 'name'):
+                with open(stdout.name, 'w') as f:
+                    f.write("All tests passed.\n0 tests collected.") # Simulate pytest output
+            self._returncode = 0 # Success
+
+        def wait(self):
+            return self._returncode
+
+    monkeypatch.setattr(subprocess, "Popen", MockPopen)
+
     # Create a counter to track input calls and manage file updates
     input_calls = [0]
     plan_updated = False
@@ -266,24 +299,35 @@ def test_council_planning_enforcement_handles_test_failures(mock_llm, mock_updat
     Verify that the council planning enforcement handles test failures correctly in automated mode.
     """
     run_count = [0]
-    
-    def mock_run(*args, **kwargs):
-        run_count[0] += 1
-        
-        class FakeCompleted:
-            def __init__(self, returncode, stdout):
-                self.returncode = returncode
-                self.stdout = stdout
-        
-        # First test run fails, second one passes
-        if run_count[0] == 1:
-            return FakeCompleted(1, "Test failed: AssertionError: expected True but got False")
-        else:
-            return FakeCompleted(0, "All tests passed")
-    
-    # Mock subprocess.run to simulate test failures
-    monkeypatch.setattr(subprocess, "run", mock_run)
-    
+
+    # Mock subprocess.Popen to simulate test failures then success
+    class MockPopenHandlesFailure:
+        def __init__(self, cmd, cwd, stdout, stderr, text):
+            run_count[0] += 1
+            self.stdout_path = stdout.name if hasattr(stdout, 'name') else None
+
+            # First test run fails, subsequent ones pass (or fail depending on test logic)
+            if run_count[0] == 1:
+                self._returncode = 1 # Failure
+                self.output_content = "Test failed: AssertionError: expected True but got False"
+            else:
+                # Subsequent calls in this test *should* still fail because automated=True
+                # doesn't allow for manual fixes between retries. The function should raise
+                # CouncilPlanningTestFailure after the first failure in automated mode.
+                # Let's simulate failure again to match the expected behavior.
+                self._returncode = 1 # Failure
+                self.output_content = f"Test failed on attempt {run_count[0]}"
+
+            # Simulate writing output to the temp file
+            if self.stdout_path:
+                with open(self.stdout_path, 'w') as f:
+                    f.write(self.output_content)
+
+        def wait(self):
+            return self._returncode
+
+    monkeypatch.setattr(subprocess, "Popen", MockPopenHandlesFailure)
+
     # No need to mock input for automated=True
 
     # Import the function after mocking
@@ -296,13 +340,14 @@ def test_council_planning_enforcement_handles_test_failures(mock_llm, mock_updat
     with pytest.raises(CouncilPlanningTestFailure):
          council_planning_enforcement(iteration_number=1, automated=True, testing_mode=True)
 
-    # Verify that update_goal_for_test_failures was called (using the mock provided by @patch)
+    # Verify that update_goal_for_test_failures was called once after the first failure
     mock_update_goal.assert_called_once()
     # Check the type of failure passed (should be 'pytest' by default)
     assert mock_update_goal.call_args[0][0] == 'pytest'
 
-    # Verify that the test command was run at least once (it fails, so no retry happens before exit/raise)
-    assert run_count[0] >= 1
+    # Verify that the test command was run exactly once before the exception was raised
+    # In automated=True, the function should raise after the first failure.
+    assert run_count[0] == 1
 
 @pytest.mark.council_planning
 def test_council_planning_integration_with_harness(monkeypatch, temp_plan_and_goal):
