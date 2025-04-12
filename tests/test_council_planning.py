@@ -331,8 +331,8 @@ def test_council_planning_integration_with_harness(monkeypatch, temp_plan_and_go
     original_evaluate = harness._evaluate_outcome
     
     # Apply the patched methods
-    harness.run = lambda initial_goal_prompt_or_file=None: run_with_council_planning.__get__(harness)(initial_goal_prompt_or_file)
-    harness._evaluate_outcome = lambda current_goal, aider_diff, pytest_output, pytest_passed: evaluate_with_council.__get__(harness)(current_goal, aider_diff, pytest_output, pytest_passed)
+    harness.run = run_with_council_planning(harness, original_run)
+    harness._evaluate_outcome = evaluate_with_council(harness, original_evaluate)
     
     # Run the harness
     harness.run("test_goal.prompt")

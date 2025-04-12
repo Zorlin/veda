@@ -836,6 +836,56 @@ Your response should be the complete new content for goal.prompt.
         sys.exit(1) # Exit if tests fail repeatedly
 
 
+# Define these functions at module level so they can be imported by tests
+def run_with_council_planning(harness, original_run):
+    """
+    Wrapper for harness.run that includes council planning before and after.
+    
+    Args:
+        harness: The harness instance
+        original_run: The original run method
+    """
+    def wrapped(initial_goal_prompt_or_file=None):
+        # Run initial council planning (automated)
+        console.print("\n[bold blue]Running initial council planning enforcement...[/bold blue]")
+        council_planning_enforcement(iteration_number=0)
+        
+        # Run the original method
+        result = original_run(initial_goal_prompt_or_file)
+        
+        # Run final council planning after all iterations (automated)
+        console.print("\n[bold blue]Running final council planning enforcement...[/bold blue]")
+        council_planning_enforcement(
+            iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final"
+        )
+        
+        return result
+    
+    return wrapped
+
+def evaluate_with_council(harness, original_evaluate):
+    """
+    Wrapper for harness._evaluate_outcome that includes council planning.
+    
+    Args:
+        harness: The harness instance
+        original_evaluate: The original evaluate method
+    """
+    def wrapped(current_goal, aider_diff, pytest_output, pytest_passed):
+        # Run council planning before evaluation
+        console.print("\n[bold blue]Running council planning for iteration...[/bold blue]")
+        council_planning_enforcement(
+            iteration_number=harness.state.get("current_iteration", 0),
+            test_failure_info=pytest_output if not pytest_passed else None
+        )
+        
+        # Get the original evaluation result
+        result = original_evaluate(current_goal, aider_diff, pytest_output, pytest_passed)
+        
+        return result
+    
+    return wrapped
+
 def main():
     """Main entry point for the Aider Autoloop Harness."""
     parser = argparse.ArgumentParser(
@@ -1099,41 +1149,11 @@ def main():
         
         # Define a new evaluation method that integrates with council planning
         if original_evaluate:
-            def evaluate_with_council(current_goal, aider_diff, pytest_output, pytest_passed):
-                # Run council planning before evaluation
-                console.print("\n[bold blue]Running council planning for iteration...[/bold blue]")
-                council_planning_enforcement(
-                    iteration_number=harness.state.get("current_iteration", 0),
-                    test_failure_info=pytest_output if not pytest_passed else None
-                )
-                
-                # Get the original evaluation result
-                result = original_evaluate(current_goal, aider_diff, pytest_output, pytest_passed)
-                
-                return result
-            
             # Replace the evaluation method
-            harness._evaluate_outcome = evaluate_with_council
-        
-        # Define a new run method that includes council planning
-        def run_with_council_planning(initial_goal_prompt_or_file=None):
-            # Run initial council planning (automated)
-            console.print("\n[bold blue]Running initial council planning enforcement...[/bold blue]")
-            council_planning_enforcement(iteration_number=0)
-            
-            # Run the original method
-            result = original_run(initial_goal_prompt_or_file)
-            
-            # Run final council planning after all iterations (automated)
-            console.print("\n[bold blue]Running final council planning enforcement...[/bold blue]")
-            council_planning_enforcement(
-                iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final"
-            )
-            
-            return result
+            harness._evaluate_outcome = evaluate_with_council(harness, original_evaluate)
         
         # Replace the run method with our patched version
-        harness.run = run_with_council_planning
+        harness.run = run_with_council_planning(harness, original_run)
         
         # Run the main loop with council planning integration
         harness.run(initial_goal_prompt_or_file=prompt_source_arg)
