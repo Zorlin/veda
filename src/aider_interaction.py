@@ -155,7 +155,8 @@ def run_aider(
                 if output_callback:
                     try:
                         # Send a special control code that the UI will recognize
-                        output_callback("\n[Harness: Interrupt signal received. Terminating Aider...]\n\c")
+                        # Use proper escape sequence for control code
+                        output_callback("\n[Harness: Interrupt signal received. Terminating Aider...]\n\\c")
                     except Exception as cb_err:
                         logger.error(f"Error in output_callback during interrupt: {cb_err}")
 
