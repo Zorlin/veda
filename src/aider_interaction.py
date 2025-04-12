@@ -140,8 +140,8 @@ def run_aider(
             logger.debug("Aider CLI prompt detected, sending our prompt as user input...")
             # Send the prompt without an automatic trailing newline
             child.send(prompt)
-            # Send a final newline to signal the end of the multi-line input
-            child.sendline('')
+            # Send a final newline character explicitly to signal the end of the multi-line input
+            child.send('\n')
         except pexpect.exceptions.TIMEOUT:
             logger.error("Timed out waiting for Aider CLI prompt. Cannot send prompt as user input.")
             return None, "Timed out waiting for Aider CLI prompt."
