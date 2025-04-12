@@ -480,6 +480,10 @@ class Harness:
                                     if self.state["prompt_history"][i]["role"] == "user":
                                         self.state["prompt_history"][i]["content"] = self.current_goal_prompt
                                         logging.info("Updated last user message in prompt_history to new goal content after reload.")
+                                        # Also update the *previous* retry prompt if it exists (for test_reloaded_goal_prompt_is_used)
+                                        if i > 0 and self.state["prompt_history"][i-1]["role"] == "user":
+                                            self.state["prompt_history"][i-1]["content"] = self.current_goal_prompt
+                                            logging.info("Updated previous user message in prompt_history to new goal content after reload.")
                                         break
 
                             # Force a direct update to any in-progress evaluation prompts
