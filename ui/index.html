@@ -194,10 +194,7 @@
                             if (data.type === 'aider_output') {
                                 // Buffer the chunk and schedule processing
                                 if (data.chunk) {
-                                    console.log("Received aider output chunk:", 
-                                        data.chunk.substring(0, 50) + 
-                                        (data.chunk.length > 50 ? "..." : ""));
-                                    
+                                    // Always append, even if duplicate, to ensure UI stays in sync
                                     this.outputBuffer += data.chunk;
                                     if (!this.isProcessingScheduled) {
                                         this.isProcessingScheduled = true;
@@ -342,7 +339,6 @@
                 // Process Aider output with ANSI codes
                 get processedAiderOutput() {
                     try {
-                        console.log('Rendering liveAiderOutput length:', this.liveAiderOutput.length);
                         return this.ansiConverter ? this.ansiConverter.toHtml(this.liveAiderOutput) : this.liveAiderOutput;
                     } catch (e) {
                         console.error('ansi-to-html conversion error:', e);
@@ -358,22 +354,6 @@
                     }
                 },
                 
-                showNotification(message) {
-                    // Simple notification function
-                    const notification = document.createElement('div');
-                    notification.className = 'fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded shadow-lg z-50';
-                    notification.textContent = message;
-                    document.body.appendChild(notification);
-                    
-                    // Remove after 3 seconds
-                    setTimeout(() => {
-                        notification.classList.add('opacity-0', 'transition-opacity', 'duration-500');
-                        setTimeout(() => {
-                            document.body.removeChild(notification);
-                        }, 500);
-                    }, 3000);
-                },
-
                 showNotification(message, type = "info") {
                     // Simple notification function
                     const notification = document.createElement('div');
