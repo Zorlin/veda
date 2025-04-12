@@ -1015,9 +1015,6 @@ class Harness:
                     try:
                         import anyio
                         from anyio import get_running_loop
-                        get_running_loop()
-                        import asyncio
-                        asyncio.create_task(self._send_ui_update({
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
