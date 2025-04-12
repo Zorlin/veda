@@ -437,65 +437,8 @@ def council_planning_enforcement(iteration_number=None):
         sys.exit(1)
 
     # Initialize and run the harness
-    try:
-        # Create harness, passing determined UI settings and the send stream
-        harness = Harness(
-            config_file=args.config_file,  # Harness still loads its full config internally
-            max_retries=args.max_retries,
-            work_dir=work_dir_path,
-            reset_state=args.reset_state,
-            ollama_model=args.ollama_model,
-            aider_model=args.aider_model,  # Pass the Aider model argument
-            storage_type=args.storage_type,
-            enable_council=not args.disable_council,
-            enable_code_review=args.enable_code_review,
-            # Pass the final determined UI settings to Harness constructor
-            # These might override what Harness loads from its config again, which is fine.
-            enable_ui=ui_enabled,
-            websocket_host=ws_host,  # Pass WS host/port
-            websocket_port=ws_port,
-            # http_port=http_port # Harness doesn't need the HTTP port directly
-            ui_send_stream=send_stream if ui_enabled else None,  # Pass the send stream
-            per_iteration_callback=council_planning_enforcement  # <-- ENFORCE council planning after each round
-        )
-
-        # Link the harness instance to the UI server for interrupt callbacks
-        global ui_server, ws_server_thread, http_server_thread, httpd_instance
-        if 'ui_server' in globals() and ui_server:
-            ui_server.set_harness_instance(harness)
-            # Stream is already set during UIServer initialization
-            # ui_server.set_receive_stream(receive_stream) # No longer needed
-            logger.info("Linked Harness instance to UI server.")  # Updated log message
-
-        # Run the harness and get results, passing the filename or prompt string
-        result = harness.run(prompt_source_arg)
-
-        # Display summary
-        console.print("\n[bold green]Harness Run Complete[/bold green]")
-        console.print(f"Run ID: {result['run_id']}")
-        console.print(f"Iterations: {result['iterations']}")
-        console.print(f"Converged: {'Yes' if result['converged'] else 'No'}")
-        console.print(f"Final Status: {result['final_status']}")
-
-        # Suggest viewing results
-        console.print("\n[bold]To view detailed results:[/bold]")
-        if hasattr(args, "storage_type") and args.storage_type == "sqlite":
-            console.print(f"SQLite database: {work_dir_path}/harness_ledger.db")
-        else:
-            console.print(f"JSON state file: {work_dir_path}/harness_state.json")
-
-        # Check for changelogs and reviews
-        changelog_dir = work_dir_path / "changelogs"
-        if changelog_dir.exists() and any(changelog_dir.iterdir()):
-            console.print(f"Changelogs: {changelog_dir}")
-
-        review_dir = work_dir_path / "reviews"
-        if review_dir.exists() and any(review_dir.iterdir()):
-            console.print(f"Code Reviews: {review_dir}")
-
-    except Exception as e:
-        logger.exception(f"Harness execution failed: {e}")
-        console.print(f"\n[bold red]Error:[/bold red] {str(e)}")
+    # (This block is intentionally left empty; main() will handle harness initialization and execution.)
+    pass
     finally:
         # Stop the WebSocket server if it was started
         if 'ui_server' in globals() and ui_server and 'ws_server_thread' in globals() and ws_server_thread and ws_server_thread.is_alive():
