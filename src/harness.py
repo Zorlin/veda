@@ -454,34 +454,38 @@ class Harness:
 
             # --- Check for Goal Prompt File Changes (if applicable) ---
             if self._goal_prompt_file:
-                # Get the new hash, handling any exceptions internally
-                new_hash = self._get_file_hash(self._goal_prompt_file)
-                
-                # Check if the hash has changed
-                if new_hash is not None and new_hash != self._last_goal_prompt_hash:
-                    logging.warning(f"Change detected in goal prompt file: {self._goal_prompt_file}")
-                    self._send_ui_update({"status": "Goal Updated", "log_entry": f"Goal prompt file '{self._goal_prompt_file.name}' changed. Reloading..."})
-                    try:
-                        # Read the updated content
-                        updated_content = self._goal_prompt_file.read_text()
-                        # Update the instance variable
-                        self.current_goal_prompt = updated_content
-                        self._last_goal_prompt_hash = new_hash
-                        logging.info(f"Successfully reloaded goal prompt: '{updated_content}'")
-                        
-                        # Force a direct update to any in-progress evaluation prompts
-                        # This is critical for tests that check if the updated goal is used
-                        logging.info("Forcing immediate goal update for all subsequent operations")
-                        
-                        # Add a system message to the history/ledger indicating the goal changed
-                        goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} at Iteration {iteration_num_display}."
-                        self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
-                        self.ledger.add_message(self.current_run_id, None, "system", goal_change_message) # Associate with run, not specific iteration
-                        
-                        self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."})
-                    except Exception as e:
-                        logging.error(f"Failed to reload goal prompt file {self._goal_prompt_file}: {e}")
-                        self._send_ui_update({"status": "Error", "log_entry": f"Failed to reload goal file: {e}. Continuing with previous goal."})
+                try:
+                    # Get the new hash, handling any exceptions internally
+                    new_hash = self._get_file_hash(self._goal_prompt_file)
+                    
+                    # Check if the hash has changed
+                    if new_hash is not None and new_hash != self._last_goal_prompt_hash:
+                        logging.warning(f"Change detected in goal prompt file: {self._goal_prompt_file}")
+                        self._send_ui_update({"status": "Goal Updated", "log_entry": f"Goal prompt file '{self._goal_prompt_file.name}' changed. Reloading..."})
+                        try:
+                            # Read the updated content
+                            updated_content = self._goal_prompt_file.read_text()
+                            # Update the instance variable
+                            self.current_goal_prompt = updated_content
+                            self._last_goal_prompt_hash = new_hash
+                            logging.info(f"Successfully reloaded goal prompt: '{updated_content}'")
+                            
+                            # Force a direct update to any in-progress evaluation prompts
+                            # This is critical for tests that check if the updated goal is used
+                            logging.info("Forcing immediate goal update for all subsequent operations")
+                            
+                            # Add a system message to the history/ledger indicating the goal changed
+                            goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} at Iteration {iteration_num_display}."
+                            self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
+                            self.ledger.add_message(self.current_run_id, None, "system", goal_change_message) # Associate with run, not specific iteration
+                            
+                            self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."})
+                        except Exception as e:
+                            logging.error(f"Failed to reload goal prompt file {self._goal_prompt_file}: {e}")
+                            self._send_ui_update({"status": "Error", "log_entry": f"Failed to reload goal file: {e}. Continuing with previous goal."})
+                except Exception as e:
+                    # Catch any exceptions from _get_file_hash to prevent thread crashes
+                    logging.error(f"Error checking goal prompt file hash: {e}")
 
             # --- Check for Pending User Guidance (Inject before starting Aider) ---
             # Use 'current_prompt' which holds the prompt intended for the *next* Aider run
@@ -765,23 +769,27 @@ class Harness:
                         # Make sure we're using the most up-to-date goal
                         # This is especially important for tests that check if updated goals are used
                         if self._goal_prompt_file:
-                            # Get the new hash, handling any exceptions internally
-                            new_hash = self._get_file_hash(self._goal_prompt_file)
-                            
-                            # Check if the hash has changed
-                            if new_hash is not None and new_hash != self._last_goal_prompt_hash:
-                                logging.info("Last-minute goal file change detected before evaluation")
-                                try:
-                                    self.current_goal_prompt = self._goal_prompt_file.read_text()
-                                    self._last_goal_prompt_hash = new_hash
-                                    logging.info(f"Updated goal before evaluation: '{self.current_goal_prompt}'")
-                                    
-                                    # Add a system message about the goal reload
-                                    goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} before evaluation."
-                                    self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
-                                    self.ledger.add_message(self.current_run_id, None, "system", goal_change_message)
-                                except Exception as e:
-                                    logging.error(f"Failed to reload goal prompt: {e}")
+                            try:
+                                # Get the new hash, handling any exceptions internally
+                                new_hash = self._get_file_hash(self._goal_prompt_file)
+                                
+                                # Check if the hash has changed
+                                if new_hash is not None and new_hash != self._last_goal_prompt_hash:
+                                    logging.info("Last-minute goal file change detected before evaluation")
+                                    try:
+                                        self.current_goal_prompt = self._goal_prompt_file.read_text()
+                                        self._last_goal_prompt_hash = new_hash
+                                        logging.info(f"Updated goal before evaluation: '{self.current_goal_prompt}'")
+                                        
+                                        # Add a system message about the goal reload
+                                        goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} before evaluation."
+                                        self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
+                                        self.ledger.add_message(self.current_run_id, None, "system", goal_change_message)
+                                    except Exception as e:
+                                        logging.error(f"Failed to reload goal prompt: {e}")
+                            except Exception as e:
+                                # Catch any exceptions from _get_file_hash to prevent evaluation failures
+                                logging.error(f"Error checking goal file before evaluation: {e}")
                         
                         # Pass the current goal to _evaluate_outcome
                         verdict, suggestions = self._evaluate_outcome(
