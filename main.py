@@ -137,7 +137,15 @@ def reload_file(path):
                         logger.warning(f"Attempt {attempt+1} to read file {path} failed: {e}. Retrying...")
                         time.sleep(0.1)  # Short delay before retry
                     else:
-                        raise  # Re-raise on the last attempt
+                        # On the last attempt, try a different approach instead of raising
+                        try:
+                            # Try a direct binary read as a last resort
+                            with open(path, 'rb') as f:
+                                binary_content = f.read()
+                                return binary_content.decode('utf-8', errors='replace')
+                        except Exception as last_e:
+                            logger.error(f"Final attempt to read {path} failed: {last_e}")
+                            return ""  # Return empty string instead of raising
         else:
             logger.warning(f"File {path} does not exist")
             return ""
