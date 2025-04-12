@@ -172,7 +172,7 @@ def reload_file(path):
         logger.error(f"Error reloading file {path}: {e}", exc_info=True)
         return ""
 
-def update_goal_for_test_failures(test_type):
+def update_goal_for_test_failures(test_type, test_failure_info):
     """
     Update goal.prompt to specifically address test failures.
     
