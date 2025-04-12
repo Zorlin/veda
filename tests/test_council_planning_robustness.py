@@ -278,20 +278,20 @@ def test_council_planning_creates_error_file_on_test_failure(temp_planning_files
                     testing_mode=True
                 )
 
-            # Check that the error file was created *before* the exception was raised
-            error_file = Path("COUNCIL_ERROR.md")
-            assert error_file.exists(), "Error file was not created"
+        # Check that the error file was created *before* the exception was raised
+        error_file = Path("COUNCIL_ERROR.md")
+        assert error_file.exists(), "Error file was not created"
 
-            # Check the content
-            error_content = reload_file(error_file)
-            assert "Test Failures" in error_content
-            assert "AssertionError" in error_content
+        # Check the content
+        error_content = reload_file(error_file)
+        assert "Test Failures" in error_content
+        assert "AssertionError" in error_content
 
-            # Clean up the specific temp file we created for output capture
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass # Ignore if already deleted or doesn't exist
+        # Clean up the specific temp file we created for output capture
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass # Ignore if already deleted or doesn't exist
 
 @pytest.mark.council_planning
 def test_file_locking_during_updates(temp_planning_files):
