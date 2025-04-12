@@ -182,6 +182,11 @@ def main():
     else:
         logger.warning(f"Config file {config_path} not found. Using defaults.")
 
+    # Ensure project_dir is always set to the project root if missing or not absolute
+    project_root = str(Path(__file__).parent.parent.resolve())
+    if not config.get("project_dir") or not Path(config["project_dir"]).is_absolute():
+        config["project_dir"] = project_root
+
     # Determine final UI settings (CLI args override config)
     ui_enabled = args.enable_ui or config.get("enable_ui", False)
     # WebSocket settings
