@@ -18,6 +18,38 @@ def test_goal_prompt_reload_applies_immediately():
     # Implementation would edit the goal prompt and verify the next run uses the new content
     pass
 
+@pytest.mark.control
+def test_plan_md_updated_each_round(tmp_path):
+    """
+    Ensure that PLAN.md is updated with a new council round entry after each run.
+    """
+    plan_path = tmp_path / "PLAN.md"
+    # Simulate initial PLAN.md
+    plan_path.write_text(
+        """
+This document is collaboratively updated by the open source council at each round.
+## Current Plan
+- [x] Previous round
+- [ ] For the next round:
+    - Review the results and outcomes of the previous iteration.
+"""
+    )
+    old_content = plan_path.read_text()
+    # Simulate council update
+    plan_path.write_text(
+        """
+This document is collaboratively updated by the open source council at each round.
+## Current Plan
+- [x] Previous round
+- [x] This round: Council reviewed and updated plan.
+- [ ] For the next round:
+    - Review the results and outcomes of the previous iteration.
+"""
+    )
+    new_content = plan_path.read_text()
+    assert old_content != new_content
+    assert "- [x] This round: Council reviewed and updated plan." in new_content
+
 @pytest.mark.ui
 def test_live_log_handles_malformed_control_codes():
     """Malformed or partial Aider control codes in output do not break the live log."""

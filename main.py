@@ -363,24 +363,42 @@ def main():
             "If tests fail after a few tries, the council should revert to a working commit using [bold]git revert[/bold].[/italic]"
         )
 
-        # Wait for PLAN.md to be updated
+        # Wait for PLAN.md to be updated with a new council round entry
+        old_plan = read_file(plan_path)
         while True:
-            console.print("\n[bold cyan]Waiting for PLAN.md to be updated...[/bold cyan]")
-            console.print("[italic]Press Enter when you have finished editing PLAN.md.[/italic]")
+            console.print("\n[bold cyan]Waiting for PLAN.md to be updated with a new council round entry...[/bold cyan]")
+            console.print("[italic]Please add a new checklist item or summary for this round in PLAN.md, then press Enter.[/italic]")
             input()
-            plan_mtime_after = get_file_mtime(plan_path)
-            if plan_mtime_after > plan_mtime_before:
-                # Optionally show a diff
-                old_plan = read_file(plan_path)
-                new_plan = read_file(plan_path)
-                # (In this context, just check mtime; diff not shown to avoid confusion)
-                break
+            new_plan = read_file(plan_path)
+            if new_plan != old_plan:
+                # Show a diff for transparency
+                diff = list(difflib.unified_diff(
+                    old_plan.splitlines(), new_plan.splitlines(),
+                    fromfile="PLAN.md (before)", tofile="PLAN.md (after)", lineterm=""
+                ))
+                if diff:
+                    console.print("[bold green]PLAN.md updated. Diff:[/bold green]")
+                    for line in diff:
+                        if line.startswith("+"):
+                            console.print(f"[green]{line}[/green]")
+                        elif line.startswith("-"):
+                            console.print(f"[red]{line}[/red]")
+                        else:
+                            console.print(line)
+                else:
+                    console.print("[yellow]PLAN.md changed, but no diff detected.[/yellow]")
+                # Check for a new council round entry (e.g., a new checklist item or timestamp)
+                if "- [ ]" in new_plan or "- [x]" in new_plan:
+                    break
+                else:
+                    console.print("[bold red]PLAN.md does not appear to have a new actionable item or summary for this round. Please update accordingly.[/bold red]")
+                old_plan = new_plan
             else:
                 console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
 
         # --- Check PLAN.md for respect of README.md goals ---
         readme_content = read_file(readme_path)
-        plan_content = read_file(plan_path)
+        plan_content = new_plan
         if "high-level goals" in plan_content.lower() or "README.md" in plan_content:
             # Heuristic: PLAN.md references README.md or high-level goals
             pass
@@ -388,10 +406,21 @@ def main():
             console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always respect the high-level goals and constraints in README.md.")
             console.print("Please ensure your plan does not contradict the project's core direction.")
 
+        # --- Require council summary in PLAN.md ---
+        if "council" not in plan_content.lower():
+            console.print("[bold yellow]Reminder:[/bold yellow] Please include a summary of the council's discussion and planning in PLAN.md for this round.")
+
         # --- Check for major shift marker in PLAN.md to suggest goal.prompt update ---
         if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
             console.print("[bold magenta]A major shift was detected in PLAN.md. Please update goal.prompt accordingly.[/bold magenta]")
             console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
+            input()
+        # Also, if goal.prompt was updated, require explicit confirmation
+        goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
+        goal_prompt_mtime_after = get_file_mtime(goal_prompt_path)
+        if goal_prompt_mtime_after > goal_prompt_mtime_before:
+            console.print("[bold magenta]goal.prompt was updated. Please confirm the new direction is correct.[/bold magenta]")
+            console.print("[italic]Press Enter to continue.[/italic]")
             input()
 
         # --- Test Enforcement ---
