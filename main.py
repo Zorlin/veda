@@ -233,6 +233,10 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
         test_failure_info: Optional information about test failures to guide the council
         automated: Whether to run in automated mode (no human interaction)
     """
+    # Import required modules
+    import re
+    import difflib
+    
     # Force filesystem stats before reloading files
     logger.info("Forcing filesystem stats before reloading planning files...")
     try:

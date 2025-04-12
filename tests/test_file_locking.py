@@ -42,7 +42,7 @@ def test_file_locking_prevents_concurrent_writes(temp_lockable_file):
                 successful_writes.append(content)
         except BlockingIOError:
             # Lock acquisition failed
-            write_errors.append(content)
+            write_errors.append(f"{content}: Resource temporarily unavailable")
         except Exception as e:
             write_errors.append(f"{content}: {str(e)}")
     
