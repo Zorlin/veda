@@ -134,7 +134,8 @@ def test_subprocess_crash_recovery():
         def wait(self, timeout=None):
             # Simulate wait behavior
             time.sleep(0.05)
-            return self.returncode or 0
+            # Always return a non-zero return code to simulate failure
+            return self.returncode or -1
     
     # Create a recovery function to test
     def run_with_recovery(cmd, max_retries=3):
@@ -164,7 +165,7 @@ def test_subprocess_crash_recovery():
     with patch('subprocess.Popen', return_value=MockCrashingProcess()):
         # The recovery function should retry after the process crashes
         result = run_with_recovery(["test_command"])
-        # This would fail in a real implementation, but we're just testing the retry logic
+        # This should return False after max retries since the process always fails
         assert result == False  # After max retries, it should return False
 
 @pytest.mark.resilience
