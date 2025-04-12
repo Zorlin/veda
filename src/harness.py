@@ -132,34 +132,21 @@ class Harness:
 
     # Removed set_ui_server method
 
-    def _send_ui_update(self, update: Dict[str, Any]):
+    async def _send_ui_update(self, update: Dict[str, Any]):
         """Sends an update to the UI server via the memory stream if enabled."""
         if self.config.get("enable_ui") and self.ui_send_stream:
-            # Add common context if not present
             update.setdefault("run_id", self.current_run_id)
-            update.setdefault("iteration", self.state.get("current_iteration", 0) + 1) # UI shows 1-based
-            # --- Added Logging ---
+            update.setdefault("iteration", self.state.get("current_iteration", 0) + 1)
             log_update_preview = {k: (v[:50] + '...' if isinstance(v, str) and len(v) > 50 else v) for k, v in update.items()}
             logging.debug(f"[_send_ui_update] Attempting to send update via stream: {log_update_preview}")
-            # --- End Added Logging ---
             try:
-                # Send the update dictionary through the stream (non-blocking)
-                self.ui_send_stream.send_nowait(update)
-                # logging.debug(f"[_send_ui_update] Successfully sent update.") # Optional: log success
+                await self.ui_send_stream.send(update)
             except anyio.WouldBlock:
-                # Should not happen with infinite buffer, but good practice
                 logging.warning("UI update stream is unexpectedly blocked.")
             except anyio.BrokenResourceError:
-                # This happens if the receiver (UI server listener) has closed the stream.
-                # Log it but don't crash the harness.
                 logging.warning("UI update stream receiver closed. Cannot send update.")
-                # Optionally disable further UI updates?
-                # self.ui_send_stream = None # Or set a flag
             except Exception as e:
-                # Log other errors during UI update without crashing the harness
                 logging.error(f"Error sending UI update via stream: {e}", exc_info=True)
-        # else:
-             # logging.debug("UI update skipped (UI disabled or stream not available).")
 
     def request_interrupt(self, message: str, interrupt_now: bool = False):
         """
@@ -637,33 +624,26 @@ class Harness:
                 self._aider_interrupt_event = threading.Event() # Create event for this run
                 aider_result = {"diff": None, "error": None} # Dictionary to store result from thread
 
-                # Define the callback for streaming Aider output to the UI
-                # Removed ANSI stripping pattern
-                def ui_output_callback(chunk: str):
+                # Define the async callback for streaming Aider output to the UI
+                async def ui_output_callback(chunk: str):
                     """
-                    Callback function to send raw Aider output chunks to the UI stream.
-
-                    Design Notes:
-                    - Sends raw chunks: Includes ANSI codes and control characters (\\r, \\b, \\c etc.).
-                    - Frontend Responsibility: The frontend UI (specifically `ansi_up.js` and
-                      custom JavaScript in `index.html` like `processOutputBuffer`) is responsible
-                      for interpreting ANSI codes for color/formatting and handling control
-                      characters like carriage return (\\r) and backspace (\\b) to correctly
-                      render the live output, simulating a terminal. Aider's cancel code (\\c)
-                      should also be handled by frontend logic if specific actions are needed.
-                    - Backend Duplicate Prevention: This callback prevents sending *identical consecutive raw chunks*
-                      to the stream, reducing unnecessary WebSocket traffic. The frontend might perform
-                      additional duplicate prevention based on the *rendered* output.
+                    Async callback function to send raw Aider output chunks to the UI stream.
                     """
-                    # Send the raw chunk directly if it's not empty and not a duplicate of the last sent chunk
                     if chunk and chunk != self._last_aider_output_chunk:
-                        # Send output chunk with a specific type identifier
-                        self._send_ui_update({"type": "aider_output", "chunk": chunk})
-                        self._last_aider_output_chunk = chunk # Store the last sent chunk
-                    # else: # Optional: log skipped empty or duplicate chunks if needed
-                        # if not chunk: logging.debug("Skipping empty chunk from Aider.")
-                        # if chunk == self._last_aider_output_chunk: logging.debug("Skipping duplicate chunk from Aider.")
+                        await self._send_ui_update({"type": "aider_output", "chunk": chunk})
+                        self._last_aider_output_chunk = chunk
 
+                # Wrap the async callback for use in the thread
+                def sync_ui_output_callback(chunk: str):
+                    try:
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.run_coroutine_threadsafe(ui_output_callback(chunk), loop)
+                        else:
+                            loop.run_until_complete(ui_output_callback(chunk))
+                    except Exception as e:
+                        logging.error(f"Error in sync_ui_output_callback: {e}")
 
                 def aider_thread_target():
                     """Target function for the Aider thread."""
@@ -671,10 +651,10 @@ class Harness:
                         diff, error = run_aider(
                             prompt=current_prompt,
                             config=self.config,
-                            history=self.state["prompt_history"][:-1], # History up to the current prompt
+                            history=self.state["prompt_history"][:-1],
                             work_dir=self.config["project_dir"],
-                            interrupt_event=self._aider_interrupt_event, # Pass the event
-                            output_callback=ui_output_callback # Pass the callback
+                            interrupt_event=self._aider_interrupt_event,
+                            output_callback=sync_ui_output_callback # Use the sync wrapper
                         )
                         aider_result["diff"] = diff
                         aider_result["error"] = error
