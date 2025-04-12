@@ -70,6 +70,18 @@ def test_backend_recovers_after_forced_stop():
 def test_goal_prompt_reload_applies_immediately():
     """After editing the goal prompt, the *very next* Aider run uses the new prompt."""
 
+@pytest.mark.control
+def test_config_file_corruption_recovery():
+    """If the config file is missing or corrupted, the harness should recover or recreate it."""
+
+@pytest.mark.control
+def test_ollama_or_aider_subprocess_loss_recovery():
+    """If the Ollama or Aider subprocess crashes or is killed, the harness should detect and restart it."""
+
+@pytest.mark.ui
+def test_ui_server_reconnects_to_harness():
+    """If the UI server is restarted, it should reconnect to the running harness and restore state."""
+
 @pytest.mark.ui
 def test_live_log_handles_malformed_control_codes():
     """Malformed or partial Aider control codes in output do not break the live log."""
@@ -81,6 +93,14 @@ def test_scrollback_limit_under_rapid_output():
 @pytest.mark.persistence
 def test_ledger_recovers_from_interrupted_write():
     """Ledger/database recovers gracefully if interrupted mid-write (no corruption)."""
+
+@pytest.mark.persistence
+def test_ledger_recovers_from_disk_full():
+    """If the disk is full or an I/O error occurs, the ledger should recover and resume operation."""
+
+@pytest.mark.persistence
+def test_no_duplicate_council_evaluations():
+    """Ensure that duplicate council evaluations are not recorded for the same iteration."""
 ```
 
 ---
