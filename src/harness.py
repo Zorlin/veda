@@ -944,6 +944,23 @@ class Harness:
 
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
                     summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
+                    summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
+                # Check if test command is specified and use it
+                test_cmd = self.config.get("aider_test_command", "pytest -v")
+                
+                if test_cmd.startswith("pytest"):
+                    logging.info("Running pytest...")
+                    try:
+                        import anyio
+                        from anyio import get_running_loop
+                        get_running_loop()
+                        import asyncio
+                        asyncio.create_task(self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."}))
+                    except RuntimeError:
+                        pass
+                        
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
+                    summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
                     logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
                     try:
                         import anyio
