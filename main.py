@@ -439,36 +439,6 @@ def council_planning_enforcement(iteration_number=None):
     # Initialize and run the harness
     # (This block is intentionally left empty; main() will handle harness initialization and execution.)
     pass
-    finally:
-        # Stop the WebSocket server if it was started
-        if 'ui_server' in globals() and ui_server and 'ws_server_thread' in globals() and ws_server_thread and ws_server_thread.is_alive():
-            logger.info("Stopping WebSocket server...")
-            try:
-                ui_server.stop()  # Signal the server loop to stop
-                ws_server_thread.join(timeout=5)  # Wait for thread to finish
-                if ws_server_thread.is_alive():
-                    logger.warning("WebSocket server thread did not stop cleanly.")
-                else:
-                    logger.info("WebSocket server stopped.")  # Corrected log message
-            except Exception as ws_shutdown_err:
-                logger.error(f"Error during WebSocket server shutdown: {ws_shutdown_err}")
-
-        # Stop the HTTP server if it was started and the instance exists
-        if 'http_server_thread' in globals() and http_server_thread and http_server_thread.is_alive() and 'httpd_instance' in globals() and httpd_instance:
-            logger.info("Stopping HTTP server...")
-            try:
-                httpd_instance.shutdown()  # Signal serve_forever() to stop
-                httpd_instance.server_close()  # Close the server socket
-                http_server_thread.join(timeout=5)  # Wait for thread to finish
-                if http_server_thread.is_alive():
-                    logger.warning("HTTP server thread did not stop cleanly.")
-                else:
-                    logger.info("HTTP server stopped.")
-            except Exception as http_shutdown_err:
-                logger.error(f"Error during HTTP server shutdown: {http_shutdown_err}")
-        elif 'http_server_thread' in globals() and http_server_thread:
-            # If thread finished but instance wasn't set (e.g., bind error)
-            logger.info("HTTP server thread already stopped or failed to start.")
 
 
 if __name__ == "__main__":
