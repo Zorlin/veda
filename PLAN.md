@@ -2,6 +2,7 @@
 This document is collaboratively updated by the open source council at each round.
 It contains the current, actionable plan for the next iteration(s) of the agent harness.
 
+- A human may optionally update PLAN.MD as needed but is never required to
 - The council should update this file frequently to reflect new strategies, priorities, and next steps.
 - The council should only update `goal.prompt` when a major shift in overall direction is needed (rare).
 - All plans must always respect the high-level goals and constraints set out in `README.md`.
@@ -23,6 +24,5 @@ It contains the current, actionable plan for the next iteration(s) of the agent 
 *   **Summary of Last Round:** [Council to fill in summary of the results, decisions, and discussions from the round that just completed.]
 *   **Blockers/Issues:** [Council to list any identified blockers or issues.]
 *   **Next Steps/Tasks:**
-    *   [ ] [Council to add specific, actionable task 1 for the next round]
-    *   [ ] [Council to add specific, actionable task 2 for the next round]
-    *   ...
+    *   [ ] Make sure we reload the file before we check if it changed
+    *   [ ] Humans should not have to manually enter plans between rounds.
