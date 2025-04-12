@@ -36,6 +36,7 @@ class Harness:
         work_dir: Path = Path("harness_work_dir"),
         reset_state: bool = False,
         ollama_model: Optional[str] = None,
+        aider_model: Optional[str] = None,
         storage_type: str = "sqlite",  # "sqlite" or "json"
         enable_council: bool = True,
         enable_code_review: bool = False,
@@ -55,6 +56,11 @@ class Harness:
         if ollama_model:
             logging.info(f"Overriding configured Ollama model with __init__ argument: {ollama_model}")
             self.config["ollama_model"] = ollama_model
+            
+        # Override Aider model if CLI argument is provided
+        if aider_model:
+            logging.info(f"Overriding configured Aider model with __init__ argument: {aider_model}")
+            self.config["aider_model"] = aider_model
 
         # Override UI settings if provided in __init__ arguments
         if enable_ui is not None:
@@ -199,6 +205,7 @@ class Harness:
             "ollama_model": "gemma3:12b", # Set default to gemma3:12b
             "ollama_api_url": "http://localhost:11434/api/generate", # TODO: Use this
             "aider_command": "aider", # Adjust if aider is not in PATH
+            "aider_model": None, # Default to None (Aider will use its default model)
             "aider_test_command": "pytest -v", # Default test command for Aider
             "project_dir": ".", # Directory Aider should operate on
             "ollama_request_timeout": 300, # Default timeout for Ollama requests (seconds)

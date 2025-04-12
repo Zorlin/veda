@@ -87,6 +87,12 @@ def main():
         help="Specify the Ollama model to use (overrides config file).",
     )
     parser.add_argument(
+        "--aider-model",
+        type=str,
+        default=None,
+        help="Specify the model for Aider to use (overrides config file).",
+    )
+    parser.add_argument(
         "--storage-type",
         type=str,
         choices=["sqlite", "json"],
@@ -271,6 +277,7 @@ def main():
             work_dir=work_dir_path,
             reset_state=args.reset_state,
             ollama_model=args.ollama_model,
+            aider_model=args.aider_model,  # Pass the Aider model argument
             storage_type=args.storage_type,
             enable_council=not args.disable_council,
             enable_code_review=args.enable_code_review,

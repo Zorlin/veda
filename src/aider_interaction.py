@@ -61,11 +61,18 @@ def run_aider(
         - An error message string (if an error occurred).
           Returns "INTERRUPTED" if stopped by interrupt_event.
     """
-    # Get the base command string from config (e.g., "aider --model gemini")
+    # Get the base command string from config (e.g., "aider")
     aider_command_str = config.get("aider_command", "aider")
     # Split the base command string into parts, respecting quotes
     command_args = shlex.split(aider_command_str)
     logger.info(f"Using base Aider command from config: {aider_command_str}")
+    
+    # Check if a specific model for Aider is specified in config
+    aider_model = config.get("aider_model")
+    if aider_model:
+        command_args.append("--model")
+        command_args.append(aider_model)
+        logger.info(f"Using specified Aider model: {aider_model}")
 
     # Quote the prompt to handle spaces and special characters
     quoted_prompt = shlex.quote(prompt)

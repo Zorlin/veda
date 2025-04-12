@@ -10,10 +10,13 @@ ollama_options:
   top_k: 40
 
 # Aider Configuration
-# Include the desired model directly in the command string
-# Ensure this matches the intended model for Aider, aligning with ollama_model if desired.
-aider_command: "aider --model gemini"
-#aider_command: "aider --model ollama_chat/deepcoder:14b"
+# Base command for Aider (without model specification)
+aider_command: "aider"
+# Model to use with Aider (will be passed as --model parameter)
+aider_model: "gemini"
+# Alternative models (uncomment to use)
+#aider_model: "ollama_chat/deepcoder:14b"
+#aider_model: "gpt-4"
 aider_test_command: "pytest -v" # Command Aider uses with --auto-test
 project_dir: "."
 
