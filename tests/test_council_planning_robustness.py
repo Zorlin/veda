@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 import time
 from unittest.mock import patch, MagicMock
+import subprocess # Add subprocess import
 import threading
 import fcntl
 
