@@ -17,3 +17,12 @@ It contains the current, actionable plan for the next iteration(s) of the agent 
     - Assign clear, actionable tasks for the next iteration (e.g., implement new tests, improve robustness, enhance council evaluation logic).
     - Ensure that all changes and plans are documented here for transparency and traceability.
     - Confirm that the plan aligns with the high-level goals in README.md and does not diverge from the project's core direction.
+
+## Council Summary & Plan for Next Round (Update Below)
+
+*   **Summary of Last Round:** [Council to fill in summary of the results, decisions, and discussions from the round that just completed.]
+*   **Blockers/Issues:** [Council to list any identified blockers or issues.]
+*   **Next Steps/Tasks:**
+    *   [ ] [Council to add specific, actionable task 1 for the next round]
+    *   [ ] [Council to add specific, actionable task 2 for the next round]
+    *   ...
