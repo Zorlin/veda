@@ -357,7 +357,21 @@
                     }, 3000);
                 },
 
-                // Removed processAiderChunk function
+                showNotification(message, type = "info") {
+                    // Simple notification function
+                    const notification = document.createElement('div');
+                    notification.className = `fixed top-4 right-4 ${type === "error" ? "bg-red-500" : "bg-blue-500"} text-white px-4 py-2 rounded shadow-lg z-50`;
+                    notification.textContent = message;
+                    document.body.appendChild(notification);
+                    
+                    // Remove after 3 seconds
+                    setTimeout(() => {
+                        notification.classList.add('opacity-0', 'transition-opacity', 'duration-500');
+                        setTimeout(() => {
+                            document.body.removeChild(notification);
+                        }, 500);
+                    }, 3000);
+                },
 
                 processOutputBuffer() {
                     if (this.outputBuffer === '') {

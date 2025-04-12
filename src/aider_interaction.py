@@ -242,6 +242,23 @@ def run_aider(
                 if output_chunk:
                     # logger.debug(f"Raw output chunk received (len={len(output_chunk)}):\n>>>\n{output_chunk}\n<<<")
                     full_output += output_chunk
+                    
+                    # Process control codes if present
+                    control_code_found = False
+                    for code, action in AIDER_CONTROL_CODES.items():
+                        if code in output_chunk:
+                            logger.info(f"Detected Aider control code: {code} ({action})")
+                            control_code_found = True
+                            # If it's a cancel or quit code, we might want to handle it specially
+                            if action in ["cancel", "quit"]:
+                                logger.info(f"Processing {action} control code")
+                    
+                    # Implement scrollback limit
+                    if len(full_output.split('\n')) > MAX_SCROLLBACK_LINES:
+                        # Keep only the last MAX_SCROLLBACK_LINES lines
+                        full_output = '\n'.join(full_output.split('\n')[-MAX_SCROLLBACK_LINES:])
+                        logger.info(f"Scrollback limited to {MAX_SCROLLBACK_LINES} lines")
+                    
                     if output_callback:
                         try:
                             # Log before sending for debugging potential UI duplication
