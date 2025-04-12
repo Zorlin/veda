@@ -781,7 +781,7 @@ class Harness:
                         import asyncio
                         asyncio.create_task(self._send_ui_update({"status": "Aider Interrupted", "log_entry": "Aider process stopped by user interrupt signal."}))
                     except RuntimeError:
-                        pass
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
                         
                     logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
                     
