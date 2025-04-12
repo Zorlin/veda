@@ -5,6 +5,7 @@ import sys # Add sys import for exiting
 import time # Import the time module
 import re # Add re import for regex operations
 import tempfile # Add tempfile import for temporary files
+import shutil # Add shutil import for file operations
 from pathlib import Path
 import rich
 from rich.console import Console

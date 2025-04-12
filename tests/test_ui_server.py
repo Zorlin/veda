@@ -4,6 +4,7 @@ import json
 import websockets
 import anyio # Import the anyio library
 import anyio # Import the anyio library
+import re # Import re for regex operations
 from unittest.mock import patch, MagicMock
 
 from src.ui_server import UIServer

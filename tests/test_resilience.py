@@ -7,6 +7,7 @@ import signal
 import random
 import socket
 import logging
+import subprocess
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 

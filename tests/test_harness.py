@@ -872,6 +872,7 @@ def test_interrupt_cleans_up_resources(temp_work_dir):
             self.processes = []
             self.threads = []
             self.resources_cleaned = False
+            self.logger = logging.getLogger("test_harness")
             
         def request_interrupt(self, message, interrupt_now=False):
             self._interrupt_requested = True
@@ -892,7 +893,7 @@ def test_interrupt_cleans_up_resources(temp_work_dir):
                         # If still running, force kill
                         process.kill()
                 except Exception as e:
-                    logger.error(f"Error terminating process: {e}")
+                    self.logger.error(f"Error terminating process: {e}")
                     
             # Wait for threads to finish
             if self._aider_thread and self._aider_thread.is_alive():
