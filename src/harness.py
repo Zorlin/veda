@@ -45,7 +45,9 @@ class Harness:
         websocket_host: Optional[str] = None,
         websocket_port: Optional[int] = None,
         # Add stream for UI updates
-        ui_send_stream: Optional[MemoryObjectSendStream] = None
+        ui_send_stream: Optional[MemoryObjectSendStream] = None,
+        # Per-iteration callback for council planning
+        per_iteration_callback: Optional[callable] = None
     ):
         self.config_file = config_file
         self.max_retries = max_retries
@@ -119,6 +121,9 @@ class Harness:
         self._goal_prompt_file: Optional[Path] = None # Store path to goal file if applicable
         self._last_goal_prompt_hash: Optional[str] = None # Store hash of the goal prompt content
         self.current_goal_prompt: Optional[str] = None # Store the active goal prompt content
+
+        # Per-iteration callback for council planning
+        self.per_iteration_callback = per_iteration_callback
 
         logging.info(f"Harness initialized. Max retries: {self.max_retries}")
         logging.info(f"Working directory: {self.work_dir.resolve()}")
@@ -1133,6 +1138,14 @@ class Harness:
                 # which effectively retries the *same* iteration number with the new prompt.
                 # Let's adjust this: Always increment, but the prompt carries the context.
                 self.state["current_iteration"] += 1
+
+                # --- Per-iteration council planning callback ---
+                if self.per_iteration_callback:
+                    try:
+                        self.per_iteration_callback()
+                    except Exception as e:
+                        logging.error(f"Error in per_iteration_callback: {e}")
+
                 # State is saved implicitly via ledger updates and end_run below
                 # No need for sleep here unless debugging rate limiting issues
                 # time.sleep(1)

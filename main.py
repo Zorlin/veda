@@ -299,7 +299,8 @@ def main():
             websocket_host=ws_host, # Pass WS host/port
             websocket_port=ws_port,
             # http_port=http_port # Harness doesn't need the HTTP port directly
-            ui_send_stream=send_stream if ui_enabled else None # Pass the send stream
+            ui_send_stream=send_stream if ui_enabled else None, # Pass the send stream
+            per_iteration_callback=council_planning_enforcement # <-- NEW: enforce council planning after each round
         )
 
         # Link the harness instance to the UI server for interrupt callbacks
