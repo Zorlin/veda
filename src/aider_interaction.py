@@ -103,8 +103,10 @@ def run_aider(
     command_args.append(f"--test-cmd {quoted_test_command}")
     logger.info(f"Adding --test-cmd {quoted_test_command} flag to Aider command.")
 
-    # Prompt will be sent via stdin, not as an argument
-    # command_args.append(f"--message {quoted_prompt}") # Removed
+    # Add the prompt directly using the --message argument
+    command_args.append("--message")
+    command_args.append(quoted_prompt)
+    logger.info("Adding --message flag with the prompt to Aider command.")
 
     # Add other necessary aider flags from config if needed (ensure they don't conflict)
     # Example: command_args.extend(config.get("extra_aider_args", []))
@@ -131,24 +133,8 @@ def run_aider(
             echo=False, # Ensure echo is False
         )
 
-        # --- Wait for Aider's CLI prompt, then send our prompt as user input ---
-        logger.debug("Waiting for Aider CLI prompt to enter our prompt...")
-        # Wait for the Aider CLI prompt (e.g., ">", "What would you like to do?", etc.)
-        aider_cli_prompt_pattern = r"(>|What would you like to do\?|How can I help you\?|Enter your prompt:|Prompt:)"
-        try:
-            child.expect(aider_cli_prompt_pattern, timeout=30)
-            logger.debug("Aider CLI prompt detected, sending prompt content and then newline...")
-            # Send the prompt content without the final newline
-            child.send(prompt)
-            # Send the final newline character explicitly
-            child.send('\n')
-            logger.debug("Finished sending prompt.")
-        except pexpect.exceptions.TIMEOUT:
-            logger.error("Timed out waiting for Aider CLI prompt. Cannot send prompt as user input.")
-            return None, "Timed out waiting for Aider CLI prompt."
-        except Exception as e:
-            logger.error(f"Error waiting for/sending prompt to Aider CLI: {e}")
-            return None, f"Error waiting for/sending prompt to Aider CLI: {e}"
+        # --- Prompt is sent via --message argument, no need to send via stdin ---
+        logger.debug("Aider launched with prompt via --message argument.")
 
         # Interaction loop - wait for output, completion, error, or interrupt
         # Use a shorter timeout in the loop to check the interrupt event frequently
