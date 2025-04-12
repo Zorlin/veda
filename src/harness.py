@@ -755,9 +755,9 @@ class Harness:
                         # Log the goal being passed to evaluation
                         logging.info(f"Using current goal for evaluation: '{self.current_goal_prompt}'")
                         
-                        # Always use the most up-to-date goal from the instance variable
+                        # Pass the current goal to _evaluate_outcome
                         verdict, suggestions = self._evaluate_outcome(
-                            self.current_goal_prompt,
+                            self.current_goal_prompt,  # This will be stored in the instance variable
                             aider_diff if aider_diff is not None else "",
                             pytest_output,
                             pytest_passed
@@ -948,9 +948,14 @@ class Harness:
             - str: The verdict ("SUCCESS", "RETRY", "FAILURE").
             - str: Suggestions from the LLM (empty if not RETRY).
         """
-        # Use the passed current_goal argument directly
+        # Store the passed goal in the instance variable if it's not None
+        # This ensures tests can pass a specific goal that will be used
+        if current_goal is not None:
+            self.current_goal_prompt = current_goal
+            
+        # Create evaluation prompt using the current goal
         evaluation_prompt = self._create_evaluation_prompt(
-            current_goal, # Use the passed argument
+            self.current_goal_prompt, # Always use the instance variable
             self.state["prompt_history"],
             aider_diff,
             pytest_output,
@@ -1032,10 +1037,8 @@ FAILURE = Fundamental issues that require a different approach
         # Log the goal received by this function
         logging.info(f"[_create_evaluation_prompt] Received current_goal argument: '{current_goal}'")
         
-        # ALWAYS use the instance variable for the most up-to-date goal
-        # This is critical for tests that modify the goal file between iterations
-        logging.info(f"Using goal from instance variable: '{self.current_goal_prompt}'")
-        current_goal = self.current_goal_prompt
+        # Use the passed goal directly - it should already be the instance variable
+        # from _evaluate_outcome or the most up-to-date value
         
         # Create a concise history string for the prompt, showing last few turns
         history_limit = 3
@@ -1106,10 +1109,11 @@ Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RE
         """
         Creates an enhanced user prompt for the next Aider attempt based on evaluation suggestions.
         """
-        # ALWAYS use the instance variable for the most up-to-date goal
-        # This is critical for tests that modify the goal file between iterations
-        logging.info(f"Using goal from instance variable: '{self.current_goal_prompt}'")
-        current_goal = self.current_goal_prompt
+        # Use the passed goal directly - it should already be the instance variable
+        # or the most up-to-date value
+        if current_goal is None:
+            logging.warning("Received None for current_goal in _create_retry_prompt, using instance variable")
+            current_goal = self.current_goal_prompt
                     
         # Determine iteration number for context
         current_iteration = self.state["current_iteration"]
@@ -1173,10 +1177,13 @@ Focus on implementing the suggested improvements while maintaining code quality 
         """
         logging.info("Running code review...")
 
-        # ALWAYS use the instance variable for the most up-to-date goal
-        # This is critical for tests that modify the goal file between iterations
-        logging.info(f"Using goal from instance variable: '{self.current_goal_prompt}'")
-        current_goal = self.current_goal_prompt
+        # Store the passed goal in the instance variable if it's not None
+        # This ensures tests can pass a specific goal that will be used
+        if current_goal is not None:
+            self.current_goal_prompt = current_goal
+            logging.info(f"Using passed goal for review: '{current_goal}'")
+        elif self.current_goal_prompt is None:
+            logging.warning("Both passed goal and instance goal are None in run_code_review")
 
         # Get the configured code review model
         model_name = self.config.get("code_review_model")
