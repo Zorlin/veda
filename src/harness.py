@@ -1021,8 +1021,6 @@ class Harness:
                             "status": "Test Command Error",
                             "pytest_passed": pytest_passed,
                             "pytest_output": pytest_output,
-                            "log_entry": f"Unknown test_cmd '{test_cmd}'. No tests run."
-                        }))
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
