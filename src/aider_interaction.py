@@ -126,15 +126,9 @@ def run_aider(
         # Fix the bytes vs string issue by ensuring we send bytes to pexpect
         try:
             # First try to use the child's encoding if available
-            if hasattr(child, 'encoding') and child.encoding:
-                # Use the child's encoding
-                encoded_prompt = prompt.encode(child.encoding)
-                child.send(encoded_prompt + child.linesep.encode(child.encoding))
-            else:
-                # Fallback to utf-8 encoding
-                encoded_prompt = prompt.encode('utf-8')
-                child.send(encoded_prompt + b'\n')
-            logger.debug("Successfully sent encoded prompt to Aider")
+            # Always send a string to child.send(); pexpect handles encoding internally
+            child.send(prompt + "\n")
+            logger.debug("Successfully sent prompt to Aider")
         except Exception as e:
             logger.error(f"Error sending prompt to Aider: {e}")
             raise
