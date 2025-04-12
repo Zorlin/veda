@@ -933,12 +933,6 @@ class Harness:
 
                 test_cmd = self.config.get("test_cmd", "pytest -v").strip()
                 if test_cmd.startswith("pytest"):
-                test_cmd = self.config.get("test_cmd", "pytest -v").strip()
-                test_cmd = self.config.get("test_cmd", "pytest -v").strip()
-                if test_cmd.startswith("pytest"):
-                    logging.info("Running pytest...")
-                test_cmd = self.config.get("test_cmd", "pytest -v").strip()
-                if test_cmd.startswith("pytest"):
                     logging.info("Running pytest...")
                     try:
                         import anyio
@@ -949,26 +943,8 @@ class Harness:
                     except RuntimeError:
                         pass
 =======
-                test_cmd = self.config.get("test_cmd", "pytest -v").strip()
-                if test_cmd.startswith("pytest"):
-                    logging.info("Running pytest...")
-                    try:
-                        import anyio
-                        from anyio import get_running_loop
-                        get_running_loop()
-                        import asyncio
-                        asyncio.create_task(self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."}))
-                    except RuntimeError:
-                        pass
-                    }))
-                except RuntimeError:
-                    pass
->>>>>>> main
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
-                    }))
-                except RuntimeError:
-                    pass
->>>>>>> main
 
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
                     summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
