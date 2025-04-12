@@ -750,7 +750,39 @@ class Harness:
                     )
                     break
 
-                # Check for unexpected None diff only if there was no error reported by run_aider
+                # If aider_diff is None or empty, check for recent git commits and extract the diff
+                if (aider_diff is None or aider_diff.strip() == "") and aider_error is None:
+                    logging.warning("Aider returned no diff, checking recent git commits for possible changes...")
+                    try:
+                        # Get the latest commit hash and timestamp
+                        git_log = subprocess.check_output(
+                            ["git", "log", "-1", "--pretty=format:%H|%ct|%an|%s"],
+                            cwd=self.config["project_dir"],
+                            text=True
+                        ).strip()
+                        commit_hash, commit_time, commit_author, commit_subject = git_log.split("|", 3)
+                        commit_time = int(commit_time)
+                        now = int(time.time())
+                        # If the commit is very recent (within 60 seconds) and by aider, use its diff
+                        if now - commit_time < 60 and "aider" in commit_author.lower():
+                            logging.info(f"Recent commit by aider detected: {commit_hash} ({commit_subject})")
+                            # Get the diff for this commit
+                            git_diff = subprocess.check_output(
+                                ["git", "show", commit_hash, "--pretty=format:", "--unified=3"],
+                                cwd=self.config["project_dir"],
+                                text=True
+                            )
+                            if git_diff.strip():
+                                aider_diff = git_diff
+                                logging.info("Using diff from recent aider commit.")
+                            else:
+                                logging.warning("Recent aider commit has no diff.")
+                        else:
+                            logging.warning("No recent aider commit found, or commit not by aider.")
+                    except Exception as e:
+                        logging.error(f"Error checking recent git commits for aider diff: {e}")
+
+                # Check for unexpected None diff only if there was no error reported by run_aider and still no diff
                 if aider_diff is None and aider_error is None:
                     logging.error("Aider returned None for diff without error. Stopping.")
                     self.state["last_error"] = "Aider returned None diff unexpectedly."
