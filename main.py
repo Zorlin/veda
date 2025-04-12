@@ -217,10 +217,22 @@ def main():
         finally:
             # This block runs *after* serve_forever() returns (i.e., after shutdown)
             logger.info(f"HTTP server on {host}:{port} has shut down.")
+
     # Create the communication stream for UI updates *before* initializing UIServer
     # Use infinite buffer to prevent blocking harness if UI server lags/crashes
-    send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size=float('inf'))
-    
+    send_stream, receive_stream = None, None # Initialize to None
+    try:
+        send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size=float('inf'))
+        logger.info("Successfully created anyio memory object stream for UI.")
+    except Exception as e:
+        logger.error(f"Failed to create anyio memory object stream: {e}", exc_info=True)
+        # Decide how to proceed. If UI is essential, maybe exit?
+        # If UI is optional, we can continue but UI features will be disabled.
+        # For now, log the error and set streams to None, allowing Harness init to handle it.
+        send_stream, receive_stream = None, None
+        # Potentially disable UI explicitly if creation fails?
+        # ui_enabled = False # Consider this if stream is critical for UI
+
     # Create a directory for the UI if it doesn't exist
     ui_dir_path = Path(__file__).parent / "ui"
     ui_dir_path.mkdir(exist_ok=True)
