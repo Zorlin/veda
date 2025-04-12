@@ -57,24 +57,40 @@ readme_path = Path("README.md")
 def get_file_mtime(path):
     """Helper to get file modification time."""
     try:
-        return path.stat().st_mtime
-    except Exception:
+        # Ensure we're getting the latest stat from disk by resolving the path
+        if hasattr(path, 'resolve'):
+            path = path.resolve()
+        return Path(path).stat().st_mtime
+    except Exception as e:
+        logger.error(f"Error getting file modification time for {path}: {e}")
         return 0
 
 def read_file(path):
     """Helper to read file content."""
     try:
-        return path.read_text(encoding="utf-8")
-    except Exception:
+        # Ensure we're getting the latest content from disk by resolving the path
+        if hasattr(path, 'resolve'):
+            path = path.resolve()
+        return Path(path).read_text(encoding="utf-8")
+    except Exception as e:
+        logger.error(f"Error reading file {path}: {e}")
         return ""
 
 def reload_file(path):
     """Helper to reload a file and get its content."""
     try:
-        # Ensure we're getting the latest version from disk
+        # Ensure we're getting the latest version from disk by resolving the path
         if hasattr(path, 'resolve'):
             path = path.resolve()
-        return Path(path).read_text(encoding="utf-8")
+        # Clear any potential file system cache by checking if the file exists first
+        if Path(path).exists():
+            # Use direct open/read to bypass any potential caching
+            with open(path, 'r', encoding="utf-8") as f:
+                content = f.read()
+            return content
+        else:
+            logger.warning(f"File {path} does not exist")
+            return ""
     except Exception as e:
         logger.error(f"Error reloading file {path}: {e}")
         return ""
@@ -87,8 +103,9 @@ def update_goal_for_test_failures(test_type):
         test_type: The type of test that failed ("pytest" or "cargo")
     """
     try:
-        # Get the current goal prompt
+        # Force reload to get the current goal prompt
         current_goal = reload_file(goal_prompt_path)
+        logger.info(f"Checking if goal.prompt needs updating for {test_type} test failures")
         
         # Check if we've already added test failure guidance
         if f"fix the {test_type} test failures" in current_goal.lower():
@@ -112,14 +129,22 @@ The council will continue to monitor test results and provide guidance.
 """
         
         # Append the test failure guidance to the goal prompt
+        logger.info(f"Appending {test_type} test failure guidance to goal.prompt")
         with open(goal_prompt_path, "a", encoding="utf-8") as f:
             f.write(test_failure_addendum)
         
-        logger.info(f"Updated goal.prompt with guidance for {test_type} test failures.")
-        console.print(f"[bold green]Updated goal.prompt with guidance for {test_type} test failures.[/bold green]")
+        # Verify the file was actually updated by reading it again
+        updated_goal = reload_file(goal_prompt_path)
+        if test_failure_addendum.strip() in updated_goal:
+            logger.info(f"Successfully updated goal.prompt with guidance for {test_type} test failures.")
+            console.print(f"[bold green]Updated goal.prompt with guidance for {test_type} test failures.[/bold green]")
+        else:
+            logger.error(f"Failed to verify goal.prompt update for {test_type} test failures")
+            console.print(f"[bold red]Failed to update goal.prompt with guidance for {test_type} test failures.[/bold red]")
         
     except Exception as e:
-        logger.error(f"Failed to update goal.prompt for test failures: {e}")
+        logger.error(f"Failed to update goal.prompt for test failures: {e}", exc_info=True)
+        console.print(f"[bold red]Error updating goal.prompt: {e}[/bold red]")
 
 def council_planning_enforcement(iteration_number=None, test_failure_info=None, automated=False):
     """
@@ -130,15 +155,20 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
     Args:
         iteration_number: The current iteration number (None for initial/final)
         test_failure_info: Optional information about test failures to guide the council
+        automated: Whether to run in automated mode (no human interaction)
     """
-    # Reload files first to ensure we have the latest content
-    reload_file(plan_path)
-    reload_file(goal_prompt_path)
-    reload_file(readme_path)
+    # Force reload files first to ensure we have the latest content from disk
+    logger.info("Reloading planning files from disk...")
+    plan_content = reload_file(plan_path)
+    goal_prompt_content = reload_file(goal_prompt_path)
+    readme_content = reload_file(readme_path)
     
-    # Now get the modification times
+    # Now get the modification times (also forcing a fresh stat)
     plan_mtime_before = get_file_mtime(plan_path)
     goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
+    
+    logger.info(f"Plan file last modified: {datetime.datetime.fromtimestamp(plan_mtime_before)}")
+    logger.info(f"Goal prompt file last modified: {datetime.datetime.fromtimestamp(goal_prompt_mtime_before)}")
     
     # Log which iteration we're in
     if iteration_number is not None:
@@ -288,8 +318,9 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
         plan_updated = True
 
     # --- Check for major shift marker in PLAN.md to suggest goal.prompt update ---
-    # Reload plan content to ensure we have the latest version
+    # Force reload plan content to ensure we have the latest version
     plan_content = reload_file(plan_path)
+    logger.info(f"Checking PLAN.md for major shift markers...")
     if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
         if automated:
             console.print("[bold magenta]A major shift was detected in PLAN.md. The system will automatically update goal.prompt.[/bold magenta]")
@@ -301,12 +332,14 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
             console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
             input() # Block execution
         
-        # Reload goal.prompt after potential update
-        reload_file(goal_prompt_path)
+        # Force reload goal.prompt after potential update
+        goal_prompt_content = reload_file(goal_prompt_path)
+        logger.info("Reloaded goal.prompt after potential update")
     
     # Also, if goal.prompt was updated, require explicit confirmation
-    # Get the latest modification time
+    # Force get the latest modification time
     goal_prompt_mtime_after = get_file_mtime(goal_prompt_path)
+    logger.info(f"Checking if goal.prompt was modified: before={goal_prompt_mtime_before}, after={goal_prompt_mtime_after}")
     if goal_prompt_mtime_after > goal_prompt_mtime_before:
         if automated:
             console.print("[bold magenta]goal.prompt was updated. The system will automatically proceed with the new direction.[/bold magenta]")
@@ -330,21 +363,26 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
             console.print("[bold cyan]Detected Rust project (Cargo.toml). Will run cargo test.[/bold cyan]")
             test_cmd_list = ["cargo", "test"]
         
+        logger.info(f"Running test command: {' '.join(test_cmd_list)}")
         test_result = subprocess.run(test_cmd_list, cwd=".", capture_output=True, text=True)
         console.print(test_result.stdout)
         
         if test_result.returncode == 0:
             console.print("[bold green]All tests passed![/bold green]")
+            logger.info("All tests passed successfully")
             break
         else:
             console.print(f"[bold red]Tests failed (attempt {attempt}).[/bold red]")
+            logger.error(f"Tests failed on attempt {attempt}")
             test_failure_output = test_result.stdout
             
             # If this is the first failure, check if we need to update goal.prompt
             if attempt == 1:
                 # Store the test failure information for potential goal.prompt update
-                with open("test_failures.log", "w", encoding="utf-8") as f:
+                failure_log_path = Path("test_failures.log")
+                with open(failure_log_path, "w", encoding="utf-8") as f:
                     f.write(test_failure_output)
+                logger.info(f"Wrote test failures to {failure_log_path}")
                 
                 # Check if we need to modify goal.prompt to specifically address test failures
                 if "cargo test" in test_cmd_list:
@@ -353,10 +391,18 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
                 else:
                     console.print("[bold yellow]Detected pytest failures. Updating goal.prompt to address Python test issues.[/bold yellow]")
                     update_goal_for_test_failures("pytest")
+                
+                # Force reload goal.prompt after update
+                goal_prompt_content = reload_file(goal_prompt_path)
+                logger.info("Reloaded goal.prompt after test failure update")
             
-            if attempt < max_test_retries:
+            if attempt < max_test_retries and not automated:
                 console.print("[italic]Please fix the issues and update PLAN.md as needed, then press Enter to retry tests.[/italic]")
                 input() # Block execution
+            elif attempt < max_test_retries and automated:
+                console.print("[italic]Automated mode: Proceeding with next test attempt without manual intervention.[/italic]")
+                # In automated mode, we could potentially wait a moment before retrying
+                time.sleep(2)  # Brief pause before next attempt
     else:
         console.print("[bold red]Tests failed after multiple attempts.[/bold red]")
         console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
