@@ -391,10 +391,18 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
     # The first argument to get_llm_response is the prompt
     first_eval_prompt = mock_get_llm.call_args_list[0].args[0]
     second_eval_prompt = mock_get_llm.call_args_list[1].args[0]
- 
-    # Check the goal embedded within the evaluation prompts
-    assert f"Current Goal:\n{initial_content}" in first_eval_prompt # First eval uses initial goal
-    assert f"Current Goal:\n{updated_content}" in second_eval_prompt # Second eval uses updated goal
+
+     # Check the goal embedded within the evaluation prompts
+     logging.info(f"First eval prompt goal check:\n{first_eval_prompt}")
+     # Check the main goal section at the start of the prompt
+     assert first_eval_prompt.strip().startswith(f"Analyze the results of an automated code generation step in a test harness.\n\nCurrent Goal:\n{initial_content}"), \
+            "First evaluation prompt did not start with the correct initial goal"
+     logging.info(f"Second eval prompt goal check:\n{second_eval_prompt}")
+     # Check the main goal section at the start of the prompt
+     assert second_eval_prompt.strip().startswith(f"Analyze the results of an automated code generation step in a test harness.\n\nCurrent Goal:\n{updated_content}"), \
+            "Second evaluation prompt did not start with the correct updated goal"
+
+     # Check that the retry prompt generated *after* the first iteration used the *initial* goal
  
     # Check that the retry prompt generated *after* the first evaluation used the *initial* goal
     # and *before* the second iteration (where the reload happens) used the *updated* goal.
