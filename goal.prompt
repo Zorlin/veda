@@ -4,6 +4,16 @@ Look for anything missing, any tests that can be added, anything you can do to m
 
 And expand on the concepts used if needed
 
+Conceptual Expansion:
+
+- The harness should be self-healing, able to recover from failures at every layer (subprocess, config, UI, ledger, etc.), and continue operation with minimal human intervention.
+- It should dynamically adapt to changes in the goal prompt or configuration, applying them immediately to allow the agent to evolve its behavior on the fly.
+- All subprocesses (Aider, Ollama, Pytest) must be managed with robust signal handling and resource cleanup, ensuring that interrupts are always effective and no zombie processes remain.
+- The VESPER.MIND council provides multi-perspective evaluation, reducing the risk of tunnel vision or single-point failure in judgment.
+- Both backend and frontend logic must prevent duplicate output, keeping logs and diffs concise and relevant, and ensuring the UI remains performant and user-friendly.
+- Strict scrollback limits must be enforced to prevent memory leaks and browser crashes, even under high-throughput output scenarios.
+- The architecture should be extensible, supporting new council roles, agent slots, or UI modalities (TUI, CLI, web) with minimal changes to the core logic.
+
 You should:
 1. Make Live Aider Output respect Aider's control codes (like \c for cancel)
 2. Prevent text duplication in both the Live Log and Diff Viewers
