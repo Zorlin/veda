@@ -137,11 +137,16 @@ def run_aider(
         aider_cli_prompt_pattern = r"(>|What would you like to do\?|How can I help you\?|Enter your prompt:|Prompt:)"
         try:
             child.expect(aider_cli_prompt_pattern, timeout=30)
-            logger.debug("Aider CLI prompt detected, sending our prompt as user input...")
-            # Send the prompt without an automatic trailing newline
-            child.send(prompt)
-            # Send a final newline character explicitly to signal the end of the multi-line input
-            child.send('\n')
+            logger.debug("Aider CLI prompt detected, sending our prompt line by line...")
+            # Split the prompt into lines, preserving empty lines
+            prompt_lines = prompt.splitlines()
+            # Send each line individually, followed by a newline
+            for line in prompt_lines:
+                child.sendline(line)
+                # Small delay between lines might help some terminals/apps process input
+                time.sleep(0.05)
+            logger.debug("Finished sending prompt lines.")
+            # Note: No extra newline is needed here as sendline adds one for the last line.
         except pexpect.exceptions.TIMEOUT:
             logger.error("Timed out waiting for Aider CLI prompt. Cannot send prompt as user input.")
             return None, "Timed out waiting for Aider CLI prompt."
