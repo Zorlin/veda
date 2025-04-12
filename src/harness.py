@@ -883,7 +883,7 @@ class Harness:
                         import asyncio
                         asyncio.create_task(self._send_ui_update({"status": "Error", "log_entry": "Aider returned None diff unexpectedly."}))
                     except RuntimeError:
-                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
+                        pass # No event loop running (e.g., in tests), cannot send UI update.
                     # Update ledger with error
                     self.ledger.complete_iteration(
                         self.current_run_id,
