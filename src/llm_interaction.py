@@ -34,7 +34,16 @@ def check_ollama_model_availability(model_name: str, api_url: str = None) -> boo
 
         # Use client.list() to get all available models
         models_info = client.list()
-        available_models = [m["name"] for m in models_info.get("models", [])]
+        # Defensive: Ollama's /api/tags returns a list of dicts, but keys may vary by version.
+        # Try "name", fallback to "model" if "name" is missing.
+        available_models = []
+        for m in models_info.get("models", []):
+            if "name" in m:
+                available_models.append(m["name"])
+            elif "model" in m:
+                available_models.append(m["model"])
+            else:
+                logger.warning(f"Model entry missing 'name' and 'model' keys: {m}")
         logger.debug(f"Available models from Ollama: {available_models}")
 
         # Ollama model names may or may not include a tag (e.g., llama3:8b or llama3:latest)
