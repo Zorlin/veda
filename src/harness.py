@@ -978,7 +978,8 @@ class Harness:
                         get_running_loop()
                         import asyncio
                         asyncio.create_task(self._send_ui_update({"status": "Running Cargo Test", "log_entry": "Running cargo test..."}))
-                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
+                    except RuntimeError:
+                        pass # No event loop running (e.g., in tests), cannot send UI update.
                     try:
                         result = subprocess.run(
                             test_cmd.split(),
@@ -1005,8 +1006,7 @@ class Harness:
                             "pytest_output": pytest_output,
                             "log_entry": f"Cargo test finished. Passed: {pytest_passed}. Output:\n{summary_output}"
                         }))
-                    except RuntimeError:
-                        pass
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
                 else:
                     logging.error(f"Unknown test_cmd '{test_cmd}'. Skipping test run.")
                     pytest_passed = False
