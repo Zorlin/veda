@@ -98,7 +98,7 @@ def test_council_planning_enforcement_blocks_without_plan_update(mock_llm, monke
                     f.write("All tests passed.\n0 tests collected.") # Simulate pytest output
             self._returncode = 0 # Success
 
-        def wait(self):
+        def wait(self, timeout=None): # Add timeout argument
             return self._returncode
 
     monkeypatch.setattr(subprocess, "Popen", MockPopen)
@@ -146,7 +146,7 @@ def test_council_planning_enforcement_detects_plan_update(monkeypatch, temp_plan
                     f.write("All tests passed.\n0 tests collected.") # Simulate pytest output
             self._returncode = 0 # Success
 
-        def wait(self):
+        def wait(self, timeout=None): # Add timeout argument
             return self._returncode
 
     monkeypatch.setattr(subprocess, "Popen", MockPopen)
@@ -215,7 +215,7 @@ def test_council_planning_enforcement_detects_goal_prompt_update(mock_llm, monke
                     f.write("All tests passed.\n0 tests collected.") # Simulate pytest output
             self._returncode = 0 # Success
 
-        def wait(self):
+        def wait(self, timeout=None): # Add timeout argument
             return self._returncode
 
     monkeypatch.setattr(subprocess, "Popen", MockPopen)
