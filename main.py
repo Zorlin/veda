@@ -172,18 +172,19 @@ def reload_file(path):
         logger.error(f"Error reloading file {path}: {e}", exc_info=True)
         return ""
 
-def update_goal_for_test_failures(test_type, test_failure_info):
+def update_goal_for_test_failures(test_type, test_failure_info=None):
     """
     Update goal.prompt to specifically address test failures.
-    
+
     This function implements a self-healing mechanism that:
     1. Detects test failures and their type
     2. Automatically updates the goal prompt to prioritize fixing these failures
     3. Creates backups of the original goal prompt for recovery
     4. Ensures the system can recover from the failure state
-    
+
     Args:
         test_type: The type of test that failed ("pytest" or "cargo")
+        test_failure_info: Optional string with details about the test failure
     """
     try:
         # Force a filesystem stat before reloading
@@ -191,16 +192,16 @@ def update_goal_for_test_failures(test_type, test_failure_info):
             os.stat(str(goal_prompt_path))
         except Exception as e:
             logger.warning(f"Error getting goal prompt stats before test failure update: {e}")
-            
+
         # Force reload to get the current goal prompt
         current_goal = reload_file(goal_prompt_path)
         logger.info(f"Checking if goal.prompt needs updating for {test_type} test failures")
-        
+
         # Check if we've already added test failure guidance
         if f"fix the {test_type} test failures" in current_goal.lower():
             logger.info(f"Goal prompt already contains guidance for {test_type} test failures.")
             return
-        
+
         # Create a backup of the current goal prompt
         backup_path = f"{goal_prompt_path}.bak.{int(time.time())}"
         try:
@@ -210,7 +211,7 @@ def update_goal_for_test_failures(test_type, test_failure_info):
             logger.info(f"Created backup of goal.prompt at {backup_path}")
         except Exception as e:
             logger.warning(f"Failed to create backup of goal.prompt: {e}")
-        
+
         # Create the test failure addendum with more detailed guidance
         test_failure_addendum = f"""
 
@@ -235,7 +236,11 @@ If using {test_type}, ensure:
 
 Remember that improving system resilience is the highest priority according to the project goals.
 """
-        
+
+        # If test_failure_info is provided, append a "Failure details:" section
+        if test_failure_info:
+            test_failure_addendum += f"\nFailure details:\n```\n{test_failure_info}\n```\n"
+
         # Append the test failure guidance to the goal prompt with file locking
         logger.info(f"Appending {test_type} test failure guidance to goal.prompt")
         with open(goal_prompt_path, "a", encoding="utf-8") as f:
@@ -246,13 +251,13 @@ Remember that improving system resilience is the highest priority according to t
             os.fsync(f.fileno())  # Ensure it's written to disk
             # Release the lock
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        
+
         # Force a filesystem stat after writing
         try:
             os.stat(str(goal_prompt_path))
         except Exception as e:
             logger.warning(f"Error getting goal prompt stats after test failure update: {e}")
-            
+
         # Verify the file was actually updated by reading it again with a different method
         try:
             with open(goal_prompt_path, 'rb') as f:
@@ -261,9 +266,9 @@ Remember that improving system resilience is the highest priority according to t
                 binary_content = f.read()
                 # Release the lock
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                
+
             updated_goal = binary_content.decode('utf-8', errors='replace')
-            
+
             if test_failure_addendum.strip() in updated_goal:
                 logger.info(f"Successfully updated goal.prompt with guidance for {test_type} test failures.")
                 console.print(f"[bold green]Updated goal.prompt with guidance for {test_type} test failures.[/bold green]")
@@ -279,7 +284,7 @@ Remember that improving system resilience is the highest priority according to t
         except Exception as e:
             logger.error(f"Error verifying goal.prompt update: {e}", exc_info=True)
             console.print(f"[bold red]Error verifying goal.prompt update: {e}[/bold red]")
-        
+
     except Exception as e:
         logger.error(f"Failed to update goal.prompt for test failures: {e}", exc_info=True)
         console.print(f"[bold red]Error updating goal.prompt: {e}[/bold red]")
