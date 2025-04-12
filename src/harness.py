@@ -762,6 +762,17 @@ class Harness:
                         # Log the goal being passed to evaluation
                         logging.info(f"Using current goal for evaluation: '{self.current_goal_prompt}'")
                         # Pass the current instance goal prompt directly
+                        # Check if goal file was updated and reload it if needed
+                        if self._goal_prompt_file:
+                            new_hash = self._get_file_hash(self._goal_prompt_file)
+                            if new_hash is not None and new_hash != self._last_goal_prompt_hash:
+                                logging.info("Reloading goal prompt before evaluation...")
+                                try:
+                                    self.current_goal_prompt = self._goal_prompt_file.read_text()
+                                    self._last_goal_prompt_hash = new_hash
+                                except Exception as e:
+                                    logging.error(f"Failed to reload goal prompt: {e}")
+                    
                         verdict, suggestions = self._evaluate_outcome(
                             self.current_goal_prompt,
                             aider_diff if aider_diff is not None else "",
@@ -1037,6 +1048,21 @@ FAILURE = Fundamental issues that require a different approach
         """Creates an enhanced prompt for the LLM evaluation step."""
         # Log the goal received by this function
         logging.info(f"[_create_evaluation_prompt] Received current_goal argument: '{current_goal}'")
+        
+        # Check if goal file was updated and reload it if needed
+        if self._goal_prompt_file:
+            new_hash = self._get_file_hash(self._goal_prompt_file)
+            if new_hash is not None and new_hash != self._last_goal_prompt_hash:
+                logging.info("Reloading goal prompt inside _create_evaluation_prompt...")
+                try:
+                    self.current_goal_prompt = self._goal_prompt_file.read_text()
+                    self._last_goal_prompt_hash = new_hash
+                    # Use the freshly loaded goal instead of the passed argument
+                    current_goal = self.current_goal_prompt
+                    logging.info(f"Updated current_goal to: '{current_goal}'")
+                except Exception as e:
+                    logging.error(f"Failed to reload goal prompt: {e}")
+        
         # Create a concise history string for the prompt, showing last few turns
         history_limit = 3
         limited_history = history[-(history_limit * 2):] if len(history) > history_limit * 2 else history
@@ -1052,7 +1078,7 @@ FAILURE = Fundamental issues that require a different approach
         else:
             iteration_context = f"This is iteration {self.state['current_iteration'] + 1} of maximum {self.max_retries}. Consider the progress made across iterations."
 
-        # Use the passed current_goal argument directly
+        # Use the current_goal which may have been updated above
         prompt = f"""
 Analyze the results of an automated code generation step in a test harness.
 
@@ -1103,6 +1129,20 @@ Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RE
         """
         Creates an enhanced user prompt for the next Aider attempt based on evaluation suggestions.
         """
+        # Check if goal file was updated and reload it if needed
+        if self._goal_prompt_file:
+            new_hash = self._get_file_hash(self._goal_prompt_file)
+            if new_hash is not None and new_hash != self._last_goal_prompt_hash:
+                logging.info("Reloading goal prompt inside _create_retry_prompt...")
+                try:
+                    self.current_goal_prompt = self._goal_prompt_file.read_text()
+                    self._last_goal_prompt_hash = new_hash
+                    # Use the freshly loaded goal instead of the passed argument
+                    current_goal = self.current_goal_prompt
+                    logging.info(f"Updated current_goal to: '{current_goal}'")
+                except Exception as e:
+                    logging.error(f"Failed to reload goal prompt: {e}")
+                    
         # Determine iteration number for context
         current_iteration = self.state["current_iteration"]
         max_retries = self.max_retries
@@ -1165,6 +1205,20 @@ Focus on implementing the suggested improvements while maintaining code quality 
         """
         logging.info("Running code review...")
 
+        # Check if goal file was updated and reload it if needed
+        if self._goal_prompt_file:
+            new_hash = self._get_file_hash(self._goal_prompt_file)
+            if new_hash is not None and new_hash != self._last_goal_prompt_hash:
+                logging.info("Reloading goal prompt inside run_code_review...")
+                try:
+                    self.current_goal_prompt = self._goal_prompt_file.read_text()
+                    self._last_goal_prompt_hash = new_hash
+                    # Use the freshly loaded goal instead of the passed argument
+                    current_goal = self.current_goal_prompt
+                    logging.info(f"Updated current_goal to: '{current_goal}'")
+                except Exception as e:
+                    logging.error(f"Failed to reload goal prompt: {e}")
+
         # Get the configured code review model
         model_name = self.config.get("code_review_model")
         if not model_name:
@@ -1173,7 +1227,7 @@ Focus on implementing the suggested improvements while maintaining code quality 
 
         logging.info(f"Using model '{model_name}' for code review.")
 
-        # Create code review prompt - use the passed current_goal argument
+        # Create code review prompt - use the current_goal which may have been updated above
         review_prompt = f"""
 Act as a senior code reviewer. Review the following code changes that were made to achieve this goal:
 
