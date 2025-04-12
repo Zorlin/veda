@@ -164,6 +164,8 @@ def run_aider(
                         output_callback("\n[Harness: Interrupt signal received. Terminating Aider...]\n\\c")
                     except Exception as cb_err:
                         logger.error(f"Error in output_callback during interrupt: {cb_err}")
+                # Also print to terminal for visibility
+                print("\n[Harness: Interrupt signal received. Terminating Aider...]\n\\c", flush=True)
 
                 try:
                     # --- Enhanced Termination Sequence ---
@@ -242,7 +244,7 @@ def run_aider(
                 if output_chunk:
                     # logger.debug(f"Raw output chunk received (len={len(output_chunk)}):\n>>>\n{output_chunk}\n<<<")
                     full_output += output_chunk
-                    
+
                     # Process control codes if present
                     control_code_found = False
                     for code, action in AIDER_CONTROL_CODES.items():
@@ -258,24 +260,24 @@ def run_aider(
                                         output_callback(f"[AIDER_CONTROL_CODE:{action}]")
                                     except Exception as cb_err:
                                         logger.error(f"Error in output_callback during control code: {cb_err}")
-                    
+
                     # Implement scrollback limit
                     if len(full_output.split('\n')) > MAX_SCROLLBACK_LINES:
                         # Keep only the last MAX_SCROLLBACK_LINES lines
                         full_output = '\n'.join(full_output.split('\n')[-MAX_SCROLLBACK_LINES:])
                         logger.info(f"Scrollback limited to {MAX_SCROLLBACK_LINES} lines")
-                    
+
                     if output_callback:
                         try:
                             # Log before sending for debugging potential UI duplication
                             logger.debug(f"Sending chunk to UI callback (len={len(output_chunk)}): {output_chunk[:100].replace(chr(27), '[ESC]')}{'...' if len(output_chunk)>100 else ''}")
                             # Send the chunk to the callback for real-time UI updates
                             output_callback(output_chunk)
-                            # Small sleep to allow UI to process the chunk - maybe remove if causing issues?
-                            # time.sleep(0.01)
                         except Exception as cb_err:
                             # Log callback error but don't crash the interaction
                             logger.error(f"Error in output_callback: {cb_err}")
+                    # Always print to terminal as well
+                    print(output_chunk, end='', flush=True)
 
                 # Process based on which pattern matched
                 if index == 0: # EOF

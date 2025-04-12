@@ -330,13 +330,16 @@ def main():
         # Stop the WebSocket server if it was started
         if ui_server and ws_server_thread and ws_server_thread.is_alive():
             logger.info("Stopping WebSocket server...")
-            ui_server.stop() # Signal the server loop to stop
-            ws_server_thread.join(timeout=5) # Wait for thread to finish
-            if ws_server_thread.is_alive():
-                 logger.warning("WebSocket server thread did not stop cleanly.")
-            else:
-                 logger.info("WebSocket server stopped.") # Corrected log message
-        
+            try:
+                ui_server.stop() # Signal the server loop to stop
+                ws_server_thread.join(timeout=5) # Wait for thread to finish
+                if ws_server_thread.is_alive():
+                    logger.warning("WebSocket server thread did not stop cleanly.")
+                else:
+                    logger.info("WebSocket server stopped.") # Corrected log message
+            except Exception as ws_shutdown_err:
+                logger.error(f"Error during WebSocket server shutdown: {ws_shutdown_err}")
+
         # Stop the HTTP server if it was started and the instance exists
         if http_server_thread and http_server_thread.is_alive() and httpd_instance:
             logger.info("Stopping HTTP server...")

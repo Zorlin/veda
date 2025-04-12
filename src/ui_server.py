@@ -349,7 +349,10 @@ class UIServer:
         self.stop_event.set()
         # Close the stream from the server side as well to unblock listener if waiting
         if self.ui_receive_stream:
-            self.ui_receive_stream.close()
+            try:
+                self.ui_receive_stream.close()
+            except Exception as e:
+                logger.warning(f"Error closing UI receive stream: {e}")
 
 
     # Removed send_update method - updates now come via stream
