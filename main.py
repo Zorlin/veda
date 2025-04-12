@@ -417,6 +417,9 @@ Based on this information, please generate a new council round entry for PLAN.md
 3. Clear, actionable next steps and tasks
 4. A reference to the high-level goals in README.md
 
+Your response should be in plain language, high-level direction that a human would write. Be concise but comprehensive.
+Avoid technical jargon and focus on strategic direction and priorities.
+
 Your response should be in this format:
 ### Council Round {round_num} ({now})
 *   **Summary of Last Round:** [Your summary here]
