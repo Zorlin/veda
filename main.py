@@ -431,26 +431,21 @@ def main():
             except Exception as e:
                 logger.error(f"WebSocket server thread encountered an error: {e}", exc_info=True)
 
-        ws_server_thread = threading.Thread(target=run_ws_server, daemon=True, name="WebSocketServerThread")
+        # Start WebSocket Server (non-daemon)
+        ws_server_thread = threading.Thread(target=run_ws_server, name="WebSocketServerThread") # Removed daemon=True
         ws_server_thread.start()
         logger.info(f"WebSocket server starting in background thread on ws://{ws_host}:{ws_port}")
 
         # Start HTTP Server
+        # Start HTTP Server (non-daemon)
         http_server_thread = threading.Thread(
             target=start_http_server,
             args=(http_host, http_port, ui_dir_path),
-            daemon=True,
-            name="HttpServerThread"
+            name="HttpServerThread" # Removed daemon=True
         )
         http_server_thread.start()
-        # Wait briefly to check if server started successfully (httpd_instance should be set)
-        time.sleep(0.5)
-        if http_server_thread.is_alive() and httpd_instance is None:
-             logger.error("HTTP Server thread started but failed to bind to port. Check logs.")
-             # Decide how to handle this - exit? Continue without HTTP?
-             # For now, log the error and continue. UI might not be accessible via HTTP.
-        elif not http_server_thread.is_alive():
-             logger.error("HTTP Server thread failed to start. Check logs.")
+        # Removed the immediate check after starting the thread.
+        # Error logging within start_http_server is sufficient.
 
 
 # --- Council Planning Enforcement Function ---
