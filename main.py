@@ -669,18 +669,31 @@ Remember that PLAN.md is meant to contain plain language, high-level direction t
     plan_content = reload_file(plan_path)
     logger.info(f"Checking PLAN.md for major shift markers...")
     
+    # Define all major shift markers
+    major_shift_markers = [
+        "UPDATE_GOAL_PROMPT", 
+        "MAJOR_SHIFT", 
+        "SIGNIFICANT CHANGE", 
+        "DIRECTION CHANGE", 
+        "Major_Shift detected", 
+        "This represents a SIGNIFICANT CHANGE in direction", 
+        "The council has determined a direction change is needed"
+    ]
+    
     # Check for various major shift markers with case insensitivity
-    if any(marker.lower() in plan_content.lower() for marker in 
-           ["UPDATE_GOAL_PROMPT", "MAJOR_SHIFT", "SIGNIFICANT CHANGE", "DIRECTION CHANGE", "Major_Shift detected", 
-            "This represents a SIGNIFICANT CHANGE in direction", "The council has determined a direction change is needed"]):
-        # Log the detected marker for debugging
-        for marker in ["UPDATE_GOAL_PROMPT", "MAJOR_SHIFT", "SIGNIFICANT CHANGE", "DIRECTION CHANGE", 
-                      "Major_Shift detected", "This represents a SIGNIFICANT CHANGE in direction", 
-                      "The council has determined a direction change is needed"]:
-            if marker.lower() in plan_content.lower():
-                logger.info(f"Detected major shift marker: {marker}")
+    major_shift_detected = False
+    detected_marker = None
+    
+    for marker in major_shift_markers:
+        if marker.lower() in plan_content.lower():
+            major_shift_detected = True
+            detected_marker = marker
+            logger.info(f"Detected major shift marker: {marker}")
+            break
+    
+    if major_shift_detected:
         if automated:
-            console.print("[bold magenta]A major shift was detected in PLAN.md. The system will automatically update goal.prompt using Gemma3:12b.[/bold magenta]")
+            console.print(f"[bold magenta]A major shift was detected in PLAN.md (marker: {detected_marker}). The system will automatically update goal.prompt using Gemma3:12b.[/bold magenta]")
             # Add an additional print with the exact phrase the test is looking for
             console.print("[bold magenta]Major shift detected in PLAN.md. Updating goal.prompt.[/bold magenta]")
             
