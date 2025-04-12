@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <!-- ansi-to-html (browser-compatible UMD build) -->
-    <script src="https://unpkg.com/ansi-to-html@0.7.2/build/ansi-to-html.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ansi-to-html@0.7.2/lib/ansi_to_html.js"></script>
     <!-- Prism.js for Syntax Highlighting -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
@@ -147,18 +147,18 @@
                 outputBuffer: '', // Buffer for incoming chunks
                 isProcessingScheduled: false, // Flag for debouncing
                 lastInterruptStatus: '', // To store the status of the last interrupt request
-                ansiConverter: null, // To hold the ansi-to-html instance
+                ansiConverter: null, // To hold the Convert instance
                 lastLogEntry: null, // Track last log entry to prevent duplicates
                 lastProcessedChunk: '', // Track the last processed aider output chunk to prevent duplicates
 
                 init() {
                     console.log('Initializing Harness UI...');
                     // Initialize ansi-to-html with desired options (e.g., handle newlines)
-                    this.ansiConverter = typeof AnsiToHtml !== "undefined"
-                        ? new AnsiToHtml({ newline: true, escapeXML: true })
-                        : (window['AnsiToHtml'] ? new window['AnsiToHtml']({ newline: true, escapeXML: true }) : null);
+                    this.ansiConverter = typeof Convert !== "undefined"
+                        ? new Convert({ newline: true, escapeXML: true })
+                        : (window['Convert'] ? new window['Convert']({ newline: true, escapeXML: true }) : null);
                     if (!this.ansiConverter) {
-                        console.error("AnsiToHtml is not defined. Check that the CDN script loaded correctly.");
+                        console.error("Convert is not defined. Check that the CDN script loaded correctly.");
                     }
                     this.connectWebSocket();
                 },
