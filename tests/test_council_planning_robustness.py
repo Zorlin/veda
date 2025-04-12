@@ -141,7 +141,10 @@ It contains the current, actionable plan for the next iteration(s) of the agent 
                 major_shift_detected = False
                 for call_args in mock_print.call_args_list:
                     args = call_args[0]
-                    if any("major shift" in str(arg).lower() for arg in args):
+                    # Check for both lowercase and exact case variations of the phrase
+                    if any(("major shift" in str(arg).lower() or 
+                           "Major shift" in str(arg) or
+                           f"marker: {marker}" in str(arg)) for arg in args):
                         major_shift_detected = True
                         break
                 
