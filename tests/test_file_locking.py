@@ -74,6 +74,7 @@ def test_file_locking_with_reload(temp_lockable_file):
     """Test that file locking works with reload operations."""
     # Define a simple reload function similar to the one in main.py
     def reload_with_lock(path):
+        """Test implementation of reload_file with locking for testing"""
         try:
             with open(path, 'r') as f:
                 # Try to get a shared lock (allows other readers but blocks writers)

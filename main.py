@@ -96,7 +96,16 @@ def read_file(path):
         return ""
 
 def reload_file(path):
-    """Helper to reload a file and get its content."""
+    """
+    Helper to reload a file and get its content.
+    
+    Implements a robust file reading strategy with:
+    1. Multiple attempts with exponential backoff
+    2. File locking to prevent concurrent access issues
+    3. Fallback to binary reading with UTF-8 decoding if text mode fails
+    4. Automatic backup of potentially corrupted files
+    5. Graceful degradation by returning empty string instead of raising exceptions
+    """
     try:
         # Ensure we're getting the latest version from disk by resolving the path
         if hasattr(path, 'resolve'):
@@ -111,6 +120,7 @@ def reload_file(path):
         # Clear any potential file system cache by checking if the file exists first
         if Path(path).exists():
             # Try multiple times to ensure we get the content
+            backoff_factor = 0.2  # Start with 200ms, then 400ms, then 800ms
             for attempt in range(3):  # Try up to 3 times
                 try:
                     # Use file locking to ensure consistent reads
@@ -135,7 +145,7 @@ def reload_file(path):
                 except (IOError, OSError) as e:
                     if attempt < 2:  # Don't log on the last attempt
                         logger.warning(f"Attempt {attempt+1} to read file {path} failed: {e}. Retrying...")
-                        time.sleep(0.1)  # Short delay before retry
+                        time.sleep(backoff_factor * (2 ** attempt))  # Exponential backoff
                     else:
                         # On the last attempt, try a different approach instead of raising
                         try:
@@ -145,6 +155,14 @@ def reload_file(path):
                                 return binary_content.decode('utf-8', errors='replace')
                         except Exception as last_e:
                             logger.error(f"Final attempt to read {path} failed: {last_e}")
+                            # Create a backup of the potentially corrupted file
+                            try:
+                                if os.path.getsize(path) > 0:
+                                    backup_path = f"{path}.corrupted.bak"
+                                    shutil.copy2(path, backup_path)
+                                    logger.warning(f"Created backup of potentially corrupted file at {backup_path}")
+                            except Exception as backup_e:
+                                logger.error(f"Failed to create backup of corrupted file: {backup_e}")
                             return ""  # Return empty string instead of raising
         else:
             logger.warning(f"File {path} does not exist")
@@ -156,6 +174,12 @@ def reload_file(path):
 def update_goal_for_test_failures(test_type):
     """
     Update goal.prompt to specifically address test failures.
+    
+    This function implements a self-healing mechanism that:
+    1. Detects test failures and their type
+    2. Automatically updates the goal prompt to prioritize fixing these failures
+    3. Creates backups of the original goal prompt for recovery
+    4. Ensures the system can recover from the failure state
     
     Args:
         test_type: The type of test that failed ("pytest" or "cargo")
@@ -269,6 +293,12 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
     Enforce that the open source council convenes each round to collaboratively update PLAN.md,
     and only update goal.prompt for major shifts. All planning must respect README.md.
     All tests must pass to continue; after a few tries, the council can revert to a working commit.
+    
+    This function implements a robust planning enforcement mechanism with:
+    - Automatic recovery from test failures
+    - Detection of major shifts requiring goal updates
+    - Resilience against file corruption and concurrent access
+    - Graceful degradation when resources are constrained
     
     Args:
         iteration_number: The current iteration number (None for initial/final)
@@ -1039,6 +1069,11 @@ Your response should be the complete new content for goal.prompt.
 def run_with_council_planning(harness, original_run):
     """
     Wrapper for harness.run that includes council planning before and after.
+    
+    This wrapper implements resilience by:
+    - Detecting and recovering from test failures
+    - Ensuring plan updates happen consistently
+    - Providing feedback for goal prompt updates when major shifts occur
     
     Args:
         harness: The harness instance
