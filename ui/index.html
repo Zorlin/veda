@@ -157,7 +157,11 @@
                     try {
                         // Get the AnsiToHtml constructor from the browserify bundle
                         const AnsiToHtml = require('ansi-to-html');
-                        this.ansiConverter = new AnsiToHtml({ newline: true, escapeXML: true });
+                        this.ansiConverter = new AnsiToHtml({ 
+                            newline: true, 
+                            escapeXML: true,
+                            stream: true  // Enable streaming mode for better handling of partial ANSI sequences
+                        });
                         console.log("AnsiToHtml initialized successfully");
                     } catch (e) {
                         console.error("Failed to initialize AnsiToHtml:", e);
@@ -199,6 +203,10 @@
                             if (data.type === 'aider_output') {
                                 // Buffer the chunk and schedule processing
                                 if (data.chunk) {
+                                    console.log("Received aider output chunk:", 
+                                        data.chunk.substring(0, 50) + 
+                                        (data.chunk.length > 50 ? "..." : ""));
+                                    
                                     this.outputBuffer += data.chunk;
                                     if (!this.isProcessingScheduled) {
                                         this.isProcessingScheduled = true;
@@ -340,7 +348,16 @@
                     }
                 },
 
-                // Removed processedAiderOutput() function, logic moved directly into x-html
+                // Process Aider output with ANSI codes
+                get processedAiderOutput() {
+                    try {
+                        console.log('Rendering liveAiderOutput length:', this.liveAiderOutput.length);
+                        return this.ansiConverter ? this.ansiConverter.toHtml(this.liveAiderOutput) : this.liveAiderOutput;
+                    } catch (e) {
+                        console.error('ansi-to-html conversion error:', e);
+                        return `<span style="color: red; font-weight: bold;">Error rendering output: ${e.message}</span><br>${this.liveAiderOutput}`;
+                    }
+                },
 
                 scrollToBottom(refName) {
                     // Scroll the specified container to the bottom
@@ -391,20 +408,10 @@
                     const bufferToProcess = this.outputBuffer;
                     this.outputBuffer = ''; // Clear buffer before processing
 
-                    // Prevent processing if the chunk is identical to the last one
-                    if (bufferToProcess === this.lastProcessedChunk) {
-                        console.log("Skipping duplicate chunk processing:", bufferToProcess.substring(0, 50) + "...");
-                        // Reschedule if new data arrived while skipping
-                        if (this.outputBuffer !== '') {
-                            requestAnimationFrame(() => this.processOutputBuffer());
-                        } else {
-                            this.isProcessingScheduled = false;
-                        }
-                        return; // Don't process this duplicate chunk
-                    }
-
-                    console.log("Processing buffer content:", bufferToProcess.substring(0, 100) + (bufferToProcess.length > 100 ? "..." : "")); // Log start of buffer
-                    this.lastProcessedChunk = bufferToProcess; // Store raw chunk
+                    // Debug output to console
+                    console.log("Processing buffer content:", 
+                        bufferToProcess.substring(0, 50) + 
+                        (bufferToProcess.length > 50 ? "..." : ""));
 
                     // --- Process buffer for control codes (\r, \b, \c) ---
                     let currentOutput = this.liveAiderOutput; // Get current state
@@ -487,7 +494,6 @@
                     this.liveAiderOutput = currentOutput; // Update the state
                     // --- End Control Code Processing ---
 
-
                     // Apply scrollback limit after processing
                     const maxLines = 10000; // Limit to 10,000 lines to prevent browser crashes
                     // Split by newline to estimate lines for scrollback limit
@@ -495,19 +501,11 @@
                     if (lines.length > maxLines) {
                         // Find the index to slice from to keep maxLines
                         const startIndex = lines.length - maxLines;
-                        // Rejoin the necessary lines. Note: This might split ANSI sequences,
-                        // but it's a necessary tradeoff for scrollback limiting.
-                        // ansi_up should hopefully handle broken sequences gracefully.
                         this.liveAiderOutput = lines.slice(startIndex).join('\n');
-                        console.log(`Scrollback limited: removed ${startIndex} lines to keep under ${maxLines} line limit`);
-                        // Show notification about scrollback limit
-                        this.showNotification(`Scrollback limited to ${maxLines} lines`);
+                        console.log(`Scrollback limited: removed ${startIndex} lines`);
                     }
-                    // --- End Simplified Processing ---
 
-                    console.log("After appending buffer. New liveAiderOutput length:", this.liveAiderOutput.length); // <-- Log updated length
-
-                    // Use nextTick to ensure DOM updates before scrolling
+                    // Force Alpine.js to update the UI
                     this.$nextTick(() => {
                         this.scrollToBottom('aiderLogContainer');
                     });
