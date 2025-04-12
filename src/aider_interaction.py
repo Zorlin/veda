@@ -252,6 +252,12 @@ def run_aider(
                             # If it's a cancel or quit code, we might want to handle it specially
                             if action in ["cancel", "quit"]:
                                 logger.info(f"Processing {action} control code")
+                                # If output_callback is present, send a structured control code message
+                                if output_callback:
+                                    try:
+                                        output_callback(f"[AIDER_CONTROL_CODE:{action}]")
+                                    except Exception as cb_err:
+                                        logger.error(f"Error in output_callback during control code: {cb_err}")
                     
                     # Implement scrollback limit
                     if len(full_output.split('\n')) > MAX_SCROLLBACK_LINES:
