@@ -783,8 +783,6 @@ class Harness:
                     except RuntimeError:
                         pass
                         
-                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
-                    summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
                     logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
                     
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
