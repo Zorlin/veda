@@ -443,9 +443,68 @@ def council_planning_enforcement(iteration_number=None):
         console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
         sys.exit(1)
 
-    # Initialize and run the harness
-    # (This block is intentionally left empty; main() will handle harness initialization and execution.)
-    pass
+    # --- Initialize and Run Harness ---
+    try:
+        # Initialize Harness (pass necessary args and config)
+        harness = Harness(
+            config_file=args.config_file,
+            max_retries=args.max_retries,
+            work_dir=work_dir_path,
+            reset_state=args.reset_state,
+            ollama_model=args.ollama_model, # Pass CLI override
+            aider_model=args.aider_model,   # Pass CLI override
+            storage_type=args.storage_type, # Pass CLI override
+            enable_council=not args.disable_council, # Pass CLI override
+            # Pass UI stream if enabled and created
+            ui_send_stream=send_stream if ui_enabled else None,
+            # Pass enable_code_review from args or config
+            enable_code_review=args.enable_code_review or config.get("enable_code_review", False)
+        )
+
+        # Run the main loop
+        harness.run(initial_goal_prompt_or_file=prompt_source_arg)
+
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received. Shutting down...")
+        # Attempt to signal harness interruption if implemented
+        if 'harness' in locals() and hasattr(harness, 'request_interrupt'):
+            harness.request_interrupt("Keyboard interrupt received", interrupt_now=True)
+        # Proceed to finally block for cleanup
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in the main harness execution: {e}", exc_info=True)
+    finally:
+        # --- Graceful Shutdown ---
+        logger.info("Starting graceful shutdown...")
+        if ui_server:
+            logger.info("Stopping UI WebSocket server...")
+            try:
+                # UIServer.stop() should handle the async shutdown
+                ui_server.stop()
+                # Wait for the WebSocket server thread to finish
+                if ws_server_thread and ws_server_thread.is_alive():
+                    ws_server_thread.join(timeout=5) # Wait max 5 seconds
+                    if ws_server_thread.is_alive():
+                        logger.warning("WebSocket server thread did not exit cleanly.")
+            except Exception as e:
+                logger.error(f"Error stopping UI WebSocket server: {e}", exc_info=True)
+
+        if httpd_instance:
+            logger.info("Stopping UI HTTP server...")
+            try:
+                # Ensure httpd_instance exists and has shutdown method
+                if hasattr(httpd_instance, 'shutdown'):
+                    httpd_instance.shutdown() # Request shutdown
+                if hasattr(httpd_instance, 'server_close'):
+                    httpd_instance.server_close() # Close the server socket
+                # Wait for the HTTP server thread to finish
+                if http_server_thread and http_server_thread.is_alive():
+                    http_server_thread.join(timeout=5) # Wait max 5 seconds
+                    if http_server_thread.is_alive():
+                        logger.warning("HTTP server thread did not exit cleanly.")
+            except Exception as e:
+                logger.error(f"Error stopping UI HTTP server: {e}", exc_info=True)
+
+        logger.info("Shutdown complete.")
 
 
 if __name__ == "__main__":
