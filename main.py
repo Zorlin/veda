@@ -337,7 +337,7 @@ def main():
 
         # --- Council Planning Enforcement & PLAN.md Update Check ---
         import subprocess
-        from pathlib import Path
+        # Removed redundant: from pathlib import Path
         import difflib
 
         plan_path = Path("PLAN.md")
