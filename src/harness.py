@@ -754,30 +754,34 @@ class Harness:
                 if (aider_diff is None or aider_diff.strip() == "") and aider_error is None:
                     logging.warning("Aider returned no diff, checking recent git commits for possible changes...")
                     try:
-                        # Get the latest commit hash and timestamp
+                        # Get the latest commit hash, timestamp, author, and subject
                         git_log = subprocess.check_output(
-                            ["git", "log", "-1", "--pretty=format:%H|%ct|%an|%s"],
+                            ["git", "log", "-3", "--pretty=format:%H|%ct|%an|%s"],
                             cwd=self.config["project_dir"],
                             text=True
                         ).strip()
-                        commit_hash, commit_time, commit_author, commit_subject = git_log.split("|", 3)
-                        commit_time = int(commit_time)
                         now = int(time.time())
-                        # If the commit is very recent (within 60 seconds) and by aider, use its diff
-                        if now - commit_time < 60 and "aider" in commit_author.lower():
-                            logging.info(f"Recent commit by aider detected: {commit_hash} ({commit_subject})")
-                            # Get the diff for this commit
-                            git_diff = subprocess.check_output(
-                                ["git", "show", commit_hash, "--pretty=format:", "--unified=3"],
-                                cwd=self.config["project_dir"],
-                                text=True
-                            )
-                            if git_diff.strip():
-                                aider_diff = git_diff
-                                logging.info("Using diff from recent aider commit.")
-                            else:
-                                logging.warning("Recent aider commit has no diff.")
-                        else:
+                        found_aider_commit = False
+                        for line in git_log.splitlines():
+                            commit_hash, commit_time, commit_author, commit_subject = line.split("|", 3)
+                            commit_time = int(commit_time)
+                            # Accept aider commits in the last 2 minutes
+                            if now - commit_time < 120 and "aider" in commit_author.lower():
+                                logging.info(f"Recent commit by aider detected: {commit_hash} ({commit_subject})")
+                                # Get the diff for this commit
+                                git_diff = subprocess.check_output(
+                                    ["git", "show", commit_hash, "--pretty=format:", "--unified=3"],
+                                    cwd=self.config["project_dir"],
+                                    text=True
+                                )
+                                if git_diff.strip():
+                                    aider_diff = git_diff
+                                    logging.info("Using diff from recent aider commit.")
+                                    found_aider_commit = True
+                                    break
+                                else:
+                                    logging.warning("Recent aider commit has no diff.")
+                        if not found_aider_commit:
                             logging.warning("No recent aider commit found, or commit not by aider.")
                     except Exception as e:
                         logging.error(f"Error checking recent git commits for aider diff: {e}")
