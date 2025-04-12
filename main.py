@@ -323,7 +323,30 @@ def main():
         if review_dir.exists() and any(review_dir.iterdir()):
             console.print(f"Code Reviews: {review_dir}")
 
-        # --- Council Planning Enforcement ---
+        # --- Council Planning Enforcement & PLAN.md Update Check ---
+        import subprocess
+        from pathlib import Path
+        import difflib
+
+        plan_path = Path("PLAN.md")
+        goal_prompt_path = Path("goal.prompt")
+        readme_path = Path("README.md")
+
+        def get_file_mtime(path):
+            try:
+                return path.stat().st_mtime
+            except Exception:
+                return 0
+
+        def read_file(path):
+            try:
+                return path.read_text(encoding="utf-8")
+            except Exception:
+                return ""
+
+        # Record PLAN.md mtime before prompting
+        plan_mtime_before = get_file_mtime(plan_path)
+
         console.print("\n[bold yellow]Council Planning Required[/bold yellow]")
         console.print(
             "[italic]At the end of each round, the open source council must collaboratively review and update [bold]PLAN.md[/bold] "
@@ -340,8 +363,38 @@ def main():
             "If tests fail after a few tries, the council should revert to a working commit using [bold]git revert[/bold].[/italic]"
         )
 
+        # Wait for PLAN.md to be updated
+        while True:
+            console.print("\n[bold cyan]Waiting for PLAN.md to be updated...[/bold cyan]")
+            console.print("[italic]Press Enter when you have finished editing PLAN.md.[/italic]")
+            input()
+            plan_mtime_after = get_file_mtime(plan_path)
+            if plan_mtime_after > plan_mtime_before:
+                # Optionally show a diff
+                old_plan = read_file(plan_path)
+                new_plan = read_file(plan_path)
+                # (In this context, just check mtime; diff not shown to avoid confusion)
+                break
+            else:
+                console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
+
+        # --- Check PLAN.md for respect of README.md goals ---
+        readme_content = read_file(readme_path)
+        plan_content = read_file(plan_path)
+        if "high-level goals" in plan_content.lower() or "README.md" in plan_content:
+            # Heuristic: PLAN.md references README.md or high-level goals
+            pass
+        else:
+            console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always respect the high-level goals and constraints in README.md.")
+            console.print("Please ensure your plan does not contradict the project's core direction.")
+
+        # --- Check for major shift marker in PLAN.md to suggest goal.prompt update ---
+        if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
+            console.print("[bold magenta]A major shift was detected in PLAN.md. Please update goal.prompt accordingly.[/bold magenta]")
+            console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
+            input()
+
         # --- Test Enforcement ---
-        import subprocess
         max_test_retries = 3
         for attempt in range(1, max_test_retries + 1):
             console.print(f"\n[bold]Running test suite (attempt {attempt}/{max_test_retries})...[/bold]")
