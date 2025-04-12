@@ -14,6 +14,7 @@ import yaml # For loading config early
 import http.server
 import socketserver
 from functools import partial
+import fcntl  # For file locking
 
 from src.harness import Harness
 from src.ui_server import UIServer # Import UI Server
@@ -60,7 +61,15 @@ def get_file_mtime(path):
         # Ensure we're getting the latest stat from disk by resolving the path
         if hasattr(path, 'resolve'):
             path = path.resolve()
-        return Path(path).stat().st_mtime
+        
+        # Force a direct stat call to bypass any caching
+        if isinstance(path, Path):
+            path_str = str(path)
+        else:
+            path_str = str(path)
+            
+        # Use os.stat directly to ensure we get fresh info
+        return os.stat(path_str).st_mtime
     except Exception as e:
         logger.error(f"Error getting file modification time for {path}: {e}")
         return 0
@@ -71,7 +80,15 @@ def read_file(path):
         # Ensure we're getting the latest content from disk by resolving the path
         if hasattr(path, 'resolve'):
             path = path.resolve()
-        return Path(path).read_text(encoding="utf-8")
+            
+        # Use file locking to ensure consistent reads
+        with open(path, 'r', encoding="utf-8", errors='replace') as f:
+            # Acquire a shared lock (allows other readers but blocks writers)
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            content = f.read()
+            # Release the lock
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            return content
     except Exception as e:
         logger.error(f"Error reading file {path}: {e}")
         return ""
@@ -82,17 +99,39 @@ def reload_file(path):
         # Ensure we're getting the latest version from disk by resolving the path
         if hasattr(path, 'resolve'):
             path = path.resolve()
+        
+        # Force a filesystem stat to clear any potential caching
+        try:
+            os.stat(str(path))
+        except Exception as e:
+            logger.warning(f"Error getting file stats during reload: {e}")
+        
         # Clear any potential file system cache by checking if the file exists first
         if Path(path).exists():
-            # Use direct open/read to bypass any potential caching
-            with open(path, 'r', encoding="utf-8") as f:
+            # Use file locking to ensure consistent reads
+            with open(path, 'r', encoding="utf-8", errors='replace') as f:
+                # Acquire a shared lock (allows other readers but blocks writers)
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
                 content = f.read()
-            return content
+                # Release the lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                
+                # Verify we got content if the file isn't empty
+                if not content and os.path.getsize(path) > 0:
+                    logger.warning(f"File {path} appears to have content but read returned empty string. Retrying with binary read...")
+                    # Try one more time with a binary read
+                    with open(path, 'rb') as bf:
+                        fcntl.flock(bf.fileno(), fcntl.LOCK_SH)
+                        binary_content = bf.read()
+                        fcntl.flock(bf.fileno(), fcntl.LOCK_UN)
+                    content = binary_content.decode('utf-8', errors='replace')
+                
+                return content
         else:
             logger.warning(f"File {path} does not exist")
             return ""
     except Exception as e:
-        logger.error(f"Error reloading file {path}: {e}")
+        logger.error(f"Error reloading file {path}: {e}", exc_info=True)
         return ""
 
 def update_goal_for_test_failures(test_type):
@@ -103,6 +142,12 @@ def update_goal_for_test_failures(test_type):
         test_type: The type of test that failed ("pytest" or "cargo")
     """
     try:
+        # Force a filesystem stat before reloading
+        try:
+            os.stat(str(goal_prompt_path))
+        except Exception as e:
+            logger.warning(f"Error getting goal prompt stats before test failure update: {e}")
+            
         # Force reload to get the current goal prompt
         current_goal = reload_file(goal_prompt_path)
         logger.info(f"Checking if goal.prompt needs updating for {test_type} test failures")
@@ -128,19 +173,49 @@ If using {test_type}, ensure:
 The council will continue to monitor test results and provide guidance.
 """
         
-        # Append the test failure guidance to the goal prompt
+        # Append the test failure guidance to the goal prompt with file locking
         logger.info(f"Appending {test_type} test failure guidance to goal.prompt")
         with open(goal_prompt_path, "a", encoding="utf-8") as f:
+            # Acquire an exclusive lock
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             f.write(test_failure_addendum)
+            f.flush()  # Force flush to disk
+            os.fsync(f.fileno())  # Ensure it's written to disk
+            # Release the lock
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         
-        # Verify the file was actually updated by reading it again
-        updated_goal = reload_file(goal_prompt_path)
-        if test_failure_addendum.strip() in updated_goal:
-            logger.info(f"Successfully updated goal.prompt with guidance for {test_type} test failures.")
-            console.print(f"[bold green]Updated goal.prompt with guidance for {test_type} test failures.[/bold green]")
-        else:
-            logger.error(f"Failed to verify goal.prompt update for {test_type} test failures")
-            console.print(f"[bold red]Failed to update goal.prompt with guidance for {test_type} test failures.[/bold red]")
+        # Force a filesystem stat after writing
+        try:
+            os.stat(str(goal_prompt_path))
+        except Exception as e:
+            logger.warning(f"Error getting goal prompt stats after test failure update: {e}")
+            
+        # Verify the file was actually updated by reading it again with a different method
+        try:
+            with open(goal_prompt_path, 'rb') as f:
+                # Acquire a shared lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                binary_content = f.read()
+                # Release the lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                
+            updated_goal = binary_content.decode('utf-8', errors='replace')
+            
+            if test_failure_addendum.strip() in updated_goal:
+                logger.info(f"Successfully updated goal.prompt with guidance for {test_type} test failures.")
+                console.print(f"[bold green]Updated goal.prompt with guidance for {test_type} test failures.[/bold green]")
+            else:
+                # Try one more time with the regular reload function
+                updated_goal = reload_file(goal_prompt_path)
+                if test_failure_addendum.strip() in updated_goal:
+                    logger.info(f"Successfully verified goal.prompt update on second attempt.")
+                    console.print(f"[bold green]Updated goal.prompt with guidance for {test_type} test failures.[/bold green]")
+                else:
+                    logger.error(f"Failed to verify goal.prompt update for {test_type} test failures")
+                    console.print(f"[bold red]Failed to update goal.prompt with guidance for {test_type} test failures.[/bold red]")
+        except Exception as e:
+            logger.error(f"Error verifying goal.prompt update: {e}", exc_info=True)
+            console.print(f"[bold red]Error verifying goal.prompt update: {e}[/bold red]")
         
     except Exception as e:
         logger.error(f"Failed to update goal.prompt for test failures: {e}", exc_info=True)
@@ -157,7 +232,16 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
         test_failure_info: Optional information about test failures to guide the council
         automated: Whether to run in automated mode (no human interaction)
     """
-    # Force reload files first to ensure we have the latest content from disk
+    # Force filesystem stats before reloading files
+    logger.info("Forcing filesystem stats before reloading planning files...")
+    try:
+        os.stat(str(plan_path))
+        os.stat(str(goal_prompt_path))
+        os.stat(str(readme_path))
+    except Exception as e:
+        logger.warning(f"Error getting file stats before reload: {e}")
+    
+    # Force reload files to ensure we have the latest content from disk
     logger.info("Reloading planning files from disk...")
     plan_content = reload_file(plan_path)
     goal_prompt_content = reload_file(goal_prompt_path)
@@ -610,9 +694,18 @@ Your response should be the complete new content for goal.prompt.
             if attempt == 1:
                 # Store the test failure information for potential goal.prompt update
                 failure_log_path = Path("test_failures.log")
-                with open(failure_log_path, "w", encoding="utf-8") as f:
-                    f.write(test_failure_output)
-                logger.info(f"Wrote test failures to {failure_log_path}")
+                try:
+                    with open(failure_log_path, "w", encoding="utf-8") as f:
+                        # Acquire an exclusive lock
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                        f.write(test_failure_output)
+                        f.flush()  # Force flush to disk
+                        os.fsync(f.fileno())  # Ensure it's written to disk
+                        # Release the lock
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    logger.info(f"Wrote test failures to {failure_log_path}")
+                except Exception as e:
+                    logger.error(f"Error writing test failures to log: {e}", exc_info=True)
                 
                 # Check if we need to modify goal.prompt to specifically address test failures
                 if "cargo test" in test_cmd_list:
@@ -621,6 +714,12 @@ Your response should be the complete new content for goal.prompt.
                 else:
                     console.print("[bold yellow]Detected pytest failures. Updating goal.prompt to address Python test issues.[/bold yellow]")
                     update_goal_for_test_failures("pytest")
+                
+                # Force a filesystem stat before reloading
+                try:
+                    os.stat(str(goal_prompt_path))
+                except Exception as e:
+                    logger.warning(f"Error getting goal prompt stats after test failure update: {e}")
                 
                 # Force reload goal.prompt after update
                 goal_prompt_content = reload_file(goal_prompt_path)
