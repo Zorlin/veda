@@ -984,10 +984,10 @@ Your response should be the complete new content for goal.prompt.
                 # Check if we need to modify goal.prompt to specifically address test failures
                 if test_type == "cargo":
                     console.print("[bold yellow]Detected cargo test failures. Updating goal.prompt to address Rust test issues.[/bold yellow]")
-                    update_goal_for_test_failures("cargo")
+                    update_goal_for_test_failures("cargo", test_failure_output)
                 else: # Default to pytest
                     console.print("[bold yellow]Detected pytest failures. Updating goal.prompt to address Python test issues.[/bold yellow]")
-                    update_goal_for_test_failures("pytest")
+                    update_goal_for_test_failures("pytest", test_failure_output)
 
                 # Force a filesystem stat before reloading
                 try:
