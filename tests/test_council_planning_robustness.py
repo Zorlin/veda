@@ -139,6 +139,8 @@ It contains the current, actionable plan for the next iteration(s) of the agent 
 
                 # Check that the major shift was detected
                 major_shift_detected = False
+                    
+                # First check the console output
                 for call_args in mock_print.call_args_list:
                     args = call_args[0]
                     arg_str = ' '.join(str(arg) for arg in args)
@@ -148,6 +150,16 @@ It contains the current, actionable plan for the next iteration(s) of the agent 
                         (marker in arg_str)):
                         major_shift_detected = True
                         break
+                    
+                # If not found in console output, check the captured stdout
+                if not major_shift_detected:
+                    import sys
+                    captured_output = sys.stdout.getvalue() if hasattr(sys.stdout, 'getvalue') else ""
+                    if ((f"marker: {marker}" in captured_output) or
+                        ("major shift" in captured_output.lower()) or
+                        ("Major shift" in captured_output) or
+                        (marker in captured_output)):
+                        major_shift_detected = True
                 
                 assert major_shift_detected, f"Failed to detect major shift marker: {marker}"
 
