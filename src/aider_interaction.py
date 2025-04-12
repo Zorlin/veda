@@ -124,12 +124,20 @@ def run_aider(
         # Aider expects the prompt on stdin after startup
         logger.debug("Sending prompt to Aider via stdin...")
         # Fix the bytes vs string issue by ensuring we send bytes to pexpect
-        if child.encoding:
-            # If child has encoding set, use it to encode the prompt
-            child.sendline(prompt)
-        else:
-            # Otherwise, encode with utf-8 (common default)
-            child.sendline(prompt.encode('utf-8'))
+        try:
+            # First try to use the child's encoding if available
+            if hasattr(child, 'encoding') and child.encoding:
+                # Use the child's encoding
+                encoded_prompt = prompt.encode(child.encoding)
+                child.send(encoded_prompt + child.linesep.encode(child.encoding))
+            else:
+                # Fallback to utf-8 encoding
+                encoded_prompt = prompt.encode('utf-8')
+                child.send(encoded_prompt + b'\n')
+            logger.debug("Successfully sent encoded prompt to Aider")
+        except Exception as e:
+            logger.error(f"Error sending prompt to Aider: {e}")
+            raise
         # No need to explicitly wait for a prompt *from* Aider here,
         # as it should start processing the stdin prompt immediately.
 
