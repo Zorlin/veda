@@ -133,9 +133,8 @@ def run_aider(
 
         # --- Wait for Aider's CLI prompt, then send our prompt as user input ---
         logger.debug("Waiting for Aider CLI prompt to enter our prompt...")
-        # Wait for the Aider CLI prompt (e.g., "What would you like to do?" or similar)
-        # You may need to adjust the pattern to match Aider's actual prompt
-        aider_cli_prompt_pattern = r"(What would you like to do\?|How can I help you\?|Enter your prompt:|Prompt:)"
+        # Wait for the Aider CLI prompt (e.g., ">", "What would you like to do?", etc.)
+        aider_cli_prompt_pattern = r"(>|What would you like to do\?|How can I help you\?|Enter your prompt:|Prompt:)"
         try:
             child.expect(aider_cli_prompt_pattern, timeout=30)
             logger.debug("Aider CLI prompt detected, sending our prompt as user input...")
