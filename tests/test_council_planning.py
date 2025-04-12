@@ -77,7 +77,9 @@ This project aims to build a self-improving AI system that:
         # Change back to the original directory
         os.chdir(original_dir)
 
-def test_council_planning_enforcement_blocks_without_plan_update(monkeypatch, temp_plan_and_goal):
+@pytest.mark.council_planning
+@patch('src.llm_interaction.get_llm_response', return_value="### Council Round 1 (Auto)\n* Summary: Auto-generated.\n* Next: [ ] Task.") # Mock LLM
+def test_council_planning_enforcement_blocks_without_plan_update(mock_llm, monkeypatch, temp_plan_and_goal):
     """
     Simulate a round and verify that the council planning enforcement blocks if PLAN.md is not updated,
     and auto-appends a new entry if not updated after two attempts.
@@ -89,10 +91,14 @@ def test_council_planning_enforcement_blocks_without_plan_update(monkeypatch, te
     
     # Mock subprocess.run to avoid actually running tests
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeCompleted())
-    
-    # Mock input to simulate user pressing Enter without updating the file
-    monkeypatch.setattr("builtins.input", lambda: None)
-    
+
+    # Mock input to simulate user pressing Enter twice without updating the file
+    input_calls = [0]
+    def mock_input():
+        input_calls[0] += 1
+        return None
+    monkeypatch.setattr("builtins.input", mock_input)
+
     # Import the function after mocking
     from main import council_planning_enforcement
     
@@ -108,8 +114,9 @@ def test_council_planning_enforcement_blocks_without_plan_update(monkeypatch, te
     
     assert len(updated_content) > len(initial_content)
     assert "Council Round" in updated_content
-    assert "[Auto-generated placeholder" in updated_content or "Auto-generated" in updated_content
+    assert "[Auto-generated placeholder" in updated_content or "Auto-generated" in updated_content or "Council Round 1 (Auto)" in updated_content # Check for mock LLM output
 
+@pytest.mark.council_planning
 def test_council_planning_enforcement_detects_plan_update(monkeypatch, temp_plan_and_goal):
     """
     Simulate a round and verify that if PLAN.md is updated by the user, no auto-append occurs.
@@ -160,11 +167,14 @@ def test_council_planning_enforcement_detects_plan_update(monkeypatch, temp_plan
     with open(temp_plan_and_goal["plan_path"], "r") as f:
         updated_content = f.read()
     
-    assert "Council Round 2" in updated_content
+    assert "Council Round 2" in updated_content # Check for user's update
     assert "Made good progress" in updated_content
-    assert "Auto-generated placeholder" not in updated_content
+    assert "Auto-generated placeholder" not in updated_content # Ensure auto-append didn't happen
+    assert "Council Round 1 (Auto)" not in updated_content # Ensure mock LLM wasn't called unnecessarily
 
-def test_council_planning_enforcement_detects_goal_prompt_update(monkeypatch, temp_plan_and_goal):
+@pytest.mark.council_planning
+@patch('src.llm_interaction.get_llm_response', return_value="Updated goal prompt via LLM.") # Mock LLM for potential auto goal update
+def test_council_planning_enforcement_detects_goal_prompt_update(mock_llm, monkeypatch, temp_plan_and_goal):
     """
     Simulate a round and verify that if goal.prompt is updated when a major shift is detected,
     it's properly handled.
@@ -177,14 +187,20 @@ def test_council_planning_enforcement_detects_goal_prompt_update(monkeypatch, te
     # Mock subprocess.run to avoid actually running tests
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeCompleted())
     
-    # Create a counter to track input calls
+    # Create a counter to track input calls and manage file updates
     input_calls = [0]
-    
+    plan_updated = False
+    goal_updated = False
+
     def mock_input():
+        call_count = input_calls[0]
         input_calls[0] += 1
-        # On first call, update the PLAN.md file with a major shift marker
-        if input_calls[0] == 1:
-            with open(temp_plan_and_goal["plan_path"], "a") as f:
+
+        # First call: User updates PLAN.md with MAJOR_SHIFT marker and presses Enter
+        if call_count == 0:
+            nonlocal plan_updated
+            if not plan_updated:
+                with open(temp_plan_and_goal["plan_path"], "a") as f:
                 f.write("""
 ---
 
@@ -196,9 +212,15 @@ def test_council_planning_enforcement_detects_goal_prompt_update(monkeypatch, te
     *   [ ] Update documentation
 *   **Reference:** This plan must always respect the high-level goals and constraints in README.md.
 """)
-        # On second call, update the goal.prompt file
-        elif input_calls[0] == 2:
-            with open(temp_plan_and_goal["goal_path"], "w") as f:
+                plan_updated = True
+            return None # Simulate pressing Enter after updating PLAN.md
+
+        # Second call: Function detects MAJOR_SHIFT and asks user to confirm/update goal.prompt.
+        # User updates goal.prompt and presses Enter.
+        elif call_count == 1:
+            nonlocal goal_updated
+            if not goal_updated:
+                with open(temp_plan_and_goal["goal_path"], "w") as f:
                 f.write("""
 Updated goal prompt with new direction.
 The open source council has determined a major shift is needed.
@@ -208,11 +230,16 @@ Instructions:
 - Focus on the new direction
 - Respect README.md goals
 """)
-        return None
-    
+                goal_updated = True
+            return None # Simulate pressing Enter after updating goal.prompt
+
+        # Handle potential extra calls if logic changes
+        else:
+            return None
+
     # Mock input to simulate user updating files and pressing Enter
     monkeypatch.setattr("builtins.input", mock_input)
-    
+
     # Import the function after mocking
     from main import council_planning_enforcement
     
@@ -227,12 +254,16 @@ Instructions:
     with open(temp_plan_and_goal["goal_path"], "r") as f:
         updated_goal = f.read()
     
-    assert updated_goal != initial_goal
-    assert "Updated goal prompt with new direction" in updated_goal
+    assert updated_goal != initial_goal # Check goal was updated
+    assert "Updated goal prompt with new direction" in updated_goal # Check user's update is present
+    assert "Updated goal prompt via LLM." not in updated_goal # Ensure LLM wasn't used for goal update in manual mode
 
-def test_council_planning_enforcement_handles_test_failures(monkeypatch, temp_plan_and_goal):
+@pytest.mark.council_planning
+@patch('main.update_goal_for_test_failures') # Mock the function directly
+@patch('src.llm_interaction.get_llm_response', return_value="### Council Round 1 (Auto)\n* Summary: Auto-generated for test failure handling.\n* Next: [ ] Fix tests.") # Mock LLM for automated plan update
+def test_council_planning_enforcement_handles_test_failures(mock_llm, mock_update_goal, monkeypatch, temp_plan_and_goal):
     """
-    Verify that the council planning enforcement handles test failures correctly.
+    Verify that the council planning enforcement handles test failures correctly in automated mode.
     """
     run_count = [0]
     
@@ -253,32 +284,27 @@ def test_council_planning_enforcement_handles_test_failures(monkeypatch, temp_pl
     # Mock subprocess.run to simulate test failures
     monkeypatch.setattr(subprocess, "run", mock_run)
     
-    # Mock input to simulate user pressing Enter
-    monkeypatch.setattr("builtins.input", lambda: None)
-    
-    # Import the function after mocking
-    from main import council_planning_enforcement, update_goal_for_test_failures
-    
-    # Mock the update_goal_for_test_failures function to verify it's called
-    original_update = update_goal_for_test_failures
-    update_called = [False]
-    
-    def mock_update_goal(test_type):
-        update_called[0] = True
-        # Call the original to maintain behavior
-        original_update(test_type)
-    
-    monkeypatch.setattr("main.update_goal_for_test_failures", mock_update_goal)
-    
-    # Run the council planning enforcement
-    council_planning_enforcement(iteration_number=1, automated=True)
-    
-    # Verify that update_goal_for_test_failures was called
-    assert update_called[0] == True
-    
-    # Verify that the test was retried and eventually passed
-    assert run_count[0] > 1
+    # No need to mock input for automated=True
 
+    # Import the function after mocking
+    from main import council_planning_enforcement, CouncilPlanningTestFailure
+
+    # Run the council planning enforcement with testing_mode=True
+    # Expect it to raise CouncilPlanningTestFailure because tests fail the first time
+    # and automated mode doesn't wait for manual fixes.
+    # The function should still call update_goal_for_test_failures before raising.
+    with pytest.raises(CouncilPlanningTestFailure):
+         council_planning_enforcement(iteration_number=1, automated=True, testing_mode=True)
+
+    # Verify that update_goal_for_test_failures was called (using the mock provided by @patch)
+    mock_update_goal.assert_called_once()
+    # Check the type of failure passed (should be 'pytest' by default)
+    assert mock_update_goal.call_args[0][0] == 'pytest'
+
+    # Verify that the test command was run at least once (it fails, so no retry happens before exit/raise)
+    assert run_count[0] >= 1
+
+@pytest.mark.council_planning
 def test_council_planning_integration_with_harness(monkeypatch, temp_plan_and_goal):
     """
     Test that council planning is properly integrated with the harness run cycle.
@@ -345,9 +371,10 @@ def test_council_planning_integration_with_harness(monkeypatch, temp_plan_and_go
     # Now test the evaluation method
     harness._evaluate_outcome("test_goal", "test_diff", "test_output", True)
     
-    # Verify that council planning was called during evaluation
-    assert len(council_calls) >= 3
-    
+    # Verify that council planning was called during evaluation (should be called before original evaluate)
+    assert len(council_calls) >= 3 # Initial, Final, Evaluate
+
+@pytest.mark.council_planning
 def test_update_goal_for_test_failures(monkeypatch, temp_plan_and_goal):
     """
     Test that the update_goal_for_test_failures function correctly updates goal.prompt
