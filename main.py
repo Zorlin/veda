@@ -780,7 +780,13 @@ Your response should be the complete new content for goal.prompt.
     # --- Test Enforcement ---
     max_test_retries = 3
     test_failure_output = None
-        
+
+    # Define the TestResult class here so it's always available
+    class TestResult:
+        def __init__(self, returncode, stdout):
+            self.returncode = returncode
+            self.stdout = stdout
+
     for attempt in range(1, max_test_retries + 1):
         console.print(f"\n[bold]Running test suite (attempt {attempt}/{max_test_retries})...[/bold]")
         # Use the test command from config if available, otherwise default
@@ -793,7 +799,9 @@ Your response should be the complete new content for goal.prompt.
             test_cmd_list = ["cargo", "test"]
             
         logger.info(f"Running test command: {' '.join(test_cmd_list)}")
-            
+
+        test_result = None # Initialize test_result before the try block
+
         # Run the test command with proper terminal handling to prevent display issues
         try:
             # Create a temporary file to capture output
@@ -850,18 +858,27 @@ Your response should be the complete new content for goal.prompt.
             console.print(test_result.stdout)
         except Exception as e:
             logger.error(f"Error running test command: {e}", exc_info=True)
+            # Ensure test_result is assigned a failure state in case of exception
             test_result = TestResult(1, f"Error running test command: {str(e)}")
             console.print(f"[bold red]Error running test command: {str(e)}[/bold red]")
-        
-        if test_result.returncode == 0:
+
+        # Check if test_result was successfully created before accessing attributes
+        if test_result and test_result.returncode == 0:
             console.print("[bold green]All tests passed![/bold green]")
             logger.info("All tests passed successfully")
             break
         else:
-            console.print(f"[bold red]Tests failed (attempt {attempt}).[/bold red]")
-            logger.error(f"Tests failed on attempt {attempt}")
-            test_failure_output = test_result.stdout
-            
+            # Handle the case where test_result might still be None if the try block failed early
+            if test_result:
+                console.print(f"[bold red]Tests failed (attempt {attempt}).[/bold red]")
+                logger.error(f"Tests failed on attempt {attempt}")
+                test_failure_output = test_result.stdout
+            else:
+                # Handle the case where test execution failed entirely
+                console.print(f"[bold red]Test execution failed (attempt {attempt}).[/bold red]")
+                logger.error(f"Test execution failed entirely on attempt {attempt}")
+                test_failure_output = "Test execution failed before results could be captured."
+
             # If this is the first failure, check if we need to update goal.prompt
             if attempt == 1:
                 # Store the test failure information for potential goal.prompt update
