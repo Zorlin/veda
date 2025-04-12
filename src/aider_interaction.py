@@ -137,10 +137,12 @@ def run_aider(
         aider_cli_prompt_pattern = r"(>|What would you like to do\?|How can I help you\?|Enter your prompt:|Prompt:)"
         try:
             child.expect(aider_cli_prompt_pattern, timeout=30)
-            logger.debug("Aider CLI prompt detected, sending entire prompt as a single block...")
-            # Send the entire prompt string followed by a single newline character
-            child.send(prompt + '\n')
-            logger.debug("Finished sending prompt block.")
+            logger.debug("Aider CLI prompt detected, sending prompt content and then newline...")
+            # Send the prompt content without the final newline
+            child.send(prompt)
+            # Send the final newline character explicitly
+            child.send('\n')
+            logger.debug("Finished sending prompt.")
         except pexpect.exceptions.TIMEOUT:
             logger.error("Timed out waiting for Aider CLI prompt. Cannot send prompt as user input.")
             return None, "Timed out waiting for Aider CLI prompt."
