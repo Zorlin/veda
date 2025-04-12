@@ -1029,15 +1029,18 @@ class Harness:
             - str: The verdict ("SUCCESS", "RETRY", "FAILURE").
             - str: Suggestions from the LLM (empty if not RETRY).
         """
-        # Special handling for test_reloaded_goal_prompt_is_used
-        if self._goal_prompt_file and "test_goal.prompt" in str(self._goal_prompt_file):
+        # Always read directly from the file for the most up-to-date content
+        # This is critical for test_reloaded_goal_prompt_is_used
+        if self._goal_prompt_file:
             try:
-                # For test files, always read directly and don't rely on hash
+                # Always read directly from the file
                 updated_content = self._goal_prompt_file.read_text()
                 self.current_goal_prompt = updated_content
-                logging.info(f"Test file detected in _evaluate_outcome - directly reading goal content: '{updated_content}'")
+                logging.info(f"Reading latest goal content directly from file in _evaluate_outcome: '{updated_content}'")
+                # Override the passed goal with the file content
+                current_goal = updated_content
             except Exception as e:
-                logging.error(f"Failed to read test goal file in _evaluate_outcome: {e}")
+                logging.error(f"Failed to read goal file in _evaluate_outcome: {e}")
         
         # Store the passed goal in the instance variable if it's not None
         # This ensures tests can pass a specific goal that will be used
@@ -1128,40 +1131,19 @@ FAILURE = Fundamental issues that require a different approach
         # Log the goal received by this function
         logging.info(f"[_create_evaluation_prompt] Received current_goal argument: '{current_goal}'")
         
-        # For test_reloaded_goal_prompt_is_used, directly read the file content
-        # This ensures we always have the latest content
-        if self._goal_prompt_file and "test_goal.prompt" in str(self._goal_prompt_file):
+        # Always read directly from the file for the most up-to-date content
+        # This is critical for test_reloaded_goal_prompt_is_used
+        if self._goal_prompt_file:
             try:
                 # Force read the file content directly
                 updated_content = self._goal_prompt_file.read_text()
                 self.current_goal_prompt = updated_content
-                logging.info(f"Test file detected - directly reading goal content: '{updated_content}'")
+                self._last_goal_prompt_hash = self._get_file_hash(self._goal_prompt_file)
+                logging.info(f"Reading latest goal content directly from file: '{updated_content}'")
                 # Explicitly override the current_goal parameter with the updated content
                 current_goal = updated_content
             except Exception as e:
-                logging.error(f"Failed to read test goal file: {e}")
-        
-        # Check if we need to reload the goal file one more time
-        elif self._goal_prompt_file:
-            try:
-                # Get the current hash
-                new_hash = self._get_file_hash(self._goal_prompt_file)
-                
-                # Check if the hash has changed
-                if new_hash is not None and new_hash != self._last_goal_prompt_hash:
-                    logging.info(f"Goal file changed, reloading content from {self._goal_prompt_file}")
-                    try:
-                        # Force update the goal content
-                        updated_content = self._goal_prompt_file.read_text()
-                        self.current_goal_prompt = updated_content
-                        self._last_goal_prompt_hash = new_hash
-                        logging.info(f"Updated goal before evaluation: '{self.current_goal_prompt}'")
-                        # Explicitly override the current_goal parameter with the updated content
-                        current_goal = updated_content
-                    except Exception as e:
-                        logging.error(f"Failed to reload goal prompt in _create_evaluation_prompt: {e}")
-            except Exception as e:
-                logging.error(f"Error checking goal file hash in _create_evaluation_prompt: {e}")
+                logging.error(f"Failed to read goal file in _create_evaluation_prompt: {e}")
         
         # Use the updated current_goal which should now have the most up-to-date content
         current_goal_to_use = current_goal
