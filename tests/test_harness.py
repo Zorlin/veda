@@ -368,7 +368,7 @@ def test_reloaded_goal_prompt_is_used(mock_get_hash, temp_work_dir): # Renamed t
 
         # --- Simulate file change between iterations ---
         # Wait longer BEFORE the update to ensure iteration 1 likely finishes processing
-        time.sleep(1.0) # Increased sleep duration
+        time.sleep(3.0) # Significantly increased sleep duration
         logging.info("TEST: Simulating goal file update...")
         goal_file.write_text(updated_content) # Update the file content
 
