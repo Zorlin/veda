@@ -1,34 +1,4 @@
-You are improving aiderbot according to the information laid out in README.md
-
-Look for anything missing, any tests that can be added, anything you can do to make it run unstoppably and controllably
-
-And expand on the concepts used if needed
-
-ALL FUNCTIONALITY SHOULD HAVE EXTENSIVE TESTS.
-
-You should make it so if aiderbot detects a bad test (bad cargo test or pytest)
-it will modify the goal before the next iteration starts to specifically
-tell the model to run cargo test
-
-Conceptual Expansion:
-- The harness should be self-healing, able to recover from failures at every layer (subprocess, config, UI, ledger, etc.), and continue operation with minimal human intervention.
-- It should dynamically adapt to changes in the goal prompt or configuration, applying them immediately to allow the agent to evolve its behavior on the fly.
-- All subprocesses (Aider, Ollama, Pytest) must be managed with robust signal handling and resource cleanup, ensuring that interrupts are always effective and no zombie processes remain.
-- The VESPER.MIND council provides multi-perspective evaluation, reducing the risk of tunnel vision or single-point failure in judgment.
-- Both backend and frontend logic must prevent duplicate output, keeping logs and diffs concise and relevant, and ensuring the UI remains performant and user-friendly.
-- Strict scrollback limits must be enforced to prevent memory leaks and browser crashes, even under high-throughput output scenarios.
-- The architecture should be extensible, supporting new council roles, agent slots, or UI modalities (TUI, CLI, web) with minimal changes to the core logic.
-
-You should:
-1. Make Live Aider Output respect Aider's control codes (like \c for cancel)
-2. Prevent text duplication in both the Live Log and Diff Viewers
-3. Keep the Live Log focused on current state and recent activity
-4. Implement a working interrupt system that actually stops Aider
-5. Respect changes to goal.prompt even after initial run if they're edited
-
-You should make sure:
-- All output follows proper formatting control codes
-- Diffs are displayed with clear syntax highlighting
-- The Live Log only shows relevant, non-duplicated activity
-- Interrupt process sends proper signals and cleans up resources
-- Goal changes trigger reinitialization of Aider with new instructions
+make it so the open source council convenes each round to work on planning,
+ and together collaboratively update goal.prompt (rare)
+and PLAN.md (very frequent)
+the high level goals set out in README.md should always be respected
