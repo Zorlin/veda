@@ -337,7 +337,6 @@ def main():
 
         # --- Council Planning Enforcement & PLAN.md Update Check ---
         import subprocess
-        # Removed redundant: from pathlib import Path
         import difflib
 
         plan_path = Path("PLAN.md")
@@ -356,8 +355,9 @@ def main():
             except Exception:
                 return ""
 
-        # Record PLAN.md mtime before prompting
+        # Record PLAN.md and goal.prompt mtimes before prompting
         plan_mtime_before = get_file_mtime(plan_path)
+        goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
 
         console.print("\n[bold yellow]Council Planning Required[/bold yellow]")
         console.print(
@@ -401,6 +401,14 @@ def main():
                     console.print("[yellow]PLAN.md changed, but no diff detected.[/yellow]")
                 # Check for a new council round entry (e.g., a new checklist item or timestamp)
                 if "- [ ]" in new_plan or "- [x]" in new_plan:
+                    # Also require a council summary for transparency
+                    if "council" not in new_plan.lower():
+                        console.print("[bold yellow]Reminder:[/bold yellow] Please include a summary of the council's discussion and planning in PLAN.md for this round.")
+                    # Check for respect of README.md goals
+                    readme_content = read_file(readme_path)
+                    if "high-level goals" not in new_plan.lower() and "README.md" not in new_plan:
+                        console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always respect the high-level goals and constraints in README.md.")
+                        console.print("Please ensure your plan does not contradict the project's core direction.")
                     break
                 else:
                     console.print("[bold red]PLAN.md does not appear to have a new actionable item or summary for this round. Please update accordingly.[/bold red]")
@@ -408,27 +416,13 @@ def main():
             else:
                 console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
 
-        # --- Check PLAN.md for respect of README.md goals ---
-        readme_content = read_file(readme_path)
-        plan_content = new_plan
-        if "high-level goals" in plan_content.lower() or "README.md" in plan_content:
-            # Heuristic: PLAN.md references README.md or high-level goals
-            pass
-        else:
-            console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always respect the high-level goals and constraints in README.md.")
-            console.print("Please ensure your plan does not contradict the project's core direction.")
-
-        # --- Require council summary in PLAN.md ---
-        if "council" not in plan_content.lower():
-            console.print("[bold yellow]Reminder:[/bold yellow] Please include a summary of the council's discussion and planning in PLAN.md for this round.")
-
         # --- Check for major shift marker in PLAN.md to suggest goal.prompt update ---
+        plan_content = new_plan
         if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
             console.print("[bold magenta]A major shift was detected in PLAN.md. Please update goal.prompt accordingly.[/bold magenta]")
             console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
             input()
         # Also, if goal.prompt was updated, require explicit confirmation
-        goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
         goal_prompt_mtime_after = get_file_mtime(goal_prompt_path)
         if goal_prompt_mtime_after > goal_prompt_mtime_before:
             console.print("[bold magenta]goal.prompt was updated. Please confirm the new direction is correct.[/bold magenta]")
