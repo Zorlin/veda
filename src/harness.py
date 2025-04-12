@@ -1032,11 +1032,10 @@ FAILURE = Fundamental issues that require a different approach
         # Log the goal received by this function
         logging.info(f"[_create_evaluation_prompt] Received current_goal argument: '{current_goal}'")
         
-        # Always use the most up-to-date goal from the instance variable
-        # This ensures we're using the latest goal that might have been updated elsewhere
-        if self.current_goal_prompt and self.current_goal_prompt != current_goal:
-            logging.info(f"Using updated goal from instance variable: '{self.current_goal_prompt}'")
-            current_goal = self.current_goal_prompt
+        # ALWAYS use the instance variable for the most up-to-date goal
+        # This is critical for tests that modify the goal file between iterations
+        logging.info(f"Using goal from instance variable: '{self.current_goal_prompt}'")
+        current_goal = self.current_goal_prompt
         
         # Create a concise history string for the prompt, showing last few turns
         history_limit = 3
@@ -1053,7 +1052,10 @@ FAILURE = Fundamental issues that require a different approach
         else:
             iteration_context = f"This is iteration {self.state['current_iteration'] + 1} of maximum {self.max_retries}. Consider the progress made across iterations."
 
-        # Use the current_goal which may have been updated above
+        # Log the goal being used in the prompt for debugging
+        logging.info(f"Creating evaluation prompt with goal: '{current_goal}'")
+        
+        # Use the current_goal which has been updated above
         prompt = f"""
 Analyze the results of an automated code generation step in a test harness.
 
@@ -1104,11 +1106,10 @@ Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RE
         """
         Creates an enhanced user prompt for the next Aider attempt based on evaluation suggestions.
         """
-        # Always use the most up-to-date goal from the instance variable
-        # This ensures we're using the latest goal that might have been updated elsewhere
-        if self.current_goal_prompt and self.current_goal_prompt != current_goal:
-            logging.info(f"Using updated goal from instance variable: '{self.current_goal_prompt}'")
-            current_goal = self.current_goal_prompt
+        # ALWAYS use the instance variable for the most up-to-date goal
+        # This is critical for tests that modify the goal file between iterations
+        logging.info(f"Using goal from instance variable: '{self.current_goal_prompt}'")
+        current_goal = self.current_goal_prompt
                     
         # Determine iteration number for context
         current_iteration = self.state["current_iteration"]
@@ -1172,11 +1173,10 @@ Focus on implementing the suggested improvements while maintaining code quality 
         """
         logging.info("Running code review...")
 
-        # Always use the most up-to-date goal from the instance variable
-        # This ensures we're using the latest goal that might have been updated elsewhere
-        if self.current_goal_prompt and self.current_goal_prompt != current_goal:
-            logging.info(f"Using updated goal from instance variable: '{self.current_goal_prompt}'")
-            current_goal = self.current_goal_prompt
+        # ALWAYS use the instance variable for the most up-to-date goal
+        # This is critical for tests that modify the goal file between iterations
+        logging.info(f"Using goal from instance variable: '{self.current_goal_prompt}'")
+        current_goal = self.current_goal_prompt
 
         # Get the configured code review model
         model_name = self.config.get("code_review_model")
