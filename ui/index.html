@@ -77,18 +77,9 @@
         <!-- Live Aider Output -->
         <div class="mb-4">
             <h2 class="text-xl font-semibold mb-2">Live Aider Output / Current Task</h2>
-            <!-- Use div with x-html to render ANSI codes processed by ansi_up -->
-            <!-- Add error handling for ansi_up -->
+            <!-- Use div with x-html to render ANSI codes processed by ansi-to-html -->
             <div class="bg-gray-900 text-gray-300 p-4 rounded h-64 overflow-y-auto text-xs font-mono" x-ref="aiderLogContainer">
-                <div class="log-entry" x-html="() => {
-                    try {
-                        // console.log('Rendering liveAiderOutput length:', liveAiderOutput.length); // Optional: log before render
-                        return ansiConverter ? ansiConverter.toHtml(liveAiderOutput) : liveAiderOutput;
-                    } catch (e) {
-                        console.error('ansi-to-html conversion error:', e);
-                        return `<span style=&quot;color: red; font-weight: bold;&quot;>Error rendering output: ${e.message}</span><br>${liveAiderOutput}`; // Show error and raw output
-                    }
-                }"></div>
+                <div class="log-entry" x-html="processedAiderOutput"></div>
             </div>
         </div>
 
