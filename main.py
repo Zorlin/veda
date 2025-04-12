@@ -110,25 +110,34 @@ def reload_file(path):
         
         # Clear any potential file system cache by checking if the file exists first
         if Path(path).exists():
-            # Use file locking to ensure consistent reads
-            with open(path, 'r', encoding="utf-8", errors='replace') as f:
-                # Acquire a shared lock (allows other readers but blocks writers)
-                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-                content = f.read()
-                # Release the lock
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                
-                # Verify we got content if the file isn't empty
-                if not content and os.path.getsize(path) > 0:
-                    logger.warning(f"File {path} appears to have content but read returned empty string. Retrying with binary read...")
-                    # Try one more time with a binary read
-                    with open(path, 'rb') as bf:
-                        fcntl.flock(bf.fileno(), fcntl.LOCK_SH)
-                        binary_content = bf.read()
-                        fcntl.flock(bf.fileno(), fcntl.LOCK_UN)
-                    content = binary_content.decode('utf-8', errors='replace')
-                
-                return content
+            # Try multiple times to ensure we get the content
+            for attempt in range(3):  # Try up to 3 times
+                try:
+                    # Use file locking to ensure consistent reads
+                    with open(path, 'r', encoding="utf-8", errors='replace') as f:
+                        # Acquire a shared lock (allows other readers but blocks writers)
+                        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                        content = f.read()
+                        # Release the lock
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                        
+                        # Verify we got content if the file isn't empty
+                        if not content and os.path.getsize(path) > 0:
+                            logger.warning(f"File {path} appears to have content but read returned empty string. Retrying with binary read...")
+                            # Try one more time with a binary read
+                            with open(path, 'rb') as bf:
+                                fcntl.flock(bf.fileno(), fcntl.LOCK_SH)
+                                binary_content = bf.read()
+                                fcntl.flock(bf.fileno(), fcntl.LOCK_UN)
+                            content = binary_content.decode('utf-8', errors='replace')
+                        
+                        return content
+                except (IOError, OSError) as e:
+                    if attempt < 2:  # Don't log on the last attempt
+                        logger.warning(f"Attempt {attempt+1} to read file {path} failed: {e}. Retrying...")
+                        time.sleep(0.1)  # Short delay before retry
+                    else:
+                        raise  # Re-raise on the last attempt
         else:
             logger.warning(f"File {path} does not exist")
             return ""
@@ -238,6 +247,7 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
         iteration_number: The current iteration number (None for initial/final)
         test_failure_info: Optional information about test failures to guide the council
         automated: Whether to run in automated mode (no human interaction), defaults to True
+        testing_mode: Whether running in testing mode (affects error handling)
     """
     # Import required modules
     import re
@@ -799,16 +809,34 @@ Your response should be the complete new content for goal.prompt.
                     stderr=subprocess.STDOUT,
                     text=True
                 )
-                    
-                # Wait for the process to complete
-                return_code = process.wait()
+                
+                # Set a timeout for the test process
+                try:
+                    # Wait for the process to complete with a timeout
+                    return_code = process.wait(timeout=300)  # 5-minute timeout
+                except subprocess.TimeoutExpired:
+                    logger.warning("Test process timed out after 5 minutes. Terminating...")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)  # Give it 10 seconds to terminate
+                    except subprocess.TimeoutExpired:
+                        logger.error("Test process did not terminate. Killing...")
+                        process.kill()
+                    return_code = 1  # Consider timeout a failure
                 
             # Read the output from the temp file
-            with open(temp_path, 'r') as output_file:
-                output = output_file.read()
+            try:
+                with open(temp_path, 'r') as output_file:
+                    output = output_file.read()
+            except Exception as e:
+                logger.error(f"Error reading test output: {e}")
+                output = f"Error reading test output: {str(e)}"
                 
             # Clean up the temp file
-            os.unlink(temp_path)
+            try:
+                os.unlink(temp_path)
+            except Exception as e:
+                logger.warning(f"Could not delete temporary file {temp_path}: {e}")
                 
             # Create a result object similar to what subprocess.run would return
             class TestResult:
@@ -851,8 +879,13 @@ Your response should be the complete new content for goal.prompt.
                 except Exception as e:
                     logger.error(f"Error writing test failures to log: {e}", exc_info=True)
                 
+                # Analyze test failures to determine the type
+                test_type = "pytest"  # Default to pytest
+                if "cargo test" in test_cmd_list or "running" in test_failure_output.lower() and "test" in test_failure_output.lower() and "failed" in test_failure_output.lower():
+                    test_type = "cargo"
+                
                 # Check if we need to modify goal.prompt to specifically address test failures
-                if "cargo test" in test_cmd_list:
+                if test_type == "cargo":
                     console.print("[bold yellow]Detected cargo test failures. Updating goal.prompt to address Rust test issues.[/bold yellow]")
                     update_goal_for_test_failures("cargo")
                 else:
@@ -878,8 +911,11 @@ Your response should be the complete new content for goal.prompt.
                 # The goal.prompt update happens above (if attempt == 1)
                 logger.error("Automated mode detected test failure. Exiting loop.")
                 if testing_mode:
-                    raise CouncilPlanningTestFailure("Tests failed in automated mode (first attempt)")
+                    # In testing mode, raise an exception with detailed information
+                    raise CouncilPlanningTestFailure(f"Tests failed in automated mode (attempt {attempt}): {test_failure_output[:500]}...")
                 else:
+                    # In normal operation, exit with error code
+                    console.print("[bold red]Exiting due to test failures in automated mode.[/bold red]")
                     sys.exit(1) # Exit immediately in automated mode after first failure
             # If not automated, continue loop allowing for manual intervention
     else: # This else block runs if the loop completes without a break (only possible in manual mode now)
@@ -887,18 +923,49 @@ Your response should be the complete new content for goal.prompt.
         console.print("[bold yellow]The council should revert to a previous working commit using:[/bold yellow] [italic]git log[/italic] and [italic]git revert <commit>[/italic]")
         
         # Create a special marker in PLAN.md to indicate test failures that need addressing
-        with open(plan_path, "a", encoding="utf-8") as f:
-            f.write("\n\n## CRITICAL: Test Failures Need Addressing\n")
-            f.write("The council must address the following test failures before proceeding:\n")
-            f.write("```\n")
-            f.write(test_failure_output or "Unknown test failures")
-            f.write("\n```\n")
+        try:
+            with open(plan_path, "a", encoding="utf-8") as f:
+                # Acquire an exclusive lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                f.write("\n\n## CRITICAL: Test Failures Need Addressing\n")
+                f.write("The council must address the following test failures before proceeding:\n")
+                f.write("```\n")
+                f.write(test_failure_output or "Unknown test failures")
+                f.write("\n```\n")
+                f.flush()  # Force flush to disk
+                os.fsync(f.fileno())  # Ensure it's written to disk
+                # Release the lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            logger.info("Added test failure information to PLAN.md")
+        except Exception as e:
+            logger.error(f"Error updating PLAN.md with test failures: {e}", exc_info=True)
+        
+        # Also create a git-friendly error file that can be committed
+        try:
+            error_file_path = Path("COUNCIL_ERROR.md")
+            with open(error_file_path, "w", encoding="utf-8") as f:
+                f.write("# Council Planning Error\n\n")
+                f.write(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("## Test Failures\n\n")
+                f.write("The following test failures were detected and need to be addressed:\n\n")
+                f.write("```\n")
+                f.write(test_failure_output or "Unknown test failures")
+                f.write("\n```\n\n")
+                f.write("## Recommended Actions\n\n")
+                f.write("1. Review the test failures above\n")
+                f.write("2. Fix the issues in the code\n")
+                f.write("3. Update PLAN.md with your changes\n")
+                f.write("4. If necessary, revert to a previous working commit using `git revert <commit>`\n")
+            logger.info(f"Created error file at {error_file_path}")
+        except Exception as e:
+            logger.error(f"Error creating error file: {e}", exc_info=True)
         
         if testing_mode:
-            # In testing mode, raise an exception instead of exiting
-            raise CouncilPlanningTestFailure("Tests failed after multiple attempts")
+            # In testing mode, raise an exception with detailed information
+            raise CouncilPlanningTestFailure(f"Tests failed after {max_test_retries} attempts: {test_failure_output[:500]}...")
         else:
-            # In normal operation, exit the process
+            # In normal operation, exit the process with error code
+            console.print("[bold red]Exiting due to persistent test failures.[/bold red]")
             sys.exit(1) # Exit if tests fail repeatedly
 
 
@@ -918,6 +985,37 @@ def run_with_council_planning(harness, original_run):
         # Run initial council planning (automated)
         console.print("\n[bold blue]Running initial council planning enforcement...[/bold blue]")
         try:
+            # Check if PLAN.md exists, create it if not
+            if not Path(plan_path).exists():
+                logger.info("PLAN.md does not exist. Creating initial file...")
+                with open(plan_path, "w", encoding="utf-8") as f:
+                    f.write("""
+This document is collaboratively updated by the open source council at each round.
+It contains the current, actionable plan for the next iteration(s) of the agent harness.
+
+- A human may optionally update PLAN.MD as needed but is never required to
+- The council should update this file frequently to reflect new strategies, priorities, and next steps.
+- The council should only update `goal.prompt` when a major shift in overall direction is needed (rare).
+- All plans must always respect the high-level goals and constraints set out in `README.md`.
+
+## Current Plan
+
+- [x] The open source council will convene at the end of each round to collaboratively review and update this PLAN.md file, ensuring it reflects the most current actionable steps, strategies, and next steps for the agent harness.
+- [x] The council will only update goal.prompt if a significant change in overall direction is required (rare).
+- [x] All planning and actions must always respect the high-level goals and constraints set out in README.md.
+- [ ] At the end of each round, the council must review and update PLAN.md to reflect the current actionable plan, strategies, and next steps.
+- [ ] Only update goal.prompt if a significant change in overall direction is required.
+- [ ] All planning and actions must always respect the high-level goals and constraints in README.md.
+
+## Council Summary & Plan for Next Round (Update Below)
+
+*   **Summary of Last Round:** [Council to fill in summary of the results, decisions, and discussions from the round that just completed.]
+*   **Blockers/Issues:** [Council to list any identified blockers or issues.]
+*   **Next Steps/Tasks:**
+    *   [ ] [Council to list specific, actionable tasks for the next iteration.]
+""")
+                    logger.info("Created initial PLAN.md file")
+            
             council_planning_enforcement(iteration_number=0, testing_mode=testing_mode)
         except CouncilPlanningTestFailure as e:
             logger.warning(f"Council planning test failure in initial phase: {e}")
@@ -935,7 +1033,7 @@ def run_with_council_planning(harness, original_run):
         console.print("\n[bold blue]Running final council planning enforcement...[/bold blue]")
         try:
             council_planning_enforcement(
-                iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final",
+                iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") and "current_iteration" in harness.state else "final",
                 testing_mode=testing_mode
             )
         except CouncilPlanningTestFailure as e:
@@ -963,11 +1061,47 @@ def evaluate_with_council(harness, original_evaluate):
         # Determine if we're in testing mode
         testing_mode = 'pytest' in sys.modules
         
-        # Run council planning before evaluation
-        console.print("\n[bold blue]Running council planning for iteration...[/bold blue]")
+        # Get the current iteration number safely
+        current_iteration = 0
         try:
+            if hasattr(harness, "state") and isinstance(harness.state, dict):
+                current_iteration = harness.state.get("current_iteration", 0)
+        except Exception as e:
+            logger.warning(f"Error accessing harness state: {e}")
+        
+        # Run council planning before evaluation
+        console.print(f"\n[bold blue]Running council planning for iteration {current_iteration}...[/bold blue]")
+        try:
+            # Check if PLAN.md exists, create it if not (shouldn't happen here, but just in case)
+            if not Path(plan_path).exists():
+                logger.warning("PLAN.md does not exist at evaluation time. Creating it...")
+                with open(plan_path, "w", encoding="utf-8") as f:
+                    f.write("""
+This document is collaboratively updated by the open source council at each round.
+It contains the current, actionable plan for the next iteration(s) of the agent harness.
+
+- A human may optionally update PLAN.MD as needed but is never required to
+- The council should update this file frequently to reflect new strategies, priorities, and next steps.
+- The council should only update `goal.prompt` when a major shift in overall direction is needed (rare).
+- All plans must always respect the high-level goals and constraints set out in `README.md`.
+
+## Current Plan
+
+- [x] The open source council will convene at the end of each round to collaboratively review and update this PLAN.md file.
+- [ ] At the end of each round, the council must review and update PLAN.md to reflect the current actionable plan.
+- [ ] Only update goal.prompt if a significant change in overall direction is required.
+- [ ] All planning and actions must always respect the high-level goals and constraints in README.md.
+
+## Council Summary & Plan for Next Round (Update Below)
+
+*   **Summary of Last Round:** [Council to fill in summary of the results, decisions, and discussions from the round that just completed.]
+*   **Blockers/Issues:** [Council to list any identified blockers or issues.]
+*   **Next Steps/Tasks:**
+    *   [ ] [Council to list specific, actionable tasks for the next iteration.]
+""")
+            
             council_planning_enforcement(
-                iteration_number=harness.state.get("current_iteration", 0),
+                iteration_number=current_iteration,
                 test_failure_info=pytest_output if not pytest_passed else None,
                 testing_mode=testing_mode
             )
