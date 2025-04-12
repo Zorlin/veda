@@ -968,8 +968,7 @@ class Harness:
                             "pytest_output": pytest_output,
                             "log_entry": f"Pytest finished. Passed: {pytest_passed}. Output:\n{summary_output}"
                         }))
-                    except RuntimeError:
-                        pass
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
                 elif test_cmd.startswith("cargo test"):
                     logging.info("Running cargo test...")
                     try:
