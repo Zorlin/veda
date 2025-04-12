@@ -68,14 +68,35 @@ def read_file(path):
     except Exception:
         return ""
 
+def reload_file(path):
+    """Helper to reload a file and get its content."""
+    try:
+        # Ensure we're getting the latest version from disk
+        if hasattr(path, 'resolve'):
+            path = path.resolve()
+        return Path(path).read_text(encoding="utf-8")
+    except Exception as e:
+        logger.error(f"Error reloading file {path}: {e}")
+        return ""
+
 def council_planning_enforcement(iteration_number=None):
     """
     Enforce that the open source council convenes each round to collaboratively update PLAN.md,
     and only update goal.prompt for major shifts. All planning must respect README.md.
     All tests must pass to continue; after a few tries, the council can revert to a working commit.
     """
+    # Reload files first to ensure we have the latest content
+    reload_file(plan_path)
+    reload_file(goal_prompt_path)
+    reload_file(readme_path)
+    
+    # Now get the modification times
     plan_mtime_before = get_file_mtime(plan_path)
     goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
+    
+    # Log which iteration we're in
+    if iteration_number is not None:
+        console.print(f"\n[bold yellow]Council Planning for Iteration {iteration_number}[/bold yellow]")
 
     console.print("\n[bold yellow]Council Planning Required[/bold yellow]")
     console.print(
@@ -98,8 +119,10 @@ def council_planning_enforcement(iteration_number=None):
         old_plan = read_file(plan_path)
         console.print("\n[bold cyan]Waiting for PLAN.md to be updated with a new council round entry...[/bold cyan]")
         console.print("[italic]Please add a new checklist item or summary for this round in PLAN.md, then press Enter.[/italic]")
-        input() # This will block execution, intended for interactive use?
-        new_plan = read_file(plan_path)
+        input() # This will block execution, intended for interactive use
+        
+        # Explicitly reload the file to ensure we get the latest content
+        new_plan = reload_file(plan_path)
         if new_plan != old_plan:
             # Show a diff for transparency
             diff = list(difflib.unified_diff(
@@ -171,12 +194,17 @@ def council_planning_enforcement(iteration_number=None):
         plan_updated = True
 
     # --- Check for major shift marker in PLAN.md to suggest goal.prompt update ---
-    plan_content = read_file(plan_path)
+    # Reload plan content to ensure we have the latest version
+    plan_content = reload_file(plan_path)
     if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
         console.print("[bold magenta]A major shift was detected in PLAN.md. Please update goal.prompt accordingly.[/bold magenta]")
         console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
         input() # Block execution
+        # Reload goal.prompt after potential update
+        reload_file(goal_prompt_path)
+    
     # Also, if goal.prompt was updated, require explicit confirmation
+    # Get the latest modification time
     goal_prompt_mtime_after = get_file_mtime(goal_prompt_path)
     if goal_prompt_mtime_after > goal_prompt_mtime_before:
         console.print("[bold magenta]goal.prompt was updated. Please confirm the new direction is correct.[/bold magenta]")
@@ -463,7 +491,28 @@ def main():
             enable_code_review=args.enable_code_review or config.get("enable_code_review", False)
         )
 
-        # Run the main loop
+        # Run initial council planning before starting
+        console.print("\n[bold blue]Running initial council planning enforcement...[/bold blue]")
+        council_planning_enforcement(iteration_number=0)
+        
+        # Store the original run method
+        original_run = harness.run
+        
+        # Define a new run method that includes council planning
+        def run_with_council_planning(initial_goal_prompt_or_file=None):
+            # Run the original method
+            result = original_run(initial_goal_prompt_or_file)
+            
+            # Run final council planning after all iterations
+            console.print("\n[bold blue]Running final council planning enforcement...[/bold blue]")
+            council_planning_enforcement(iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final")
+            
+            return result
+        
+        # Replace the run method with our patched version
+        harness.run = run_with_council_planning
+        
+        # Run the main loop with council planning integration
         harness.run(initial_goal_prompt_or_file=prompt_source_arg)
 
     except KeyboardInterrupt:
