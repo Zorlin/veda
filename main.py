@@ -324,12 +324,13 @@ def main():
         )
 
         # Always reload PLAN.md before checking for changes
-        old_plan = read_file(plan_path)
         plan_updated = False
+        old_plan = read_file(plan_path)
         for _ in range(2):  # Give human a chance, then auto-append if not updated
             console.print("\n[bold cyan]Waiting for PLAN.md to be updated with a new council round entry...[/bold cyan]")
             console.print("[italic]Please add a new checklist item or summary for this round in PLAN.md, then press Enter.[/italic]")
             input()
+            # Always reload PLAN.md from disk after user input
             new_plan = read_file(plan_path)
             if new_plan != old_plan:
                 # Show a diff for transparency
@@ -348,12 +349,21 @@ def main():
                             console.print(line)
                 else:
                     console.print("[yellow]PLAN.md changed, but no diff detected.[/yellow]")
+
                 # Check for a new council round entry (e.g., a new checklist item or timestamp)
-                if "- [ ]" in new_plan or "- [x]" in new_plan:
+                has_actionable = ("- [ ]" in new_plan or "- [x]" in new_plan)
+                has_summary = ("Summary of Last Round:" in new_plan)
+                mentions_readme = ("README.md" in new_plan or "high-level goals" in new_plan.lower())
+                if not has_summary:
+                    console.print("[bold yellow]Reminder:[/bold yellow] Please include a summary of the council's discussion and planning in PLAN.md for this round (add 'Summary of Last Round:').")
+                if not mentions_readme:
+                    console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always reference the high-level goals and constraints in README.md.")
+                    console.print("Please ensure your plan does not contradict the project's core direction.")
+                if has_actionable and has_summary and mentions_readme:
                     plan_updated = True
                     break
                 else:
-                    console.print("[bold red]PLAN.md does not appear to have a new actionable item or summary for this round. Please update accordingly.[/bold red]")
+                    console.print("[bold red]PLAN.md does not appear to have a new actionable item, council summary, or reference to README.md/high-level goals. Please update accordingly.[/bold red]")
                 old_plan = new_plan
             else:
                 console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
@@ -373,6 +383,7 @@ def main():
                 f"*   **Blockers/Issues:** [None reported.]\n"
                 f"*   **Next Steps/Tasks:**\n"
                 f"    *   [ ] [Auto-generated] Review and update PLAN.md for next round.\n"
+                f"*   **Reference:** This plan must always respect the high-level goals and constraints in README.md.\n"
             )
             with open(plan_path, "a", encoding="utf-8") as f:
                 f.write(new_entry)
