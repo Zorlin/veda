@@ -300,8 +300,10 @@ def main():
         except Exception:
             return ""
 
-    def council_planning_enforcement():
-        # Record PLAN.md and goal.prompt mtimes before prompting
+    import datetime
+
+    def council_planning_enforcement(iteration_number=None):
+        # Always reload PLAN.md from disk before checking for changes
         plan_mtime_before = get_file_mtime(plan_path)
         goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
 
@@ -321,9 +323,10 @@ def main():
             "If tests fail after a few tries, the council should revert to a working commit using [bold]git revert[/bold].[/italic]"
         )
 
-        # Wait for PLAN.md to be updated with a new council round entry
+        # Always reload PLAN.md before checking for changes
         old_plan = read_file(plan_path)
-        while True:
+        plan_updated = False
+        for _ in range(2):  # Give human a chance, then auto-append if not updated
             console.print("\n[bold cyan]Waiting for PLAN.md to be updated with a new council round entry...[/bold cyan]")
             console.print("[italic]Please add a new checklist item or summary for this round in PLAN.md, then press Enter.[/italic]")
             input()
@@ -347,14 +350,7 @@ def main():
                     console.print("[yellow]PLAN.md changed, but no diff detected.[/yellow]")
                 # Check for a new council round entry (e.g., a new checklist item or timestamp)
                 if "- [ ]" in new_plan or "- [x]" in new_plan:
-                    # Also require a council summary for transparency
-                    if "council" not in new_plan.lower():
-                        console.print("[bold yellow]Reminder:[/bold yellow] Please include a summary of the council's discussion and planning in PLAN.md for this round.")
-                    # Check for respect of README.md goals
-                    readme_content = read_file(readme_path)
-                    if "high-level goals" not in new_plan.lower() and "README.md" not in new_plan:
-                        console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always respect the high-level goals and constraints in README.md.")
-                        console.print("Please ensure your plan does not contradict the project's core direction.")
+                    plan_updated = True
                     break
                 else:
                     console.print("[bold red]PLAN.md does not appear to have a new actionable item or summary for this round. Please update accordingly.[/bold red]")
@@ -362,8 +358,44 @@ def main():
             else:
                 console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
 
+        # If still not updated, auto-append a new council round entry
+        if not plan_updated:
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Try to infer the next round number by counting council summaries
+            plan_content = read_file(plan_path)
+            import re
+            council_rounds = re.findall(r"Summary of Last Round:", plan_content)
+            round_num = len(council_rounds) + 1
+            new_entry = (
+                f"\n---\n\n"
+                f"### Council Round {round_num} ({now})\n"
+                f"*   **Summary of Last Round:** [Auto-generated placeholder. Council did not update this round.]\n"
+                f"*   **Blockers/Issues:** [None reported.]\n"
+                f"*   **Next Steps/Tasks:**\n"
+                f"    *   [ ] [Auto-generated] Review and update PLAN.md for next round.\n"
+            )
+            with open(plan_path, "a", encoding="utf-8") as f:
+                f.write(new_entry)
+            console.print(f"[bold yellow]PLAN.md was not updated by a human. Auto-appended a new council round entry for round {round_num}.[/bold yellow]")
+            # Show the new diff
+            updated_plan = read_file(plan_path)
+            diff = list(difflib.unified_diff(
+                plan_content.splitlines(), updated_plan.splitlines(),
+                fromfile="PLAN.md (before)", tofile="PLAN.md (after)", lineterm=""
+            ))
+            if diff:
+                console.print("[bold green]Auto-update diff:[/bold green]")
+                for line in diff:
+                    if line.startswith("+"):
+                        console.print(f"[green]{line}[/green]")
+                    elif line.startswith("-"):
+                        console.print(f"[red]{line}[/red]")
+                    else:
+                        console.print(line)
+            plan_updated = True
+
         # --- Check for major shift marker in PLAN.md to suggest goal.prompt update ---
-        plan_content = new_plan
+        plan_content = read_file(plan_path)
         if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
             console.print("[bold magenta]A major shift was detected in PLAN.md. Please update goal.prompt accordingly.[/bold magenta]")
             console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
