@@ -222,7 +222,7 @@ The council will continue to monitor test results and provide guidance.
         logger.error(f"Failed to update goal.prompt for test failures: {e}", exc_info=True)
         console.print(f"[bold red]Error updating goal.prompt: {e}[/bold red]")
 
-def council_planning_enforcement(iteration_number=None, test_failure_info=None, automated=False):
+def council_planning_enforcement(iteration_number=None, test_failure_info=None, automated=True):
     """
     Enforce that the open source council convenes each round to collaboratively update PLAN.md,
     and only update goal.prompt for major shifts. All planning must respect README.md.
@@ -231,7 +231,7 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
     Args:
         iteration_number: The current iteration number (None for initial/final)
         test_failure_info: Optional information about test failures to guide the council
-        automated: Whether to run in automated mode (no human interaction)
+        automated: Whether to run in automated mode (no human interaction), defaults to True
     """
     # Import required modules
     import re
@@ -404,7 +404,7 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None, 
             
             # Create a prompt for Gemma3:12b to generate a plan update
             plan_prompt = f"""
-You are the council of AIs responsible for updating the project plan. You need to generate a new entry for PLAN.md.
+You are the open source council of AIs responsible for updating the project plan. You need to generate a new entry for PLAN.md.
 
 Current README.md (project goals):
 {readme_content}
@@ -427,6 +427,10 @@ Based on this information, please generate a new council round entry for PLAN.md
 
 Your response should be in plain language, high-level direction that a human would write. Be concise but comprehensive.
 Avoid technical jargon and focus on strategic direction and priorities.
+
+As the open source council of AIs, you are collaboratively updating PLAN.md to reflect the current actionable plan, strategies, and next steps. Remember that you should only suggest updating goal.prompt if a significant change in overall direction is required (which is rare).
+
+All planning and actions must always respect the high-level goals and constraints in README.md.
 
 Your response should be in this format:
 ### Council Round {round_num} ({now})
@@ -466,7 +470,7 @@ Your response should be in this format:
                 
                 # Create a prompt for the council to review the plan with emphasis on plain language
                 review_prompt = f"""
-You are part of the council of AIs responsible for reviewing and potentially updating the project plan.
+You are part of the open source council of AIs responsible for reviewing and potentially updating the project plan.
 Another AI (Gemma3:12b) has generated a plan update, and you need to review it for:
 1. Alignment with the project goals in README.md
 2. Clarity and actionability of the next steps
@@ -498,6 +502,12 @@ Your improved version should:
 - Be concise but comprehensive
 - Avoid AI-like language patterns and technical jargon
 - Ensure continuity with previous council rounds in PLAN.md
+
+Remember that:
+- The open source council must review and update PLAN.md at the end of each round to reflect the current actionable plan, strategies, and next steps.
+- Only update goal.prompt if a significant change in overall direction is required (which is rare).
+- All planning and actions must always respect the high-level goals and constraints in README.md.
+- All tests must pass to continue and commit to a direction. After a few tries, the council can revert to a working commit.
 
 Remember that PLAN.md is meant to contain plain language, high-level direction that guides the project.
 """
@@ -630,7 +640,7 @@ Remember that PLAN.md is meant to contain plain language, high-level direction t
                 plan_content = read_file(plan_path)
                 
                 goal_update_prompt = f"""
-You are the council of AIs responsible for updating the project's goal prompt when a major shift in direction is needed.
+You are the open source council of AIs responsible for updating the project's goal prompt when a major shift in direction is needed.
 A major shift has been detected in the project plan, and you need to update the goal.prompt file.
 
 Current README.md (project goals):
@@ -648,6 +658,9 @@ Based on this information, please generate a new goal.prompt that:
 3. Provides clear, actionable guidance for the next phase of development
 4. Preserves any critical instructions from the original goal.prompt
 5. Reflects the project's evolution as documented in PLAN.md
+
+Remember that updating goal.prompt should be rare and only done when a significant change in overall direction is required.
+All planning and actions must always respect the high-level goals and constraints in README.md.
 
 Your response should be in plain language, high-level direction that a human would write.
 Be concise, clear, and focused on strategic direction rather than technical implementation details.
@@ -1087,17 +1100,15 @@ def main():
         # Define a new evaluation method that integrates with council planning
         if original_evaluate:
             def evaluate_with_council(current_goal, aider_diff, pytest_output, pytest_passed):
+                # Run council planning before evaluation
+                console.print("\n[bold blue]Running council planning for iteration...[/bold blue]")
+                council_planning_enforcement(
+                    iteration_number=harness.state.get("current_iteration", 0),
+                    test_failure_info=pytest_output if not pytest_passed else None
+                )
+                
                 # Get the original evaluation result
                 result = original_evaluate(current_goal, aider_diff, pytest_output, pytest_passed)
-                
-                # If tests failed, pass the information to the council planning
-                if not pytest_passed:
-                    console.print("\n[bold blue]Running council planning for test failures...[/bold blue]")
-                    council_planning_enforcement(
-                        iteration_number=harness.state.get("current_iteration", 0),
-                        test_failure_info=pytest_output,
-                        automated=True
-                    )
                 
                 return result
             
@@ -1108,7 +1119,7 @@ def main():
         def run_with_council_planning(initial_goal_prompt_or_file=None):
             # Run initial council planning (automated)
             console.print("\n[bold blue]Running initial council planning enforcement...[/bold blue]")
-            council_planning_enforcement(iteration_number=0, automated=True)
+            council_planning_enforcement(iteration_number=0)
             
             # Run the original method
             result = original_run(initial_goal_prompt_or_file)
@@ -1116,8 +1127,7 @@ def main():
             # Run final council planning after all iterations (automated)
             console.print("\n[bold blue]Running final council planning enforcement...[/bold blue]")
             council_planning_enforcement(
-                iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final",
-                automated=True
+                iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final"
             )
             
             return result
