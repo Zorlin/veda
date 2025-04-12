@@ -121,7 +121,7 @@ The council will continue to monitor test results and provide guidance.
     except Exception as e:
         logger.error(f"Failed to update goal.prompt for test failures: {e}")
 
-def council_planning_enforcement(iteration_number=None, test_failure_info=None):
+def council_planning_enforcement(iteration_number=None, test_failure_info=None, automated=False):
     """
     Enforce that the open source council convenes each round to collaboratively update PLAN.md,
     and only update goal.prompt for major shifts. All planning must respect README.md.
@@ -167,67 +167,109 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None):
     )
 
     plan_updated = False
-    for attempt in range(2):  # One human chance, then auto-append
-        old_plan = read_file(plan_path)
-        console.print("\n[bold cyan]Waiting for PLAN.md to be updated with a new council round entry...[/bold cyan]")
-        console.print("[italic]Please add a new checklist item or summary for this round in PLAN.md, then press Enter.[/italic]")
-        input() # This will block execution, intended for interactive use
-        
-        # Explicitly reload the file to ensure we get the latest content
-        new_plan = reload_file(plan_path)
-        if new_plan != old_plan:
-            # Show a diff for transparency
-            diff = list(difflib.unified_diff(
-                old_plan.splitlines(), new_plan.splitlines(),
-                fromfile="PLAN.md (before)", tofile="PLAN.md (after)", lineterm=""
-            ))
-            if diff:
-                console.print("[bold green]PLAN.md updated. Diff:[/bold green]")
-                for line in diff:
-                    if line.startswith("+"):
-                        console.print(f"[green]{line}[/green]")
-                    elif line.startswith("-"):
-                        console.print(f"[red]{line}[/red]")
-                    else:
-                        console.print(line)
-            else:
-                console.print("[yellow]PLAN.md changed, but no diff detected.[/yellow]")
+    
+    if automated:
+        # In automated mode, we'll directly generate and append a new council round entry
+        console.print("\n[bold cyan]Automatically updating PLAN.md with a new council round entry...[/bold cyan]")
+        plan_updated = False  # We'll set this to True after we auto-append
+    else:
+        # Manual mode - give the human a chance to update
+        for attempt in range(2):  # One human chance, then auto-append
+            old_plan = read_file(plan_path)
+            console.print("\n[bold cyan]Waiting for PLAN.md to be updated with a new council round entry...[/bold cyan]")
+            console.print("[italic]Please add a new checklist item or summary for this round in PLAN.md, then press Enter.[/italic]")
+            input() # This will block execution, intended for interactive use
+            
+            # Explicitly reload the file to ensure we get the latest content
+            new_plan = reload_file(plan_path)
+            if new_plan != old_plan:
+                # Show a diff for transparency
+                diff = list(difflib.unified_diff(
+                    old_plan.splitlines(), new_plan.splitlines(),
+                    fromfile="PLAN.md (before)", tofile="PLAN.md (after)", lineterm=""
+                ))
+                if diff:
+                    console.print("[bold green]PLAN.md updated. Diff:[/bold green]")
+                    for line in diff:
+                        if line.startswith("+"):
+                            console.print(f"[green]{line}[/green]")
+                        elif line.startswith("-"):
+                            console.print(f"[red]{line}[/red]")
+                        else:
+                            console.print(line)
+                else:
+                    console.print("[yellow]PLAN.md changed, but no diff detected.[/yellow]")
 
-            # Check for a new council round entry (e.g., a new checklist item or timestamp)
-            has_actionable = ("- [ ]" in new_plan or "- [x]" in new_plan)
-            has_summary = ("Summary of Last Round:" in new_plan)
-            mentions_readme = ("README.md" in new_plan or "high-level goals" in new_plan.lower())
-            if not has_summary:
-                console.print("[bold yellow]Reminder:[/bold yellow] Please include a summary of the council's discussion and planning in PLAN.md for this round (add 'Summary of Last Round:').")
-            if not mentions_readme:
-                console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always reference the high-level goals and constraints in README.md.")
-                console.print("Please ensure your plan does not contradict the project's core direction.")
-            if has_actionable and has_summary and mentions_readme:
-                plan_updated = True
-                break
+                # Check for a new council round entry (e.g., a new checklist item or timestamp)
+                has_actionable = ("- [ ]" in new_plan or "- [x]" in new_plan)
+                has_summary = ("Summary of Last Round:" in new_plan)
+                mentions_readme = ("README.md" in new_plan or "high-level goals" in new_plan.lower())
+                if not has_summary:
+                    console.print("[bold yellow]Reminder:[/bold yellow] Please include a summary of the council's discussion and planning in PLAN.md for this round (add 'Summary of Last Round:').")
+                if not mentions_readme:
+                    console.print("[bold yellow]Reminder:[/bold yellow] PLAN.md should always reference the high-level goals and constraints in README.md.")
+                    console.print("Please ensure your plan does not contradict the project's core direction.")
+                if has_actionable and has_summary and mentions_readme:
+                    plan_updated = True
+                    break
+                else:
+                    console.print("[bold red]PLAN.md does not appear to have a new actionable item, council summary, or reference to README.md/high-level goals. Please update accordingly.[/bold red]")
             else:
-                console.print("[bold red]PLAN.md does not appear to have a new actionable item, council summary, or reference to README.md/high-level goals. Please update accordingly.[/bold red]")
-        else:
-            console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
+                console.print("[bold red]PLAN.md does not appear to have been updated. Please make changes before proceeding.[/bold red]")
 
-    # If still not updated, auto-append a new council round entry
+    # If still not updated or in automated mode, auto-append a new council round entry
     if not plan_updated:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         plan_content = read_file(plan_path)
         council_rounds = re.findall(r"Summary of Last Round:", plan_content)
         round_num = len(council_rounds) + 1
-        new_entry = (
-            f"\n---\n\n"
-            f"### Council Round {round_num} ({now})\n"
-            f"*   **Summary of Last Round:** [Auto-generated placeholder. Council did not update this round.]\n"
-            f"*   **Blockers/Issues:** [None reported.]\n"
-            f"*   **Next Steps/Tasks:**\n"
-            f"    *   [ ] [Auto-generated] Review and update PLAN.md for next round.\n"
-            f"*   **Reference:** This plan must always respect the high-level goals and constraints in README.md.\n"
-        )
+        
+        # Create a more detailed entry for automated mode
+        if automated:
+            # Generate a more comprehensive auto-entry based on iteration number and test failures
+            if iteration_number == 0:
+                summary = "Initial planning round. Setting up the framework for council-driven development."
+                next_steps = "    *   [ ] Implement automated council planning updates\n    *   [ ] Ensure all tests pass before proceeding\n    *   [ ] Review README.md to align with high-level goals"
+            elif iteration_number == "final":
+                summary = "Final planning round. Reviewing the completed work and planning next steps."
+                next_steps = "    *   [ ] Review all implemented changes\n    *   [ ] Ensure documentation is up to date\n    *   [ ] Plan for future improvements"
+            else:
+                summary = f"Iteration {iteration_number} planning round. Reviewing progress and planning next steps."
+                next_steps = "    *   [ ] Continue implementing automated council planning\n    *   [ ] Address any test failures or issues\n    *   [ ] Ensure alignment with README.md goals"
+            
+            # Add test failure information if available
+            blockers = "[None reported.]"
+            if test_failure_info:
+                blockers = f"Test failures detected. See details in test_failures.log."
+                next_steps = f"    *   [ ] Fix test failures identified in this round\n{next_steps}"
+            
+            new_entry = (
+                f"\n---\n\n"
+                f"### Council Round {round_num} ({now})\n"
+                f"*   **Summary of Last Round:** {summary}\n"
+                f"*   **Blockers/Issues:** {blockers}\n"
+                f"*   **Next Steps/Tasks:**\n"
+                f"{next_steps}\n"
+                f"*   **Reference:** This plan must always respect the high-level goals and constraints in README.md.\n"
+            )
+            console_message = f"[bold green]Automatically generated new council round entry for round {round_num}.[/bold green]"
+        else:
+            # Original auto-append for manual mode
+            new_entry = (
+                f"\n---\n\n"
+                f"### Council Round {round_num} ({now})\n"
+                f"*   **Summary of Last Round:** [Auto-generated placeholder. Council did not update this round.]\n"
+                f"*   **Blockers/Issues:** [None reported.]\n"
+                f"*   **Next Steps/Tasks:**\n"
+                f"    *   [ ] [Auto-generated] Review and update PLAN.md for next round.\n"
+                f"*   **Reference:** This plan must always respect the high-level goals and constraints in README.md.\n"
+            )
+            console_message = f"[bold yellow]PLAN.md was not updated by a human. Auto-appended a new council round entry for round {round_num}.[/bold yellow]"
+        
         with open(plan_path, "a", encoding="utf-8") as f:
             f.write(new_entry)
-        console.print(f"[bold yellow]PLAN.md was not updated by a human. Auto-appended a new council round entry for round {round_num}.[/bold yellow]")
+        console.print(console_message)
+        
         # Show the new diff
         updated_plan = read_file(plan_path)
         diff = list(difflib.unified_diff(
@@ -249,9 +291,16 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None):
     # Reload plan content to ensure we have the latest version
     plan_content = reload_file(plan_path)
     if "UPDATE_GOAL_PROMPT" in plan_content or "MAJOR_SHIFT" in plan_content:
-        console.print("[bold magenta]A major shift was detected in PLAN.md. Please update goal.prompt accordingly.[/bold magenta]")
-        console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
-        input() # Block execution
+        if automated:
+            console.print("[bold magenta]A major shift was detected in PLAN.md. The system will automatically update goal.prompt.[/bold magenta]")
+            # In automated mode, we would need to implement logic to update goal.prompt
+            # This could be done by the LLM in a future implementation
+            console.print("[yellow]Automated goal.prompt update not implemented yet. Continuing with current goal.[/yellow]")
+        else:
+            console.print("[bold magenta]A major shift was detected in PLAN.md. Please update goal.prompt accordingly.[/bold magenta]")
+            console.print("[italic]Press Enter after updating goal.prompt.[/italic]")
+            input() # Block execution
+        
         # Reload goal.prompt after potential update
         reload_file(goal_prompt_path)
     
@@ -259,9 +308,12 @@ def council_planning_enforcement(iteration_number=None, test_failure_info=None):
     # Get the latest modification time
     goal_prompt_mtime_after = get_file_mtime(goal_prompt_path)
     if goal_prompt_mtime_after > goal_prompt_mtime_before:
-        console.print("[bold magenta]goal.prompt was updated. Please confirm the new direction is correct.[/bold magenta]")
-        console.print("[italic]Press Enter to continue.[/italic]")
-        input() # Block execution
+        if automated:
+            console.print("[bold magenta]goal.prompt was updated. The system will automatically proceed with the new direction.[/bold magenta]")
+        else:
+            console.print("[bold magenta]goal.prompt was updated. Please confirm the new direction is correct.[/bold magenta]")
+            console.print("[italic]Press Enter to continue.[/italic]")
+            input() # Block execution
 
     # --- Test Enforcement ---
     max_test_retries = 3
@@ -592,7 +644,8 @@ def main():
                     console.print("\n[bold blue]Running council planning for test failures...[/bold blue]")
                     council_planning_enforcement(
                         iteration_number=harness.state.get("current_iteration", 0),
-                        test_failure_info=pytest_output
+                        test_failure_info=pytest_output,
+                        automated=True
                     )
                 
                 return result
@@ -602,17 +655,18 @@ def main():
         
         # Define a new run method that includes council planning
         def run_with_council_planning(initial_goal_prompt_or_file=None):
-            # Run initial council planning
+            # Run initial council planning (automated)
             console.print("\n[bold blue]Running initial council planning enforcement...[/bold blue]")
-            council_planning_enforcement(iteration_number=0)
+            council_planning_enforcement(iteration_number=0, automated=True)
             
             # Run the original method
             result = original_run(initial_goal_prompt_or_file)
             
-            # Run final council planning after all iterations
+            # Run final council planning after all iterations (automated)
             console.print("\n[bold blue]Running final council planning enforcement...[/bold blue]")
             council_planning_enforcement(
-                iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final"
+                iteration_number=harness.state["current_iteration"] if hasattr(harness, "state") else "final",
+                automated=True
             )
             
             return result
