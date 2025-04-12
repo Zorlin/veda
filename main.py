@@ -100,7 +100,7 @@ def update_goal_for_test_failures(test_type):
 
 IMPORTANT: The council has detected {test_type} test failures that need to be fixed.
 Please prioritize fixing these test failures before proceeding with other tasks.
-Carefully review the test output and make the necessary changes to fix the failing tests.
+Carefully review the test output and make the necessary changes to fix the {test_type} test failures.
 
 If using {test_type}, ensure:
 1. All test cases pass without errors
