@@ -303,7 +303,11 @@ def main():
     import datetime
 
     def council_planning_enforcement(iteration_number=None):
-        # Always reload PLAN.md from disk before checking for changes
+        """
+        Enforce that the open source council convenes each round to collaboratively update PLAN.md,
+        and only update goal.prompt for major shifts. All planning must respect README.md.
+        All tests must pass to continue; after a few tries, the council can revert to a working commit.
+        """
         plan_mtime_before = get_file_mtime(plan_path)
         goal_prompt_mtime_before = get_file_mtime(goal_prompt_path)
 
@@ -323,7 +327,6 @@ def main():
             "If tests fail after a few tries, the council should revert to a working commit using [bold]git revert[/bold].[/italic]"
         )
 
-        # Always reload PLAN.md before checking for changes
         import re
         plan_updated = False
         for attempt in range(2):  # One human chance, then auto-append
