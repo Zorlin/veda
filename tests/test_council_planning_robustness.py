@@ -85,10 +85,23 @@ def test_reload_file_retries_on_io_error(temp_planning_files):
     assert call_count[0] >= 3  # Should have tried at least 3 times
 
 @pytest.mark.council_planning
-def test_council_planning_handles_major_shift_markers(temp_planning_files):
+def test_council_planning_handles_major_shift_markers(temp_planning_files, monkeypatch): # Add monkeypatch
     """Test that council planning detects various forms of major shift markers."""
     plan_path = temp_planning_files["plan_path"]
-    
+
+    # Mock subprocess.Popen to simulate successful test runs
+    class MockPopenSuccess:
+        def __init__(self, cmd, cwd, stdout, stderr, text):
+            if hasattr(stdout, 'name'):
+                with open(stdout.name, 'w') as f:
+                    f.write("All tests passed.\n0 tests collected.")
+            self._returncode = 0
+
+        def wait(self, timeout=None): # Accept timeout
+            return self._returncode
+
+    monkeypatch.setattr(subprocess, "Popen", MockPopenSuccess)
+
     # Test different variations of major shift markers
     markers = [
         "UPDATE_GOAL_PROMPT",
@@ -121,8 +134,8 @@ It contains the current, actionable plan for the next iteration(s) of the agent 
                     iteration_number=1,
                     automated=True,
                     testing_mode=True
-                )
-                
+                ) # No exception should be raised because Popen is mocked to succeed
+
                 # Check that the major shift was detected
                 major_shift_detected = False
                 for call_args in mock_print.call_args_list:
@@ -218,9 +231,16 @@ def test_council_planning_creates_error_file_on_test_failure(temp_planning_files
 def test_council_planning_creates_error_file_on_test_failure(temp_planning_files, monkeypatch): # Add monkeypatch
     """Test that council planning creates an error file when tests fail repeatedly."""
     # Mock subprocess.Popen to simulate test failures
-    mock_process = MagicMock()
-    # Make wait accept timeout and return failure code
-    mock_process.wait = MagicMock(return_value=1)
+    # Mock subprocess.Popen to simulate test failures
+    class MockPopenFailure:
+        def __init__(self, cmd, cwd, stdout, stderr, text):
+            if hasattr(stdout, 'name'):
+                with open(stdout.name, 'w') as f:
+                    f.write("Test failures: AssertionError: expected True but got False")
+            self._returncode = 1 # Failure
+
+        def wait(self, timeout=None): # Accept timeout
+            return self._returncode
 
     # Mock input to allow retries in manual mode
     input_calls = [0]
@@ -228,11 +248,11 @@ def test_council_planning_creates_error_file_on_test_failure(temp_planning_files
         input_calls[0] += 1
         return "" # Simulate pressing Enter
     monkeypatch.setattr("builtins.input", mock_input)
+    monkeypatch.setattr(subprocess, "Popen", MockPopenFailure) # Use monkeypatch for Popen
 
-    with patch("subprocess.Popen", return_value=mock_process):
-        # Mock tempfile to use our controlled temp file
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix=".log") as temp_file:
-            temp_path = temp_file.name
+    # Mock tempfile to use our controlled temp file
+    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix=".log") as temp_file:
+        temp_path = temp_file.name
 
             # Write some test failure output
             with open(temp_path, 'w') as f:
@@ -250,15 +270,15 @@ def test_council_planning_creates_error_file_on_test_failure(temp_planning_files
 
             with patch("builtins.open", mock_open):
                  # Run council planning with automated=False and testing_mode=True
-                 # It should now complete the loop after 3 failures and write the error file
-                 # without raising CouncilPlanningTestFailure or calling sys.exit
-                council_planning_enforcement(
-                    iteration_number=1,
-                    automated=False, # Run in manual mode to reach the error file logic
-                    testing_mode=True
-                )
+                 # It should now complete the loop after 3 failures and raise CouncilPlanningTestFailure
+                 with pytest.raises(CouncilPlanningTestFailure):
+                    council_planning_enforcement(
+                        iteration_number=1,
+                        automated=False, # Run in manual mode to reach the error file logic
+                        testing_mode=True
+                    )
 
-                # Check that the error file was created
+                # Check that the error file was created *before* the exception was raised
                 error_file = Path("COUNCIL_ERROR.md")
                 assert error_file.exists(), "Error file was not created"
 
