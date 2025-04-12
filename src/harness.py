@@ -937,6 +937,9 @@ class Harness:
                 test_cmd = self.config.get("test_cmd", "pytest -v").strip()
                 if test_cmd.startswith("pytest"):
                     logging.info("Running pytest...")
+                test_cmd = self.config.get("test_cmd", "pytest -v").strip()
+                if test_cmd.startswith("pytest"):
+                    logging.info("Running pytest...")
                     try:
                         import anyio
                         from anyio import get_running_loop
