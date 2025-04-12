@@ -456,9 +456,12 @@ class Harness:
                         logging.warning(f"Change detected in goal prompt file: {self._goal_prompt_file}")
                         self._send_ui_update({"status": "Goal Updated", "log_entry": f"Goal prompt file '{self._goal_prompt_file.name}' changed. Reloading..."})
                         try:
-                            self.current_goal_prompt = self._goal_prompt_file.read_text() # Update instance var
+                            # Read the updated content
+                            updated_content = self._goal_prompt_file.read_text()
+                            # Update the instance variable
+                            self.current_goal_prompt = updated_content
                             self._last_goal_prompt_hash = new_hash
-                            logging.info("Successfully reloaded goal prompt.")
+                            logging.info(f"Successfully reloaded goal prompt: '{updated_content}'")
                             
                             # Add a system message to the history/ledger indicating the goal changed
                             goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} at Iteration {iteration_num_display}."
@@ -1048,23 +1051,11 @@ FAILURE = Fundamental issues that require a different approach
         # Log the goal received by this function
         logging.info(f"[_create_evaluation_prompt] Received current_goal argument: '{current_goal}'")
         
-        # Check if goal file was updated and reload it if needed
-        if self._goal_prompt_file:
-            try:
-                new_hash = self._get_file_hash(self._goal_prompt_file)
-                if new_hash is not None and new_hash != self._last_goal_prompt_hash:
-                    logging.info("Reloading goal prompt inside _create_evaluation_prompt...")
-                    try:
-                        self.current_goal_prompt = self._goal_prompt_file.read_text()
-                        self._last_goal_prompt_hash = new_hash
-                        # Use the freshly loaded goal instead of the passed argument
-                        current_goal = self.current_goal_prompt
-                        logging.info(f"Updated current_goal to: '{current_goal}'")
-                    except Exception as e:
-                        logging.error(f"Failed to reload goal prompt: {e}")
-            except Exception as e:
-                # Handle exceptions from _get_file_hash to prevent test failures
-                logging.error(f"Error checking goal prompt file hash in _create_evaluation_prompt: {e}")
+        # Always use the most up-to-date goal from the instance variable
+        # This ensures we're using the latest goal that might have been updated elsewhere
+        if self.current_goal_prompt and self.current_goal_prompt != current_goal:
+            logging.info(f"Using updated goal from instance variable: '{self.current_goal_prompt}'")
+            current_goal = self.current_goal_prompt
         
         # Create a concise history string for the prompt, showing last few turns
         history_limit = 3
@@ -1132,23 +1123,11 @@ Suggestions: [Provide specific, actionable suggestions ONLY if the verdict is RE
         """
         Creates an enhanced user prompt for the next Aider attempt based on evaluation suggestions.
         """
-        # Check if goal file was updated and reload it if needed
-        if self._goal_prompt_file:
-            try:
-                new_hash = self._get_file_hash(self._goal_prompt_file)
-                if new_hash is not None and new_hash != self._last_goal_prompt_hash:
-                    logging.info("Reloading goal prompt inside _create_retry_prompt...")
-                    try:
-                        self.current_goal_prompt = self._goal_prompt_file.read_text()
-                        self._last_goal_prompt_hash = new_hash
-                        # Use the freshly loaded goal instead of the passed argument
-                        current_goal = self.current_goal_prompt
-                        logging.info(f"Updated current_goal to: '{current_goal}'")
-                    except Exception as e:
-                        logging.error(f"Failed to reload goal prompt: {e}")
-            except Exception as e:
-                # Handle exceptions from _get_file_hash to prevent test failures
-                logging.error(f"Error checking goal prompt file hash in _create_retry_prompt: {e}")
+        # Always use the most up-to-date goal from the instance variable
+        # This ensures we're using the latest goal that might have been updated elsewhere
+        if self.current_goal_prompt and self.current_goal_prompt != current_goal:
+            logging.info(f"Using updated goal from instance variable: '{self.current_goal_prompt}'")
+            current_goal = self.current_goal_prompt
                     
         # Determine iteration number for context
         current_iteration = self.state["current_iteration"]
@@ -1212,23 +1191,11 @@ Focus on implementing the suggested improvements while maintaining code quality 
         """
         logging.info("Running code review...")
 
-        # Check if goal file was updated and reload it if needed
-        if self._goal_prompt_file:
-            try:
-                new_hash = self._get_file_hash(self._goal_prompt_file)
-                if new_hash is not None and new_hash != self._last_goal_prompt_hash:
-                    logging.info("Reloading goal prompt inside run_code_review...")
-                    try:
-                        self.current_goal_prompt = self._goal_prompt_file.read_text()
-                        self._last_goal_prompt_hash = new_hash
-                        # Use the freshly loaded goal instead of the passed argument
-                        current_goal = self.current_goal_prompt
-                        logging.info(f"Updated current_goal to: '{current_goal}'")
-                    except Exception as e:
-                        logging.error(f"Failed to reload goal prompt: {e}")
-            except Exception as e:
-                # Handle exceptions from _get_file_hash to prevent test failures
-                logging.error(f"Error checking goal prompt file hash in run_code_review: {e}")
+        # Always use the most up-to-date goal from the instance variable
+        # This ensures we're using the latest goal that might have been updated elsewhere
+        if self.current_goal_prompt and self.current_goal_prompt != current_goal:
+            logging.info(f"Using updated goal from instance variable: '{self.current_goal_prompt}'")
+            current_goal = self.current_goal_prompt
 
         # Get the configured code review model
         model_name = self.config.get("code_review_model")
