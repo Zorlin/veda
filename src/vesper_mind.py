@@ -502,7 +502,11 @@ Remember to respond in the JSON format specified in your instructions.
     ) -> Dict[str, Any]:
         """Run evaluation with a closed-source council member (or stand-in)."""
         role_description = self.closed_source_council[role]["description"]
-        
+
+        # If Gemma3 (or any open-source model) is used as a fallback for a closed-source role,
+        # ensure the system prompt explicitly instructs the model to take into account the open-source council's opinion.
+        gemma3_is_fallback = model_name.lower().startswith("gemma3") or model_name.lower() == self.default_model.lower()
+
         # Create role-specific system prompt based on the role
         if role == "arbiter":
             system_prompt = f"""You are the Arbiter in the VESPER.MIND council.
@@ -573,6 +577,15 @@ Respond in JSON format with the following structure:
     "rationale": "Explanation for your verdict",
     "suggestions": "Specific suggestions for improvement if verdict is RETRY"
 }}"""
+
+        # If Gemma3 (or any open-source model) is being used as a fallback for a closed-source role,
+        # add a note to the system prompt to ensure it takes the open-source council's opinion into account.
+        if gemma3_is_fallback:
+            system_prompt += (
+                "\n\nIMPORTANT: As an open-source AI standing in for a closed-source council member, "
+                "you must carefully take into account the opinions, concerns, and recommendations of the open-source council. "
+                "Do not simply repeat their summary, but let their collective judgment inform your own decision-making and reasoning."
+            )
 
         # Create role-specific evaluation prompt
         prompt = f"""
