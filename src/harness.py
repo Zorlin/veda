@@ -522,6 +522,10 @@ class Harness:
             iteration_num_display = iteration + 1
             iteration_interrupted = False # Flag specific to this iteration
 
+            # Always initialize pytest_output and pytest_passed to safe defaults
+            pytest_output = ""
+            pytest_passed = False
+
             # --- Check for Goal Prompt File Changes (if applicable) ---
             if self._goal_prompt_file:
                 try:
