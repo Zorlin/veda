@@ -1219,6 +1219,7 @@ class Harness:
                     except RuntimeError:
                         pass
                     # Do NOT break; continue to next iteration
+                    # Make sure we never set converged True or break here!
 
                 elif verdict == "RETRY":
                     logging.info("Evaluation suggests RETRY.")
