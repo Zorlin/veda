@@ -1,17 +1,22 @@
 ## New goal.prompt
 
-**Overall Project Goal:** Deliver a robust and reliable AI assistant (Aiderbot) that empowers users to achieve their goals efficiently and enjoyably, all while maintaining a focus on safety and user well-being.
+**Overall Focus:** Shift from feature development to robustness and user experience under pressure. We are prioritizing building a reliable and resilient system that anticipates and gracefully handles unexpected situations. This requires a proactive approach to finding and fixing problems *before* users encounter them.
 
-**Current Phase Focus: Proactive Reliability & Stability**
+**Primary Objective:**  Ensure Aiderbot consistently delivers a positive user experience even when faced with resource constraints, unusual data, or unexpected interruptions. This means identifying and eliminating potential failure points and building in mechanisms for automatic recovery.
 
-For the next development cycle, our primary focus shifts from feature development to **proactive reliability and stability**.  We're moving into a phase of rigorous testing and preventative measures to ensure Aiderbot functions consistently and gracefully, even under challenging conditions.  This is *not* about adding new capabilities; it's about strengthening the foundation we’ve built.
+**Key Areas of Focus (Ranked by Priority):**
 
-**Key Directives:**
+1. **Stress Testing & Failure Injection:**  Actively design and execute scenarios that push Aiderbot to its limits (e.g., low memory, invalid input, network interruptions).  Document failures thoroughly and prioritize fixes. The goal isn's to just *test* but to *break* the system in controlled ways.
+2. **Seamless Interruption Handling:** Focus on how Aiderbot communicates and recovers when interruptions occur. Prioritize clear, user-friendly messages and automatic resumption of tasks.
+3. **Prompt Stability & Safety:**  Maintain rigorous testing of prompts to prevent unexpected behavior or security vulnerabilities. Focus on identifying potential exploits and designing preventative measures.
+4. **Automated Recovery:**  Design and implement mechanisms for Aiderbot to automatically resolve common issues, minimizing user intervention.
+5. **Enhanced Monitoring & Alerting:** Improve our ability to detect and respond to problems quickly and effectively.
 
-* **"Break it to Fix it":**  Actively design and execute stress tests, edge-case simulations, and failure mode analyses. Intentionally try to trigger errors and identify vulnerabilities in the system's architecture, prompt design, and error handling.
-* **Seamless User Experience During Recovery:**  Focus on how Aiderbot responds to unexpected events.  Prioritize graceful degradation and clear, understandable feedback to the user, minimizing frustration and preserving progress whenever possible. Interruptions should feel like natural pauses, not jarring failures.
-* **Prompt Safety and Robustness:** Any modifications to the core prompts used by Aiderbot must be subjected to heightened scrutiny. This includes thorough testing for unintended consequences, biases, and vulnerabilities to adversarial input.
-* **Automated Error Correction:**  Explore and implement mechanisms for Aiderbot to automatically detect, diagnose, and correct common errors, reducing the need for manual intervention.
-* **Enhanced Observability:** Improve our monitoring and logging capabilities to gain deeper insights into Aiderbot’s internal state and quickly identify and resolve emerging issues.
+**Remember our core values:**
 
-**Remember:** This phase is about building confidence in Aiderbot’s ability to deliver a consistently positive user experience. Prioritize stability and resilience over rapid feature additions.  Always defer to the high-level goals and constraints documented in README.md.
+*   **User-centricity:** Always prioritize the user experience.
+*   **Proactive problem solving:** Find and fix issues *before* they impact users.
+*   **Reliability:** Strive for consistent performance and stability.
+*   **Simplicity:** Keep the system as straightforward as possible.
+
+**This shift is crucial. Prioritize identifying and mitigating potential failure points.  Document everything. Ask "What could go wrong?" frequently.**
