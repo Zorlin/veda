@@ -414,21 +414,44 @@ class Harness:
         """
         Runs the main Aider-Pytest-Ollama loop with enhanced features.
 
+        Logging structure:
+        - All logs for the run are written to logs/harness_run.log (rotating, persistent).
+        - Each iteration also gets its own log file: logs/iteration_XXX.log.
+        - All log messages from all modules are captured in harness_run.log.
+        - At the end of each iteration, a summary is logged.
+        - This enables analysis of logs between rounds and across runs.
+
         Args:
             initial_goal_prompt_or_file: The initial goal prompt string OR path to a file containing the goal.
         """
         import os
         from pathlib import Path
         import logging
-
-        logging.info("Starting harness run...")
-        logging.info(f"=== HARNESS RUN STARTED ===")
-        logging.info(f"Run config: {self.config}")
+        from logging.handlers import RotatingFileHandler
 
         # Prepare log directory and per-run log context
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
-        self._iteration_log_handlers = []
+
+        # --- Set up top-level rotating file handler for the run ---
+        if not hasattr(self, "_main_log_handler"):
+            main_log_path = log_dir / "harness_run.log"
+            self._main_log_handler = RotatingFileHandler(
+                str(main_log_path), maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+            )
+            self._main_log_handler.setLevel(logging.INFO)
+            self._main_log_handler.setFormatter(logging.Formatter(
+                "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+            ))
+            logging.getLogger().addHandler(self._main_log_handler)
+
+        # Avoid duplicate handlers in repeated runs (e.g., in tests)
+        if not hasattr(self, "_iteration_log_handlers"):
+            self._iteration_log_handlers = []
+
+        logging.info("Starting harness run...")
+        logging.info(f"=== HARNESS RUN STARTED ===")
+        logging.info(f"Run config: {self.config}")
 
         # Only try to send UI update if we're in a running event loop (ie, not in tests)
         try:
@@ -536,7 +559,7 @@ class Harness:
 
             # --- Per-iteration log file setup ---
             iter_log_path = log_dir / f"iteration_{iteration_num_display:03d}.log"
-            iter_handler = logging.FileHandler(str(iter_log_path), mode="w")
+            iter_handler = logging.FileHandler(str(iter_log_path), mode="w", encoding="utf-8")
             iter_handler.setLevel(logging.INFO)
             iter_handler.setFormatter(logging.Formatter(
                 "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -1325,6 +1348,12 @@ class Harness:
             logging.getLogger().removeHandler(handler)
             handler.close()
         self._iteration_log_handlers = []
+
+        # Remove main log handler if present (for test isolation)
+        if hasattr(self, "_main_log_handler"):
+            logging.getLogger().removeHandler(self._main_log_handler)
+            self._main_log_handler.close()
+            del self._main_log_handler
 
         # Update run status in ledger
         self.ledger.end_run(
