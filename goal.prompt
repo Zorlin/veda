@@ -1,1 +1,1 @@
-Logging is now implemented for the tool. You can analyse logs between rounds by reviewing the files in the logs/ directory. Each run is logged to harness_run.log and each iteration to its own iteration_XXX.log file.
+Comprehensive logging is implemented for this tool. You can analyse and troubleshoot between rounds by reviewing the files in the logs/ directory. Each run is logged to logs/harness_run.log, and each iteration is logged to its own logs/iteration_XXX.log file.
