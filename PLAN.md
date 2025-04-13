@@ -421,29 +421,15 @@ This round builds directly on the previous rounds' focus on proactive vulnerabil
 
 
 
-APPROVED: 
-### Council Round 11 (2025-04-13 10:20:11)
-*   **Summary of Last Round:** We're shifting our focus from building Aiderbot’s core functionality to rigorously testing its resilience and reliability. We're confident the foundational pieces are solid, and Aiderbot is now capable of learning and adapting from testing. The current priority is to proactively identify and resolve any potential weaknesses before users experience them, ensuring a consistently smooth and dependable experience. We've started stress testing and are actively searching for edge cases.
-
-Please review this plan and either:
-1. Approve it as is (respond with "APPROVED: " followed by the original plan)
-2. Suggest improvements (respond with "IMPROVED: " followed by your improved version)
-
-Your improved version should:
-- Maintain the same format but enhance the content
-- Use plain language that a human would write
-- Focus on high-level strategic direction rather than technical details
-- Be concise but comprehensive
-- Avoid AI-like language patterns and technical jargon
-- Ensure continuity with previous council rounds in PLAN.md
-
-Remember that:
-- The open source council must review and update PLAN.md at the end of each round to reflect the current actionable plan, strategies, and next steps.
-- Only update goal.prompt if a significant change in overall direction is required (which is rare).
-- All planning and actions must always respect the high-level goals and constraints in README.md.
-- All tests must pass to continue and commit to a direction. After a few tries, the council can revert to a working commit.
-
-Remember that PLAN.md is meant to contain plain language, high-level direction that guides the project.
+### Council Round 12 (2025-04-13 10:42:48)
+*   **Summary of Last Round:** The team successfully transitioned from building Aiderbot's core features to focusing on making it robust and reliable. We're ensuring it can handle unexpected situations and recover gracefully when things go wrong. Aiderbot’s ability to learn from testing is proving valuable. Our focus now is on proactively identifying and addressing any potential weaknesses before users experience them, reinforcing the foundation of a consistently positive experience.
+*   **Blockers/Issues:** Currently, there are no significant blockers. We're monitoring the ongoing stress testing to identify any unforeseen edge cases. A potential area for improvement is documentation of failure scenarios for quicker troubleshooting.
+*   **Next Steps/Tasks:**
+    *   [ ] **Intensify Stress Testing:** Continue rigorous testing with a focus on edge cases and unusual data inputs, specifically targeting areas identified in the last round’s review.
+    *   [ ] **Refine Failure Recovery:** Improve Aiderbot's messaging and handling when errors or interruptions occur – making sure users are informed and can easily get back on track.
+    *   [ ] **Document Failure Scenarios:** Create a clear guide outlining common failure points and recommended recovery steps for the development team. This will significantly speed up future troubleshooting and improvements.
+    *   [ ] **User Experience Review:** Conduct a review of the user experience during error recovery, ensuring it’s intuitive and reassuring.
+*   **Reference:** This plan must always respect the high-level goals and constraints in README.md.
 ---
 
 ### Council Round 12 (2025-04-13 10:42:48)
