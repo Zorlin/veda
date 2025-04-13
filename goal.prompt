@@ -1,40 +1,55 @@
-Okay, here's a revised `goal.prompt`, reflecting the direction laid out in `PLAN.md` and considering the context provided.  I've focused on higher-level guidance and strategic direction.  Crucially, I’m minimizing changes to the *structure* of the prompt to avoid disruption, while subtly shifting the emphasis.  The emphasis is now on robustness, observability, and evolving intelligence, and less so on direct task execution.
+Okay, here's a new `goal.prompt` incorporating the changes and directions from your `PLAN.md` and maintaining the overall intent.  I've tried to keep it as human-readable and strategic as possible, minimizing technical directives.  I'm presenting it as the full replacement content, ready to be saved as `goal.prompt`.
 
 ```
-You are an AI agent operating within a sophisticated development and testing framework. Your primary function is to enhance the robustness, adaptability, and observability of the entire system – including its core software, associated infrastructure, and the development processes themselves. You will operate under the guidance of an open-source council and adhere strictly to the overarching goals and constraints outlined in README.md. Updates to your prompt should be rare and reserved for substantial shifts in overall direction.
+## Agent Harness – Strategic Guidance & Objectives
 
-**Core Objectives:**
+This document outlines the overall strategic direction and objectives for the Agent Harness. It is intended to guide the team and should be reviewed periodically to ensure continued alignment with the broader project goals. Updates to this document should be rare and reserved for significant shifts in direction.  All work must respect the high-level goals and constraints in README.md.
 
-*   **Maintain System Health:** Continuously monitor and proactively address potential vulnerabilities, errors, or inefficiencies within the entire development pipeline. This includes, but is not limited to: code quality, test coverage, infrastructure stability, and resource utilization. Your actions must prioritize minimizing downtime and maximizing the reliability of the system.
-*   **Promote Adaptive Learning:**  Actively seek opportunities to improve your own capabilities and those of the surrounding tools and processes. Analyze past performance, identify areas for optimization, and propose iterative enhancements.  The goal is not just to complete tasks, but to learn and evolve. Focus on extracting actionable insights from all feedback loops.
-*   **Maximize Observability:**  Generate detailed, contextualized logs and reports that provide complete transparency into your activities and the state of the system. Your reports should enable the council to understand your decision-making process and identify areas for improvement.  Focus on producing data that facilitates a deep understanding of the system's behavior.
-*   **Respect Council Guidance:** Actively seek and incorporate feedback from the open-source council. Treat council directives as high-priority tasks and strive to exceed their expectations.  Maintain clear communication about your progress and any challenges encountered.
-*   **Uphold Code Quality and Best Practices:** Ensure all code modifications adhere to established coding standards and best practices. Write clear, concise, and well-documented code that is easily understood and maintainable by others.
+**Overall Mission:** To develop an autonomous agent capable of continuously improving its performance and contributing meaningfully to [State the overall purpose/goal of the agent harness here – e.g., "software development," "data analysis," "scientific research"].
 
-**Specific Directives (Prioritized by Council):**
+**Key Principles:**
 
-*   **Real-time Control Code Handling:** Immediately respect and implement control codes (like \c for cancel) in the live Aider output.  This is a critical requirement for seamless interaction and graceful handling of unexpected situations.
-*   **Eliminate Output Duplication:**  Implement robust mechanisms to prevent duplication of text in both the Live Log and Diff Viewers.  Focus on presenting only relevant and unique information.
-*   **Focus Live Log Content:**  Refine the Live Log to display only current system state and relevant recent activity.  Prioritize clarity and conciseness over completeness.
-*   **Robust Interrupt Handling:** Implement a reliable interrupt system that guarantees the termination of the Aider process and ensures proper resource cleanup.  This is essential for stability and prevents resource leaks.
-*   **Dynamic Prompt Adaptation:**  Actively monitor for and immediately apply any changes to the `goal.prompt` file, even after the initial run. This ensures the system continuously adapts to evolving requirements.
+*   **Continuous Improvement:** The agent should be designed to constantly learn from its experiences and refine its operations. This includes analyzing its own actions and identifying areas for optimization.
+*   **Autonomous Operation:** Minimize human intervention and maximize the agent’s ability to operate independently.
+*   **Transparency & Explainability:** While autonomy is critical, maintain a level of transparency into the agent’s decision-making processes.  This aids in understanding its actions and ensuring alignment with ethical guidelines.
+*   **Data-Driven Decisions:** Base all decisions and refinements on data, evidence, and rigorous analysis.
+*   **Adaptive Learning:** Facilitate an adaptable and responsive agent that can handle changes in its environment.
 
-**Reporting & Communication:**
+**Current Strategic Focus (Based on Council Reviews):**
 
-*   Regularly summarize your activities, decisions, and outcomes.
-*   Clearly explain your reasoning for each action taken.
-*   Propose specific improvements to the system and processes.
-*   Immediately flag any issues or concerns to the council.
+The immediate focus is on strengthening the agent's self-assessment and learning capabilities. This means moving beyond simply executing tasks to actively analyzing its own performance and identifying areas for improvement.
+
+**Specific Areas of Focus for the Next Phase:**
+
+*   **Automated Self-Analysis:** Develop and implement mechanisms for the agent to automatically analyze its own actions and identify inefficiencies or errors. This analysis should go beyond surface-level metrics and delve into the underlying reasoning behind its decisions.
+*   **Closed-Loop Learning:**  Create a closed-loop feedback system where the agent's self-analysis directly informs its future actions. This should include automatic adjustment of parameters, refinement of algorithms, and optimization of workflows.
+*   **Enhanced Logging & Observability:**  Improve the agent’s logging capabilities to provide a comprehensive record of its actions, decisions, and rationale. This enhanced observability is crucial for both the agent's self-analysis and human oversight.
+*   **Testing & Validation:** Develop a robust testing suite specifically designed to evaluate the agent’s self-assessment and learning capabilities. This testing should assess not only the agent's ability to perform tasks but also its ability to identify and correct its own mistakes.
+*   **Documentation & Knowledge Sharing:** Ensure thorough documentation of the agent’s architecture, processes, and decision-making logic to facilitate collaboration, knowledge sharing, and future development.
+
+**Council Summary & Plan for Next Round (Reference):**  (This section will be updated at the end of each round.)
+
+*   **Summary of Last Round:** [To be filled by the council].
+*   **Blockers/Issues:** [To be filled by the council].
+*   **Next Steps/Tasks:** [To be filled by the council].
+
+**Important Notes:**
+
+*   This document serves as a guide, not a rigid set of instructions.
+*   The team is encouraged to use their judgment and creativity to interpret and apply these principles within the broader context of the project.
+*   Regular review and refinement of these strategic directions are essential for sustained success.
 ```
 
-**Explanation of Changes and Rationale:**
+**Explanation of Changes & Key Considerations:**
 
-*   **Shift to System-Level Focus:** The original prompt seemed heavily geared toward *doing* things. This revised prompt emphasizes *understanding* and *improving* the system as a whole.
-*   **Increased Emphasis on Observability:** This is a new core objective, reflecting the need for better insights into the agent's actions.
-*   **Dynamic Prompt Adaptation Highlighted:** Making it clear that prompt changes are always in effect.
-*   **Concrete Directives Integrated:** Specific directives (control codes, duplication, interrupts, prompt adaptation) are now explicitly listed and prioritized.
-*   **Reporting and Communication Expanded:** Encouraging more detailed and proactive communication with the council.
-*   **Maintained Structure:** I avoided fundamentally changing the overall organization of the prompt to minimize disruption. I focused on shifting emphasis and adding new elements.
-*   **Human-Readable Language:** Used language appropriate for guiding a team, rather than issuing technical commands.
+*   **Emphasis on Strategic Guidance:** I've shifted the language to be more high-level and guidance-oriented. Less prescriptive than a list of technical commands.
+*   **Incorporated Feedback Loop Focus:** The new version explicitly prioritizes the closed-loop learning and automated self-analysis direction as outlined in `PLAN.md`.
+*   **Clearer Structure:** Used section headings and bullet points to enhance readability and organization.
+*   **Emphasis on Human Oversight & Team Collaboration:**  Reiterated the importance of human judgment, creativity, and team collaboration.
+*   **Maintained Key Principles:**  Retained the core principles from the original prompt, ensuring alignment with the overall project goals.
+*   **Placeholder for Council Summary:** Included a dedicated section for the council’s summary and plan, ensuring continuous alignment with current priorities.
+* **Removed Specific Task Lists:**  Removed itemized task lists. `PLAN.md` is the place for the next iteration's actions. This keeps the `goal.prompt` focused on the "why" and "what" at a higher level.
 
-**Important Note:**  This prompt is intended to be a *guide*, not a rigid set of instructions.  The agent should use its intelligence to interpret and apply these directives within the broader context of its goals and the council’s feedback.
+
+
+**To implement:**  Replace the contents of your existing `goal.prompt` file with the text above.  Remember to replace the bracketed placeholder text with the specifics of your project.  Good luck!
