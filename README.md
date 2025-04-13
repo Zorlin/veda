@@ -1,5 +1,25 @@
 # 🤖 Aider Autoloop Harness: Self-Building Agent Framework
 
+## New Goal: Proactive Resilience & User Trust
+
+**Overall Direction:** Our focus shifts from feature development to proactive resilience and user trust. We're building a rock-solid Aiderbot that can gracefully handle unexpected situations and provide a reassuring experience even when things go wrong.
+
+**Key Objectives:**
+
+*   **Identify and Mitigate Failure Points:**  We need to deeply understand the most common ways Aiderbot can fail, *why* those failures occur, and systematically reduce their frequency and impact. This goes beyond simply fixing bugs – it's about preventing them in the first place.
+*   **Graceful Error Handling:** When failures *do* happen, Aiderbot’s response must be clear, informative, and helpful. We will design user experiences that minimize frustration and guide users back on track, reinforcing their trust in the system.
+*   **Continuous Learning:** We’re establishing a formal process for analyzing failures, documenting lessons learned, and incorporating those learnings into our automated testing.  This proactive approach will constantly improve Aiderbot's robustness.
+*   **Maintain User Focus:** Throughout this process, remember that the ultimate goal is to build a reliable and trustworthy assistant that users can depend on, even under pressure.
+
+**Priorities:**
+
+1.  **Failure Analysis & Documentation:**  Dedicate time to systematically identify, categorize, and document common failure scenarios.
+2.  **Troubleshooting Guide Creation:**  Develop a practical guide for the development team, detailing common problems and clear resolution steps.
+3.  **User Experience Review of Error Recovery:** Critically evaluate and refine the user experience during error recovery.
+4.  **Automated Test Integration:**  Incorporate identified failure patterns into our automated testing suite to proactively catch issues.
+
+Remember to always keep the high-level goals in README.md as our guiding principles.
+
 This is a self-bootstrapping agent harness built using Aider and a local LLM (via Ollama). It automates:
 - Continuous agent-driven code generation
 - Self-evaluation of outputs
