@@ -68,7 +68,7 @@ def harness_vesper_instance(mock_get_llm, temp_harness_work_dir, sample_config_p
 @patch('src.harness.run_pytest')
 @patch('src.harness.run_aider')
 def test_harness_with_vesper_council(mock_run_aider, mock_run_pytest, mock_get_llm, harness_vesper_instance):
-    """Test that the harness works with the VESPER.MIND council."""
+    """Test that the harness works with the VESPER.MIND council and continues after SUCCESS."""
     # Mock the aider response
     mock_run_aider.return_value = ("Sample diff", None)
     
@@ -158,11 +158,14 @@ def test_harness_with_vesper_council(mock_run_aider, mock_run_pytest, mock_get_l
     mock_get_llm.side_effect = mock_llm_side_effect
     
     # Run the harness
+    max_retries = 2
+    harness_vesper_instance.max_retries = max_retries
     result = harness_vesper_instance.run("Test goal")
     
-    # Check that the run completed successfully
-    assert result["converged"] == True
-    assert "SUCCESS" in result["final_status"]
+    # Check that the run did NOT converge (loop never stops on success)
+    assert result["converged"] is False
+    assert "MAX_RETRIES_REACHED" in result["final_status"]
+    assert result["iterations"] == max_retries
     
     # Check that the council outputs were created
     council_dir = harness_vesper_instance.work_dir / "council_outputs"

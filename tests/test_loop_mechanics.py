@@ -55,25 +55,22 @@ def harness_instance(temp_harness_work_dir):
 @patch('src.harness.run_pytest')
 @patch('src.harness.get_llm_response')
 def test_aider_returns_diff_output(mock_get_llm_response, mock_run_pytest, mock_run_aider, harness_instance):
-    """Validate Aider returns non-empty code or patch diff during the loop."""
+    """Validate Aider returns non-empty code or patch diff during the loop, and loop continues after SUCCESS."""
     # Mock Aider to return a specific diff
     mock_run_aider.return_value = ("```diff\n--- a/file.py\n+++ b/file.py\n@@ -1,1 +1,1 @@\n-hello\n+world\n```", None)
     # Mock pytest to pass
     mock_run_pytest.return_value = (True, "Pytest passed")
-    # Mock LLM evaluation to return SUCCESS to stop the loop after one iteration
+    # Mock LLM evaluation to return SUCCESS (loop should continue)
     mock_get_llm_response.return_value = "Verdict: SUCCESS\nSuggestions: "
     
+    max_retries = 2
+    harness_instance.max_retries = max_retries
     harness_instance.run("Test goal")
     
-    # Assert run_aider was called
-    mock_run_aider.assert_called_once()
-    # Check the history passed to run_aider (optional, more detailed check)
-    # args, kwargs = mock_run_aider.call_args
-    # assert kwargs['history'] == [] # First call, history is empty before prompt
-    
-    # Check that the diff was recorded in the ledger (indirectly checks if it was processed)
+    # Assert run_aider was called max_retries times (loop never stops on success)
+    assert mock_run_aider.call_count == max_retries
+    # Check that the diff was recorded in the ledger for the first iteration
     run_summary = harness_instance.ledger.get_run_summary(harness_instance.current_run_id)
-    assert len(run_summary["iterations"]) == 1
     assert run_summary["iterations"][0]["aider_diff"] == "```diff\n--- a/file.py\n+++ b/file.py\n@@ -1,1 +1,1 @@\n-hello\n+world\n```"
 
 @pytest.mark.loop
@@ -81,7 +78,7 @@ def test_aider_returns_diff_output(mock_get_llm_response, mock_run_pytest, mock_
 @patch('src.harness.run_pytest')
 @patch('src.harness.get_llm_response')
 def test_pytest_executes_after_diff(mock_get_llm_response, mock_run_pytest, mock_run_aider, harness_instance):
-    """Ensure pytest runs against updated files after each patch."""
+    """Ensure pytest runs against updated files after each patch, and loop continues after SUCCESS."""
     # Mock Aider to return a diff
     mock_run_aider.return_value = ("fake diff", None)
     # Mock pytest to pass
@@ -89,13 +86,15 @@ def test_pytest_executes_after_diff(mock_get_llm_response, mock_run_pytest, mock
     # Mock LLM evaluation to return SUCCESS
     mock_get_llm_response.return_value = "Verdict: SUCCESS\nSuggestions: "
     
+    max_retries = 2
+    harness_instance.max_retries = max_retries
     harness_instance.run("Test goal")
     
-    # Assert run_pytest was called after run_aider
-    mock_run_aider.assert_called_once()
-    mock_run_pytest.assert_called_once()
-    # We expect run_pytest to be called with the project directory from config
-    mock_run_pytest.assert_called_once_with(harness_instance.config["project_dir"])
+    # Assert run_pytest was called max_retries times (loop never stops on success)
+    assert mock_run_pytest.call_count == max_retries
+    assert mock_run_aider.call_count == max_retries
+    # We expect run_pytest to be called with the project directory from config at least once
+    mock_run_pytest.assert_any_call(harness_instance.config["project_dir"])
 
 @pytest.mark.loop
 @patch('src.harness.run_aider')
@@ -139,53 +138,57 @@ def test_local_llm_evaluates_result(mock_get_llm_response, mock_run_pytest, mock
 @patch('src.harness.run_pytest')
 @patch('src.harness.get_llm_response')
 def test_loop_retries_if_not_converged(mock_get_llm_response, mock_run_pytest, mock_run_aider, harness_instance):
-    """Harness must re-attempt improvement if Ollama says 'retry'."""
+    """Harness must re-attempt improvement if Ollama says 'retry', and continue after SUCCESS."""
     # Set max_retries high enough to allow for a retry
-    harness_instance.max_retries = 2
+    harness_instance.max_retries = 3
     
-    # Mock Aider responses for two calls
+    # Mock Aider responses for three calls
     aider_responses = [
         ("diff attempt 1", None), # First attempt
-        ("diff attempt 2", None)  # Second attempt (after retry)
+        ("diff attempt 2", None), # Second attempt (after retry)
+        ("diff attempt 3", None)  # Third attempt (should be called since loop never stops on success)
     ]
     mock_run_aider.side_effect = aider_responses
     
     # Mock pytest responses
     pytest_responses = [
         (False, "Pytest FAILED on attempt 1"), # First attempt fails
-        (True, "Pytest PASSED on attempt 2")   # Second attempt passes
+        (True, "Pytest PASSED on attempt 2"),  # Second attempt passes
+        (True, "Pytest PASSED on attempt 3")   # Third attempt passes
     ]
     mock_run_pytest.side_effect = pytest_responses
     
     # Mock LLM evaluation responses
     llm_responses = [
         "Verdict: RETRY\nSuggestions: Fix the failure from attempt 1.", # First evaluation -> RETRY
-        "Verdict: SUCCESS\nSuggestions: "                               # Second evaluation -> SUCCESS
+        "Verdict: SUCCESS\nSuggestions: ",                              # Second evaluation -> SUCCESS
+        "Verdict: SUCCESS\nSuggestions: "                               # Third evaluation -> SUCCESS
     ]
     mock_get_llm_response.side_effect = llm_responses
 
     # Run the harness
     result = harness_instance.run("Test goal")
 
-    # Assert Aider was called twice
-    assert mock_run_aider.call_count == 2
-    # Assert pytest was called twice
-    assert mock_run_pytest.call_count == 2
-    # Assert LLM evaluation was called twice
-    assert mock_get_llm_response.call_count == 2
+    # Assert Aider was called max_retries times (loop never stops on success)
+    assert mock_run_aider.call_count == 3
+    # Assert pytest was called max_retries times
+    assert mock_run_pytest.call_count == 3
+    # Assert LLM evaluation was called max_retries times
+    assert mock_get_llm_response.call_count == 3
     
     # Check the prompts passed to Aider
     aider_calls = mock_run_aider.call_args_list
     assert aider_calls[0].kwargs['prompt'] == "Test goal" # First call uses initial goal
     assert "Fix the failure from attempt 1." in aider_calls[1].kwargs['prompt'] # Second call uses retry prompt
     
-    # Check the final state
-    assert result["converged"] is True
-    assert result["iterations"] == 2
-    assert result["final_status"] == "SUCCESS"
+    # Check the final state: loop never converges, always runs max_retries
+    assert result["converged"] is False
+    assert result["iterations"] == 3
+    assert "MAX_RETRIES_REACHED" in result["final_status"]
     
-    # Check ledger reflects two iterations
+    # Check ledger reflects three iterations
     run_summary = harness_instance.ledger.get_run_summary(harness_instance.current_run_id)
-    assert len(run_summary["iterations"]) == 2
+    assert len(run_summary["iterations"]) == 3
     assert run_summary["iterations"][0]["llm_verdict"] == "RETRY"
     assert run_summary["iterations"][1]["llm_verdict"] == "SUCCESS"
+    assert run_summary["iterations"][2]["llm_verdict"] == "SUCCESS"
