@@ -4,7 +4,11 @@ import time
 import sys
 import logging
 import webbrowser
+import os
+import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
+
+from src.constants import OLLAMA_URL, VEDA_CHAT_MODEL, ROLE_MODELS, MCP_URL, POSTGRES_DSN, HANDOFF_DIR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,6 +21,9 @@ class AgentManager:
         self.running = False
         self.lock = threading.Lock()
         self.threads = []
+        self.handoff_dir = HANDOFF_DIR
+        os.makedirs(self.handoff_dir, exist_ok=True)
+        self.active_roles = {}
 
     def set_instances(self, value):
         with self.lock:
@@ -33,25 +40,78 @@ class AgentManager:
                 except ValueError:
                     logging.error("Invalid instance count. Must be a positive integer or 'auto'.")
 
-    def start(self):
+    def start(self, initial_prompt=None):
         with self.lock:
             if self.running:
                 logging.info("AgentManager already running.")
                 return
             self.running = True
             logging.info("Starting AgentManager...")
-            t = threading.Thread(target=self._run_agents, daemon=True)
+            t = threading.Thread(target=self._run_agents, args=(initial_prompt,), daemon=True)
             t.start()
             self.threads.append(t)
 
-    def _run_agents(self):
+    def _run_agents(self, initial_prompt=None):
+        # Start the main coordinator agent with the initial prompt
+        if initial_prompt:
+            self._start_role_agent("coordinator", initial_prompt)
+        else:
+            self._start_role_agent("coordinator", "No prompt provided.")
+
         while self.running:
             if self.instances == "auto":
                 agent_count = 2  # Placeholder for auto-scaling logic
             else:
                 agent_count = self.instances
             logging.info(f"Running {agent_count} agent(s)...")
+            # Monitor handoff files and spawn/route as needed
+            self._process_handoffs()
             time.sleep(5)
+
+    def _start_role_agent(self, role, prompt, handoff=None):
+        # Simulate starting an agent for a role with a prompt
+        if role in self.active_roles:
+            logging.info(f"{role.capitalize()} agent already running.")
+            return
+        t = threading.Thread(target=self._role_agent_thread, args=(role, prompt, handoff), daemon=True)
+        t.start()
+        self.active_roles[role] = t
+        logging.info(f"Started {role} agent with model {ROLE_MODELS.get(role, VEDA_CHAT_MODEL)}.")
+
+    def _role_agent_thread(self, role, prompt, handoff):
+        # Simulate agent work and handoff
+        logging.info(f"[{role.upper()}] Model: {ROLE_MODELS.get(role, VEDA_CHAT_MODEL)} | Prompt: {prompt}")
+        # Here, integrate with Ollama/MCP, Postgres, etc.
+        # For now, simulate a handoff after some time
+        time.sleep(2)
+        if role == "coordinator":
+            # Example: coordinator hands off to architect
+            self._create_handoff("architect", f"Design the system for: {prompt}")
+        elif role == "architect":
+            self._create_handoff("developer", f"Implement the plan for: {prompt}")
+        # End thread after handoff
+        logging.info(f"[{role.upper()}] Finished and handed off.")
+
+    def _create_handoff(self, next_role, message):
+        handoff_file = os.path.join(self.handoff_dir, f"{next_role}_handoff.json")
+        with open(handoff_file, "w") as f:
+            json.dump({"role": next_role, "message": message}, f)
+        logging.info(f"Created handoff for {next_role}.")
+
+    def _process_handoffs(self):
+        for fname in os.listdir(self.handoff_dir):
+            if fname.endswith("_handoff.json"):
+                path = os.path.join(self.handoff_dir, fname)
+                try:
+                    with open(path, "r") as f:
+                        data = json.load(f)
+                    role = data.get("role")
+                    message = data.get("message")
+                    if role and message:
+                        self._start_role_agent(role, message)
+                    os.remove(path)
+                except Exception as e:
+                    logging.error(f"Error processing handoff {fname}: {e}")
 
     def stop(self):
         with self.lock:
@@ -75,18 +135,57 @@ def start_web_server():
 
 def chat_interface():
     print("Welcome to Veda chat. Type 'exit' to quit.")
+    print("Connecting to Ollama at", OLLAMA_URL)
+    system_prompt = (
+        "You are Veda, an advanced AI orchestrator for software development. "
+        "You coordinate multiple specialized AI agents (architect, planner, developer, engineer, infra engineer, etc) "
+        "and personalities (theorist, architect, skeptic, historian, coordinator) to collaboratively build, improve, "
+        "and maintain software projects. You use a common knowledge base (Postgres for deep knowledge, RAG via MCP server) "
+        "and JSON files for inter-agent handoff. Your job is to understand the user's goals and break them down for your agents. "
+        "Ask the user what they want to build or change, then coordinate the agents accordingly."
+    )
+    try:
+        import requests
+    except ImportError:
+        print("Please install 'requests' to use the chat interface.")
+        return
+
+    def ollama_chat(messages):
+        # Use Ollama's /api/chat endpoint
+        url = f"{OLLAMA_URL}/api/chat"
+        payload = {
+            "model": VEDA_CHAT_MODEL,
+            "messages": messages,
+            "stream": False
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("message", {}).get("content", "[No response]")
+        except Exception as e:
+            return f"[Error communicating with Ollama: {e}]"
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+    ]
     while True:
         msg = input("You: ")
         if msg.strip().lower() == "exit":
             print("Exiting chat.")
             break
-        print(f"Veda: [simulated response to '{msg}']")
+        messages.append({"role": "user", "content": msg})
+        print("Veda (thinking)...")
+        response = ollama_chat(messages)
+        print(f"Veda: {response}")
+        messages.append({"role": "assistant", "content": response})
 
 def main():
     parser = argparse.ArgumentParser(description="Veda - Software development that doesn't sleep.")
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("start", help="Start Veda in the background.")
+    start_parser = subparsers.add_parser("start", help="Start Veda in the background.")
+    start_parser.add_argument("--prompt", help="Initial project prompt (if not provided, Veda will ask you).")
     set_parser = subparsers.add_parser("set", help="Set configuration options.")
     set_parser.add_argument("option", choices=["instances"])
     set_parser.add_argument("value")
@@ -97,7 +196,53 @@ def main():
     manager = AgentManager()
 
     if args.command == "start":
-        manager.start()
+        initial_prompt = args.prompt
+        if not initial_prompt:
+            print("No prompt provided. Let's chat to define your project goal.")
+            # Use the chat interface to get a prompt from the user
+            system_prompt = (
+                "You are Veda, an advanced AI orchestrator for software development. "
+                "You coordinate multiple specialized AI agents (architect, planner, developer, engineer, infra engineer, etc) "
+                "and personalities (theorist, architect, skeptic, historian, coordinator) to collaboratively build, improve, "
+                "and maintain software projects. You use a common knowledge base (Postgres for deep knowledge, RAG via MCP server) "
+                "and JSON files for inter-agent handoff. Your job is to understand the user's goals and break them down for your agents. "
+                "Ask the user what they want to build or change, then coordinate the agents accordingly."
+            )
+            try:
+                import requests
+            except ImportError:
+                print("Please install 'requests' to use the chat interface.")
+                sys.exit(1)
+            messages = [
+                {"role": "system", "content": system_prompt},
+            ]
+            while True:
+                msg = input("You: ")
+                if msg.strip().lower() == "exit":
+                    print("Exiting.")
+                    sys.exit(0)
+                messages.append({"role": "user", "content": msg})
+                print("Veda (thinking)...")
+                url = f"{OLLAMA_URL}/api/chat"
+                payload = {
+                    "model": VEDA_CHAT_MODEL,
+                    "messages": messages,
+                    "stream": False
+                }
+                try:
+                    resp = requests.post(url, json=payload, timeout=60)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    response = data.get("message", {}).get("content", "[No response]")
+                except Exception as e:
+                    response = f"[Error communicating with Ollama: {e}]"
+                print(f"Veda: {response}")
+                messages.append({"role": "assistant", "content": response})
+                # Accept the first user message as the project prompt
+                if len(messages) > 2:
+                    initial_prompt = msg
+                    break
+        manager.start(initial_prompt=initial_prompt)
         start_web_server()
         print("Veda is running in the background.")
         print("Open http://localhost:9900 in your browser for the web interface.")
