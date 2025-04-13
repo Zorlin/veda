@@ -17,3 +17,6 @@ goal.prompt:
 *   **Learn from failures:**  Document common failure points so we can quickly resolve issues and prevent them from recurring.
 
 Remember that a user's trust in Aiderbot depends on its ability to consistently provide a positive experience, even when things don’t go perfectly."
+
+### Human comments:
+* We should add logging to Aiderbot so it improves each run.
