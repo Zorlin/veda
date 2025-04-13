@@ -710,7 +710,12 @@ class Harness:
                 def sync_ui_output_callback(chunk: str):
                     try:
                         import asyncio
-                        loop = asyncio.get_event_loop()
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            # No event loop in this thread, create one
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
                         if loop.is_running():
                             asyncio.run_coroutine_threadsafe(ui_output_callback(chunk), loop)
                         else:
