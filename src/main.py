@@ -87,15 +87,36 @@ class AgentManager:
     def _role_agent_thread(self, role, prompt, handoff):
         # Simulate agent work and handoff
         logging.info(f"[{role.upper()}] Model: {ROLE_MODELS.get(role, VEDA_CHAT_MODEL)} | Prompt: {prompt}")
-        # Here, integrate with Ollama/MCP, Postgres, etc.
-        # For now, simulate a handoff after some time
-        time.sleep(2)
+
+        # Coordinator should ask clarifying questions if the prompt is too vague
         if role == "coordinator":
-            # Example: coordinator hands off to architect
+            # If the prompt is too short, ask for more details
+            if len(prompt.strip()) < 20 or prompt.strip().lower() in ["hey veda.", "hi", "hello"]:
+                print("\nVeda: Could you please provide more details about what you want to build or change? "
+                      "For example, describe the type of project, its purpose, or any specific features you want.")
+                # Try to get more input from the user if running interactively
+                if sys.stdin.isatty():
+                    try:
+                        user_input = input("You: ")
+                        if user_input.strip():
+                            prompt = user_input.strip()
+                    except EOFError:
+                        pass
+            # After clarification, hand off to architect
             self._create_handoff("architect", f"Design the system for: {prompt}")
         elif role == "architect":
+            # Architect should ask for missing requirements if prompt is still vague
+            if len(prompt.strip()) < 30:
+                print("\nArchitect: Can you specify any technical requirements, preferred stack, or constraints?")
+                if sys.stdin.isatty():
+                    try:
+                        user_input = input("You: ")
+                        if user_input.strip():
+                            prompt = prompt + " " + user_input.strip()
+                    except EOFError:
+                        pass
             self._create_handoff("developer", f"Implement the plan for: {prompt}")
-        # End thread after handoff
+        # You can add more role logic here for planner, engineer, infra engineer, etc.
         logging.info(f"[{role.upper()}] Finished and handed off.")
 
     def _create_handoff(self, next_role, message):
