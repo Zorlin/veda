@@ -252,6 +252,17 @@ def test_loop_detects_stuck_cycle_and_aborts():
 
 ---
 
+### 🛑 Test Failure Annotation Checklist
+
+- [ ] When a test fails, the goal is atomically updated *before* the next iteration.
+- [ ] The annotation is inserted at the *very top* of the goal, using the required template.
+- [ ] The annotation includes the reason, test output, and explicit instruction.
+- [ ] The annotation is removed or updated as soon as the failure is resolved.
+- [ ] The annotation update/removal is never skipped or delayed.
+- [ ] This behavior is covered by automated tests.
+
+---
+
 ## 🧩 Optional Features
 
 - ✅ `@pytest.mark.mesh` → Simulate multiple Aider agents collaborating

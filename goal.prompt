@@ -35,8 +35,9 @@ You are improving aiderbot according to the information laid out in README.md.
 #### Special Handling for Test Failures
 
 If aiderbot detects a failed test (bad cargo test or pytest), it must:
-- Atomically update the goal *before* the next iteration begins, so the new goal is guaranteed to be used immediately.
-- Insert a clearly marked annotation at the top of the goal, using the following template:
+
+- **Atomically update the goal *before* the next iteration begins, so the new goal is guaranteed to be used immediately.**
+- **Insert a clearly marked annotation at the very top of the goal, using the following template:**
 
     ```
     [AUTOMATED GOAL UPDATE DUE TO TEST FAILURE]
@@ -45,8 +46,10 @@ If aiderbot detects a failed test (bad cargo test or pytest), it must:
     Instruction: Please run `cargo test` (or the relevant test command) and address the failure above before proceeding.
     ```
 
-- The annotation must be removed or updated once the failure is resolved.
-- This update must not be delayed or skipped for any reason.
+- **The annotation must be removed or updated as soon as the failure is resolved.**
+- **This update must not be delayed or skipped for any reason.**
+- **The annotation must always be at the very top of the goal file.**
+- **This behavior is tested and enforced.**
 
 #### Conceptual Expansion
 
@@ -74,3 +77,14 @@ If aiderbot detects a failed test (bad cargo test or pytest), it must:
 - Interrupt process sends proper signals and cleans up all resources (no zombies).
 - Goal changes always trigger immediate reinitialization of Aider with the new instructions.
 - If new requirements or edge cases are discovered, update the test plan in README.md accordingly.
+
+---
+
+### 🛑 Test Failure Annotation Checklist
+
+- [ ] When a test fails, the goal is atomically updated *before* the next iteration.
+- [ ] The annotation is inserted at the *very top* of the goal, using the required template.
+- [ ] The annotation includes the reason, test output, and explicit instruction.
+- [ ] The annotation is removed or updated as soon as the failure is resolved.
+- [ ] The annotation update/removal is never skipped or delayed.
+- [ ] This behavior is covered by automated tests.
