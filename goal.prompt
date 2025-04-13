@@ -1,22 +1,31 @@
-## New goal.prompt
+APPROVED: 
+### Council Round 11 (2025-04-13 10:20:11)
+*   **Summary of Last Round:** We're shifting our focus from building Aiderbot’s core functionality to rigorously testing its resilience and reliability. We've confirmed the foundational pieces are solid, and Aiderbot is now capable of learning and adapting from testing. The current priority is to proactively identify and resolve any potential weaknesses before users experience them, ensuring a consistently smooth and dependable experience. We've started stress testing and are actively searching for edge cases.
 
-**Overall Focus:** Shift from feature development to robustness and user experience under pressure. We are prioritizing building a reliable and resilient system that anticipates and gracefully handles unexpected situations. This requires a proactive approach to finding and fixing problems *before* users encounter them.
+Here's the new content for `goal.prompt`:
 
-**Primary Objective:**  Ensure Aiderbot consistently delivers a positive user experience even when faced with resource constraints, unusual data, or unexpected interruptions. This means identifying and eliminating potential failure points and building in mechanisms for automatic recovery.
+```
+## Goal: Ensure Aiderbot is Rock-Solid Reliable
 
-**Key Areas of Focus (Ranked by Priority):**
+**Overall Direction:** Our priority has shifted from initial development to ensuring Aiderbot is exceptionally reliable and performs consistently well under various conditions. We want users to be confident in Aiderbot's stability and performance.
 
-1. **Stress Testing & Failure Injection:**  Actively design and execute scenarios that push Aiderbot to its limits (e.g., low memory, invalid input, network interruptions).  Document failures thoroughly and prioritize fixes. The goal isn't to just *test* but to *break* the system in controlled ways.
-2. **Seamless Interruption Handling:** Focus on how Aiderbot communicates and recovers when interruptions occur. Prioritize clear, user-friendly messages and automatic resumption of tasks.
-3. **Prompt Stability & Safety:**  Maintain rigorous testing of prompts to prevent unexpected behavior or security vulnerabilities. Focus on identifying potential exploits and designing preventative measures.
-4. **Automated Recovery:**  Design and implement mechanisms for Aiderbot to automatically resolve common issues, minimizing user intervention.
-5. **Enhanced Monitoring & Alerting:** Improve our ability to detect and respond to problems quickly and effectively.
+**Key Objectives:**
 
-**Remember our core values:**
+*   **Proactive Testing:**  Conduct thorough stress testing to identify and fix any weaknesses *before* users encounter them. This includes testing with unusual data, under high load, and in scenarios that mimic real-world use cases.
+*   **Graceful Handling of Errors:**  Ensure Aiderbot recovers smoothly from errors and provides clear, helpful messages to the user, minimizing frustration.
+*   **Continuous Improvement:** Leverage Aiderbot’s ability to learn from testing to proactively identify and address potential issues.
+*   **Maintain a User-Centric Approach:** Every change and improvement should be evaluated for its impact on the user experience, focusing on ease of use and confidence.
 
-*   **User-centricity:** Always prioritize the user experience.
-*   **Proactive problem solving:** Find and fix issues *before* they impact users.
-*   **Reliability:** Strive for consistent performance and stability.
-*   **Simplicity:** Keep the system as straightforward as possible.
+**Next Steps:**
 
-**This shift is crucial. Prioritize identifying and mitigating potential failure points.  Document everything. Ask "What could go wrong?" frequently.**
+1.  **Execute comprehensive stress testing:**  Focus on edge cases and unusual scenarios.
+2.  **Develop robust error handling mechanisms:**  Prioritize clear communication with the user.
+3.  **Analyze testing results:**  Identify patterns and areas for improvement.
+4.  **Iterate on design and implementation:**  Address identified weaknesses and enhance the user experience.
+
+**Constraints (Refer to README.md for full details):**
+
+*   Adhere to all previously defined high-level goals and limitations.
+*   Maintain code quality and test coverage.
+*   Prioritize user privacy and security.
+```
