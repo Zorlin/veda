@@ -203,51 +203,55 @@ def main():
 
     if args.command == "start":
         initial_prompt = args.prompt
+        # If running in a non-interactive environment (like pytest), skip prompt
         if not initial_prompt:
-            print("No prompt provided. Let's chat to define your project goal.")
-            # Use the chat interface to get a prompt from the user
-            system_prompt = (
-                "You are Veda, an advanced AI orchestrator for software development. "
-                "You coordinate multiple specialized AI agents (architect, planner, developer, engineer, infra engineer, etc) "
-                "and personalities (theorist, architect, skeptic, historian, coordinator) to collaboratively build, improve, "
-                "and maintain software projects. You use a common knowledge base (Postgres for deep knowledge, RAG via MCP server) "
-                "and JSON files for inter-agent handoff. Your job is to understand the user's goals and break them down for your agents. "
-                "Ask the user what they want to build or change, then coordinate the agents accordingly."
-            )
-            try:
-                import requests
-            except ImportError:
-                print("Please install 'requests' to use the chat interface.")
-                sys.exit(1)
-            messages = [
-                {"role": "system", "content": system_prompt},
-            ]
-            while True:
-                msg = input("You: ")
-                if msg.strip().lower() == "exit":
-                    print("Exiting.")
-                    sys.exit(0)
-                messages.append({"role": "user", "content": msg})
-                print("Veda (thinking)...")
-                url = f"{OLLAMA_URL}/api/chat"
-                payload = {
-                    "model": VEDA_CHAT_MODEL,
-                    "messages": messages,
-                    "stream": False
-                }
+            if not sys.stdin.isatty():
+                initial_prompt = "Automated test run: default project prompt."
+            else:
+                print("No prompt provided. Let's chat to define your project goal.")
+                # Use the chat interface to get a prompt from the user
+                system_prompt = (
+                    "You are Veda, an advanced AI orchestrator for software development. "
+                    "You coordinate multiple specialized AI agents (architect, planner, developer, engineer, infra engineer, etc) "
+                    "and personalities (theorist, architect, skeptic, historian, coordinator) to collaboratively build, improve, "
+                    "and maintain software projects. You use a common knowledge base (Postgres for deep knowledge, RAG via MCP server) "
+                    "and JSON files for inter-agent handoff. Your job is to understand the user's goals and break them down for your agents. "
+                    "Ask the user what they want to build or change, then coordinate the agents accordingly."
+                )
                 try:
-                    resp = requests.post(url, json=payload, timeout=60)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    response = data.get("message", {}).get("content", "[No response]")
-                except Exception as e:
-                    response = f"[Error communicating with Ollama: {e}]"
-                print(f"Veda: {response}")
-                messages.append({"role": "assistant", "content": response})
-                # Accept the first user message as the project prompt
-                if len(messages) > 2:
-                    initial_prompt = msg
-                    break
+                    import requests
+                except ImportError:
+                    print("Please install 'requests' to use the chat interface.")
+                    sys.exit(1)
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                ]
+                while True:
+                    msg = input("You: ")
+                    if msg.strip().lower() == "exit":
+                        print("Exiting.")
+                        sys.exit(0)
+                    messages.append({"role": "user", "content": msg})
+                    print("Veda (thinking)...")
+                    url = f"{OLLAMA_URL}/api/chat"
+                    payload = {
+                        "model": VEDA_CHAT_MODEL,
+                        "messages": messages,
+                        "stream": False
+                    }
+                    try:
+                        resp = requests.post(url, json=payload, timeout=60)
+                        resp.raise_for_status()
+                        data = resp.json()
+                        response = data.get("message", {}).get("content", "[No response]")
+                    except Exception as e:
+                        response = f"[Error communicating with Ollama: {e}]"
+                    print(f"Veda: {response}")
+                    messages.append({"role": "assistant", "content": response})
+                    # Accept the first user message as the project prompt
+                    if len(messages) > 2:
+                        initial_prompt = msg
+                        break
         manager.start(initial_prompt=initial_prompt)
         start_web_server()
         print("Veda is running in the background.")
