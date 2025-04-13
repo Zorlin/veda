@@ -951,7 +951,6 @@ class Harness:
                         import asyncio
                         asyncio.create_task(self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."}))
                     except RuntimeError:
-                        pass # No event loop running (e.g., in tests), cannot send UI update.
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
