@@ -422,13 +422,13 @@ This round builds directly on the previous rounds' focus on proactive vulnerabil
 
 
 ### Council Round 12 (2025-04-13 10:42:48)
-*   **Summary of Last Round:** The team successfully transitioned from building Aiderbot's core features to focusing on making it robust and reliable. We're ensuring it can handle unexpected situations and recover gracefully when things go wrong. Aiderbot’s ability to learn from testing is proving valuable. Our focus now is on proactively identifying and addressing any potential weaknesses before users experience them, reinforcing the foundation of a consistently positive experience.
-*   **Blockers/Issues:** Currently, there are no significant blockers. We're monitoring the ongoing stress testing to identify any unforeseen edge cases. A potential area for improvement is documentation of failure scenarios for quicker troubleshooting.
+*   **Summary of Last Round:** The team has moved from building Aiderbot’s foundation to making sure it’s truly dependable in everyday use. We’re now focused on making Aiderbot strong enough to handle surprises and recover smoothly if something goes wrong. Our recent work has shown that Aiderbot can learn from its own tests, which helps us spot and fix problems before they reach users. The next step is to keep looking for weak spots and make improvements before anyone runs into trouble.
+*   **Blockers/Issues:** No major blockers at the moment. We’re keeping an eye on stress testing to catch any hidden issues. One thing we could do better is to write down common failure scenarios, so it’s easier to fix things quickly when they happen.
 *   **Next Steps/Tasks:**
-    *   [ ] **Intensify Stress Testing:** Continue rigorous testing with a focus on edge cases and unusual data inputs, specifically targeting areas identified in the last round’s review.
-    *   [ ] **Refine Failure Recovery:** Improve Aiderbot's messaging and handling when errors or interruptions occur – making sure users are informed and can easily get back on track.
-    *   [ ] **Document Failure Scenarios:** Create a clear guide outlining common failure points and recommended recovery steps for the development team. This will significantly speed up future troubleshooting and improvements.
-    *   [ ] **User Experience Review:** Conduct a review of the user experience during error recovery, ensuring it’s intuitive and reassuring.
+    *   [ ] **Keep Stress Testing:** Keep pushing Aiderbot with tough and unusual situations, especially those we haven’t tried before.
+    *   [ ] **Make Recovery Smoother:** Make sure that when something goes wrong, Aiderbot explains what happened and helps users get back on track without confusion.
+    *   [ ] **Write a Troubleshooting Guide:** Start a simple guide for the team that lists common problems and how to fix them, so we can solve issues faster.
+    *   [ ] **Check the User Experience:** Take a fresh look at what it’s like for users when things go wrong, and make sure it feels clear and reassuring.
 *   **Reference:** This plan must always respect the high-level goals and constraints in README.md.
 ---
 
