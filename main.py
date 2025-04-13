@@ -1320,6 +1320,11 @@ def main():
         help="Enable the WebSocket server for the Alpine.js/Tailwind UI (overrides config).",
     )
     parser.add_argument(
+        "--no-auto-commit",
+        action="store_true",
+        help="Pass --no-auto-commit to Aider to prevent it from auto-committing changes.",
+    )
+    parser.add_argument(
         "--ui-host",
         type=str,
         default=None, # Default comes from config
@@ -1485,6 +1490,10 @@ def main():
     # --- Initialize and Run Harness ---
     try:
         # Initialize Harness (pass necessary args and config)
+        # Add --no-auto-commit to config if set
+        if args.no_auto_commit:
+            config["aider_no_auto_commit"] = True
+
         harness = Harness(
             config_file=args.config_file,
             max_retries=args.max_retries,

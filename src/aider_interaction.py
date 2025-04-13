@@ -93,6 +93,11 @@ def run_aider(
     command_args.append("--yes")
     logger.info("Appending --yes flag to Aider command.")
 
+    # Add --no-auto-commit if requested in config
+    if config.get("aider_no_auto_commit"):
+        command_args.append("--no-auto-commit")
+        logger.info("Appending --no-auto-commit flag to Aider command.")
+
     # Add --auto-test to enable Aider's internal testing loop
     command_args.append("--auto-test")
     logger.info("Adding --auto-test flag to Aider command.")
