@@ -944,10 +944,6 @@ class Harness:
                 test_cmd = self.config.get("aider_test_command", "pytest -v")
                 if test_cmd.startswith("pytest"):
                     logging.info("Running pytest...")
-                    try:
-                        import anyio
-                        from anyio import get_running_loop
-                        get_running_loop()
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
