@@ -948,9 +948,6 @@ class Harness:
                         import anyio
                         from anyio import get_running_loop
                         get_running_loop()
-                        import asyncio
-                        asyncio.create_task(self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."}))
-                    except RuntimeError:
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
