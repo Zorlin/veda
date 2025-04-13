@@ -1,1 +1,1 @@
-Develop logging for the tool so we can analyse logs between rounds
+Logging is now implemented for the tool. You can analyse logs between rounds by reviewing the files in the logs/ directory. Each run is logged to harness_run.log and each iteration to its own iteration_XXX.log file.
