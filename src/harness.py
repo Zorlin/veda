@@ -905,108 +905,87 @@ class Harness:
                 self.state["prompt_history"].append({"role": "assistant", "content": assistant_message})
                 self.ledger.add_message(self.current_run_id, iteration_id, "assistant", assistant_message)
 
-                # Check for stuck cycle (consecutive identical non-empty diffs)
-                if aider_diff and aider_diff.strip(): # Only check non-empty diffs
+                # Track recent diffs for stuck cycle detection, but do not abort here
+                if aider_diff and aider_diff.strip():
                     recent_diffs.append(aider_diff)
                     if len(recent_diffs) > stuck_cycle_threshold:
-                        recent_diffs.pop(0) # Keep only the last few
+                        recent_diffs.pop(0)  # Keep only the last few
 
-                    # Detect stuck cycle: if the last N (threshold) non-empty diffs are identical, abort
-                    if (
-                        len(recent_diffs) == stuck_cycle_threshold
-                        and all(d == recent_diffs[0] for d in recent_diffs)
-                    ):
-                        logging.error(
-                            f"Detected stuck cycle: last {stuck_cycle_threshold} non-empty diffs are identical. Aborting loop."
+                # Check if test command is specified and use it
+                test_cmd = self.config.get("aider_test_command", "pytest -v")
+                
+                if test_cmd.startswith("pytest"):
+                    logging.info("Running pytest...")
+                    try:
+                        import asyncio
+                        asyncio.get_running_loop()
+                        asyncio.create_task(self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."}))
+                    except RuntimeError:
+                        pass
+                        
+                    pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
+                    summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
+                    logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
+                    try:
+                        import asyncio
+                        asyncio.get_running_loop()
+                        asyncio.create_task(self._send_ui_update({
+                            "status": "Pytest Finished",
+                            "pytest_passed": pytest_passed,
+                            "pytest_output": pytest_output,
+                            "log_entry": f"Pytest finished. Passed: {pytest_passed}. Output:\n{summary_output}"
+                        }))
+                    except RuntimeError:
+                        pass
+                elif test_cmd.startswith("cargo test"):
+                    logging.info("Running cargo test...")
+                    try:
+                        import asyncio
+                        asyncio.get_running_loop()
+                        asyncio.create_task(self._send_ui_update({"status": "Running Cargo Test", "log_entry": "Running cargo test..."}))
+                    except RuntimeError:
+                        pass
+                    try:
+                        result = subprocess.run(
+                            test_cmd.split(),
+                            cwd=self.config["project_dir"],
+                            capture_output=True,
+                            text=True,
+                            timeout=600
                         )
-                        self.state["last_error"] = "Stuck cycle detected: repeated identical diffs."
-                        self.state["converged"] = False
-                        try:
-                            import asyncio
-                            asyncio.get_running_loop()
-                            asyncio.create_task(self._send_ui_update({
-                                "status": "Stuck Cycle Detected",
-                                "log_entry": f"Aborting: last {stuck_cycle_threshold} non-empty diffs are identical."
-                            }))
-                        except RuntimeError:
-                            pass
-                        break
-
-                    # Check if test command is specified and use it
-                    test_cmd = self.config.get("aider_test_command", "pytest -v")
-                    
-                    if test_cmd.startswith("pytest"):
-                        logging.info("Running pytest...")
-                        try:
-                            import asyncio
-                            asyncio.get_running_loop()
-                            asyncio.create_task(self._send_ui_update({"status": "Running Pytest", "log_entry": "Running pytest..."}))
-                        except RuntimeError:
-                            pass
-                            
-                        pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
-                        summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
-                        logging.info(f"Pytest finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
-                        try:
-                            import asyncio
-                            asyncio.get_running_loop()
-                            asyncio.create_task(self._send_ui_update({
-                                "status": "Pytest Finished",
-                                "pytest_passed": pytest_passed,
-                                "pytest_output": pytest_output,
-                                "log_entry": f"Pytest finished. Passed: {pytest_passed}. Output:\n{summary_output}"
-                            }))
-                        except RuntimeError:
-                            pass
-                    elif test_cmd.startswith("cargo test"):
-                        logging.info("Running cargo test...")
-                        try:
-                            import asyncio
-                            asyncio.get_running_loop()
-                            asyncio.create_task(self._send_ui_update({"status": "Running Cargo Test", "log_entry": "Running cargo test..."}))
-                        except RuntimeError:
-                            pass
-                        try:
-                            result = subprocess.run(
-                                test_cmd.split(),
-                                cwd=self.config["project_dir"],
-                                capture_output=True,
-                                text=True,
-                                timeout=600
-                            )
-                            pytest_passed = result.returncode == 0
-                            pytest_output = result.stdout + "\n" + result.stderr
-                        except Exception as e:
-                            pytest_passed = False
-                            pytest_output = f"Error running cargo test: {e}"
-                        summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
-                        logging.info(f"Cargo test finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
-                        try:
-                            import asyncio
-                            asyncio.get_running_loop()
-                            asyncio.create_task(self._send_ui_update({
-                                "status": "Cargo Test Finished",
-                                "pytest_passed": pytest_passed,
-                                "pytest_output": pytest_output,
-                                "log_entry": f"Cargo test finished. Passed: {pytest_passed}. Output:\n{summary_output}"
-                            }))
-                        except RuntimeError:
-                            pass
-                    else:
-                        logging.error(f"Unknown test_cmd '{test_cmd}'. Skipping test run.")
+                        pytest_passed = result.returncode == 0
+                        pytest_output = result.stdout + "\n" + result.stderr
+                    except Exception as e:
                         pytest_passed = False
-                        pytest_output = f"Unknown test_cmd '{test_cmd}'. No tests run."
-                        try:
-                            import asyncio
-                            asyncio.get_running_loop()
-                            asyncio.create_task(self._send_ui_update({
-                                "status": "Test Command Error",
-                                "pytest_passed": pytest_passed,
-                                "pytest_output": pytest_output,
-                                "log_entry": f"Unknown test_cmd '{test_cmd}'. No tests run."
-                            }))
-                        except RuntimeError:
-                            pass
+                        pytest_output = f"Error running cargo test: {e}"
+                    summary_output = (pytest_output[:500] + '...' if len(pytest_output) > 500 else pytest_output)
+                    logging.info(f"Cargo test finished. Passed: {pytest_passed}\nOutput (truncated):\n{summary_output}")
+                    try:
+                        import asyncio
+                        asyncio.get_running_loop()
+                        asyncio.create_task(self._send_ui_update({
+                            "status": "Cargo Test Finished",
+                            "pytest_passed": pytest_passed,
+                            "pytest_output": pytest_output,
+                            "log_entry": f"Cargo test finished. Passed: {pytest_passed}. Output:\n{summary_output}"
+                        }))
+                    except RuntimeError:
+                        pass
+                else:
+                    logging.error(f"Unknown test_cmd '{test_cmd}'. Skipping test run.")
+                    pytest_passed = False
+                    pytest_output = f"Unknown test_cmd '{test_cmd}'. No tests run."
+                    try:
+                        import asyncio
+                        asyncio.get_running_loop()
+                        asyncio.create_task(self._send_ui_update({
+                            "status": "Test Command Error",
+                            "pytest_passed": pytest_passed,
+                            "pytest_output": pytest_output,
+                            "log_entry": f"Unknown test_cmd '{test_cmd}'. No tests run."
+                        }))
+                    except RuntimeError:
+                        pass
 
                 # 3. Evaluate with VESPER.MIND council or standard LLM
                 evaluation_status = "Evaluating (Council)" if self.enable_council and self.council else "Evaluating (LLM)"
@@ -1170,7 +1149,30 @@ class Harness:
                     suggestions
                 )
 
-                # 4. Decide next step based on verdict
+                # 4. Stuck cycle detection (after verdict): only abort if not SUCCESS
+                if (
+                    aider_diff and aider_diff.strip()
+                    and len(recent_diffs) == stuck_cycle_threshold
+                    and all(d == recent_diffs[0] for d in recent_diffs)
+                    and verdict != "SUCCESS"
+                ):
+                    logging.error(
+                        f"Detected stuck cycle: last {stuck_cycle_threshold} non-empty diffs are identical. Aborting loop."
+                    )
+                    self.state["last_error"] = "Stuck cycle detected: repeated identical diffs."
+                    self.state["converged"] = False
+                    try:
+                        import asyncio
+                        asyncio.get_running_loop()
+                        asyncio.create_task(self._send_ui_update({
+                            "status": "Stuck Cycle Detected",
+                            "log_entry": f"Aborting: last {stuck_cycle_threshold} non-empty diffs are identical."
+                        }))
+                    except RuntimeError:
+                        pass
+                    break
+
+                # 5. Decide next step based on verdict
                 if verdict == "SUCCESS":
                     logging.info("Evaluation confirms SUCCESS.")
                     # Do NOT set self.state['converged'] or break the loop; continue to next iteration
