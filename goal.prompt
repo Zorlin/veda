@@ -6,15 +6,16 @@
     *   [ ] **Make Recovery Smoother:** Make sure that when something goes wrong, Aiderbot explains what happened and helps users get back on track without confusion.
     *   [ ] **Write a Troubleshooting Guide:** Start a simple guide for the team that lists common problems and how to fix them, so we can solve issues faster.
     *   [ ] **Check the User Experience:** Take a fresh look at what it’s like for users when things go wrong, and make sure it feels clear and reassuring.
+    *   [ ] **Add Logging:** Implement logging in Aiderbot to record key events and outcomes for each run, enabling continuous improvement.
 *   **Reference:** This plan must always respect the high-level goals and constraints in README.md.
 
 goal.prompt:
 
-"Your primary goal is to ensure Aiderbot is a reliably helpful assistant. Focus on robustness and graceful recovery from errors.  Specifically, prioritize the following:
+"Your primary goal is to ensure Aiderbot is a reliably helpful assistant. Focus on robustness, logging, and graceful recovery from errors.  Specifically, prioritize the following:
 
 *   **Find and fix weaknesses:**  Actively seek out ways Aiderbot might fail or behave unexpectedly, especially in unusual or stressful situations.
 *   **Communicate clearly during interruptions:** When Aiderbot encounters a problem, provide users with clear explanations and easy recovery options.
-*   **Learn from failures:**  Document common failure points so we can quickly resolve issues and prevent them from recurring.
+*   **Learn from failures:**  Document common failure points and log key events so we can quickly resolve issues and prevent them from recurring.
 
 Remember that a user's trust in Aiderbot depends on its ability to consistently provide a positive experience, even when things don’t go perfectly."
 
