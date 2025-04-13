@@ -1,0 +1,36 @@
+import pytest
+import requests
+import time
+import subprocess
+import sys
+import socket
+
+def wait_for_port(port, timeout=10):
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            s = socket.create_connection(("localhost", port), timeout=1)
+            s.close()
+            return True
+        except Exception:
+            time.sleep(0.2)
+    return False
+
+def test_webui_serves_vue_and_tailwind():
+    # Start the web server in a subprocess
+    proc = subprocess.Popen([sys.executable, "src/main.py", "start", "--prompt", "test webui"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        assert wait_for_port(9900), "Web server did not start on port 9900"
+        # Give the server a moment to serve the UI
+        time.sleep(1)
+        resp = requests.get("http://localhost:9900")
+        assert resp.status_code == 200
+        # Check for Vue.js and TailwindCSS in the HTML
+        assert "vue" in resp.text.lower() or "Vue" in resp.text
+        assert "tailwind" in resp.text.lower() or "Tailwind" in resp.text
+        # Check for chat UI elements
+        assert "chat" in resp.text.lower()
+        assert "thread" in resp.text.lower()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=2)

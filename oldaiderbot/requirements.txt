@@ -10,6 +10,11 @@ rich # For better console output
 tqdm # For progress bars
 websockets # For UI communication
 
+# Web UI
+flask
+flask-socketio
+jinja2
+
 # VESPER.MIND council dependencies
 transformers # For model loading and inference
 torch # For PyTorch support
