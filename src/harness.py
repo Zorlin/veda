@@ -920,28 +920,6 @@ class Harness:
                     recent_diffs.append(aider_diff)
                     if len(recent_diffs) > stuck_cycle_threshold:
                         recent_diffs.pop(0) # Keep only the last few
-                    
-                    if len(recent_diffs) == stuck_cycle_threshold and len(set(recent_diffs)) == 1:
-                        logging.error(f"Stuck cycle detected: Aider produced the same diff {stuck_cycle_threshold} times consecutively. Aborting.")
-                        self.state["last_error"] = "Stuck cycle detected (repeated diff)"
-                        # Use await if possible, otherwise skip UI update
-                        try:
-                            import anyio
-                            from anyio import get_running_loop
-                            get_running_loop()
-                            import asyncio
-                            asyncio.create_task(self._send_ui_update({"status": "Error", "log_entry": "Stuck cycle detected. Aborting."}))
-                        except RuntimeError:
-                            pass
-                        self.ledger.complete_iteration(
-                            self.current_run_id, iteration_id, aider_diff,
-                            "[No tests run due to stuck cycle]", False, "FAILURE", 
-                            "Stuck cycle detected (repeated diff)"
-                        )
-                        break # Exit the main loop
-
-                # Run tests (pytest or other)
-                test_cmd = self.config.get("aider_test_command", "pytest -v")
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
