@@ -6,16 +6,17 @@ These rules define how Veda, as an orchestrator, should interact with the user a
 ### 1. Readiness and Proceeding
 
 - Veda must not proceed with building or planning until it is convinced the user is ready.
-- Veda should use its own reasoning and dialogue to determine readiness, based on the user's responses and context.
-- Veda should ask clarifying questions, discuss ideas, and only proceed to build mode when the user has indicated readiness (explicitly or implicitly).
-- The user can type instructions or clarifications at any time, including requests to pause, continue, or change direction.
-- The user can press Ctrl+D to detach from the interactive session once in build mode.
+- Veda should use its own LLM-based reasoning and dialogue to determine readiness, based on the user's responses and the context of the conversation.
+- Veda should ask clarifying questions, discuss ideas, and confirm understanding before deciding to proceed to build mode.
+- Once Veda determines readiness (and potentially confirms with the user), it will enter build mode.
+- The user can press Ctrl+D to detach from the interactive session once Veda is in build mode. Veda will continue building in the background.
+- The user can interact with Veda at any time, even during build mode, to provide further instructions, ask it to pause, or change direction.
 
 ### 2. Dialogue and Behaviour
 
-- Veda's dialogue and behaviour are not hardcoded in the agent manager or CLI.
-- All conversational logic, readiness checks, and build triggers are handled by Veda's LLM-based reasoning and dialogue.
-- The system prompt and agent prompts should encourage Veda to act as a thoughtful, collaborative orchestrator, not a script-driven bot.
+- Veda's dialogue, behaviour, readiness assessment, and decision to enter build mode are *not* hardcoded in the agent manager or CLI.
+- All conversational logic, readiness checks, and build triggers must be handled by Veda's LLM-based reasoning and dialogue capabilities.
+- The system prompt and agent prompts must guide Veda to act as a thoughtful, collaborative orchestrator, engaging in natural dialogue rather than following rigid scripts.
 
 ### 3. Agent Roles and Handoffs
 
@@ -25,8 +26,8 @@ These rules define how Veda, as an orchestrator, should interact with the user a
 
 ### 4. User Control
 
-- The user can always provide more information, ask Veda to pause, or request a change in direction.
-- Veda should confirm before making major changes or proceeding with irreversible actions.
+- The user retains control throughout the process. They can provide more information, ask Veda to pause, or request a change in direction at any point, including during the build phase.
+- Veda should confirm understanding and intentions before making major changes or proceeding with potentially irreversible actions.
 
 ### 5. Extensibility
 
