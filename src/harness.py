@@ -15,6 +15,7 @@ import anyio # Import anyio for streams
 from anyio.streams.memory import MemoryObjectSendStream # Specific type hint
 from .ledger import Ledger
 from .vesper_mind import VesperMind
+from .council_apply import council_apply_plan
 # No longer need direct UIServer import here for updates
 import re # Import regex for ANSI stripping
 import threading
@@ -521,6 +522,13 @@ class Harness:
             iteration = self.state["current_iteration"]
             iteration_num_display = iteration + 1
             iteration_interrupted = False # Flag specific to this iteration
+
+            # --- Apply council plan after each round (except first) ---
+            if iteration > 0:
+                actions = council_apply_plan()
+                if actions:
+                    logging.info(f"✅ Council actions queued: {actions}")
+                    # Here you could inject actions into the execution context, update goal, etc.
 
             # Always initialize pytest_output and pytest_passed to safe defaults
             pytest_output = ""
