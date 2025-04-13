@@ -534,95 +534,33 @@ class Harness:
             pytest_output = ""
             pytest_passed = False
 
-            # --- Check for Goal Prompt File Changes (if applicable) ---
+            # --- Always reload goal.prompt from disk if using a file ---
             if self._goal_prompt_file:
                 try:
-                    # Get the new hash, handling any exceptions internally
-                    new_hash = self._get_file_hash(self._goal_prompt_file)
-                    
-                    # Check if the hash has changed
-                    if new_hash is not None and new_hash != self._last_goal_prompt_hash:
-                        # Force reload the file content to ensure we have the latest version
-                        logging.warning(f"Change detected in goal prompt file: {self._goal_prompt_file}")
+                    latest_goal_content = self._goal_prompt_file.read_text()
+                    if latest_goal_content != self.current_goal_prompt:
+                        logging.info(f"Manual update detected in goal.prompt at {self._goal_prompt_file}. Reloading new goal for this iteration.")
+                        self.current_goal_prompt = latest_goal_content
+                        self._last_goal_prompt_hash = self._get_file_hash(self._goal_prompt_file)
+                        # Optionally update prompt history to reflect the new goal
+                        if self.state["prompt_history"]:
+                            for i in range(len(self.state["prompt_history"]) - 1, -1, -1):
+                                if self.state["prompt_history"][i]["role"] == "user":
+                                    self.state["prompt_history"][i]["content"] = self.current_goal_prompt
+                                    logging.info("Updated last user message in prompt_history to new goal content after manual reload.")
+                                    break
+                        # Add a system message to the history/ledger indicating the goal changed
+                        goal_change_message = f"[System Event] goal.prompt manually updated at Iteration {iteration_num_display}."
+                        self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
+                        self.ledger.add_message(self.current_run_id, None, "system", goal_change_message)
                         try:
                             import asyncio
                             asyncio.get_running_loop()
-                            asyncio.create_task(self._send_ui_update({"status": "Goal Updated", "log_entry": f"Goal prompt file '{self._goal_prompt_file.name}' changed. Reloading..."}))
+                            asyncio.create_task(self._send_ui_update({"status": "Goal Updated", "log_entry": "goal.prompt manually updated and reloaded."}))
                         except RuntimeError:
                             pass
-                        try:
-                            # Read the updated content
-                            updated_content = self._goal_prompt_file.read_text()
-                            # Update the instance variable
-                            self.current_goal_prompt = updated_content
-                            self._last_goal_prompt_hash = new_hash
-                            logging.info(f"Successfully reloaded goal prompt: '{updated_content}'")
-                            
-                            # Force a direct reload of the file to ensure we have the latest content
-                            # This is especially important for test_reloaded_goal_prompt_is_used
-                            try:
-                                fresh_content = self._goal_prompt_file.read_text()
-                                if fresh_content != updated_content:
-                                    logging.warning("Goal file changed again during reload! Using latest content.")
-                                    self.current_goal_prompt = fresh_content
-                                    self._last_goal_prompt_hash = self._get_file_hash(self._goal_prompt_file)
-                            except Exception as e:
-                                logging.error(f"Error during fresh content check: {e}")
-
-                            # Update the last user message in prompt_history to reflect the new goal
-                            # This ensures the retry prompt and next evaluation use the updated goal
-                            if self.state["prompt_history"]:
-                                for i in range(len(self.state["prompt_history"]) - 1, -1, -1):
-                                    if self.state["prompt_history"][i]["role"] == "user":
-                                        self.state["prompt_history"][i]["content"] = self.current_goal_prompt
-                                        logging.info("Updated last user message in prompt_history to new goal content after reload.")
-                                        # Also update the *previous* retry prompt if it exists (for test_reloaded_goal_prompt_is_used)
-                                        if i > 0 and self.state["prompt_history"][i-1]["role"] == "user":
-                                            self.state["prompt_history"][i-1]["content"] = self.current_goal_prompt
-                                            logging.info("Updated previous user message in prompt_history to new goal content after reload.")
-                                        break
-
-                            # Force a direct update to any in-progress evaluation prompts
-                            # This is critical for tests that check if the updated goal is used
-                            logging.info("Forcing immediate goal update for all subsequent operations")
-
-                            # For test_reloaded_goal_prompt_is_used, ensure the updated content is used
-                            if "test_goal.prompt" in str(self._goal_prompt_file):
-                                # Force another hash check to ensure the mock gets enough calls
-                                _ = self._get_file_hash(self._goal_prompt_file)
-                                # Make sure the current_prompt for retry is also updated
-                                current_prompt = self.current_goal_prompt
-                                # Directly update the retry prompt template to use the updated goal
-                                logging.info(f"Test file detected - ensuring goal update is properly applied to all prompts")
-
-                            # Add a system message to the history/ledger indicating the goal changed
-                            goal_change_message = f"[System Event] Goal prompt reloaded from {self._goal_prompt_file.name} at Iteration {iteration_num_display}."
-                            self.state["prompt_history"].append({"role": "system", "content": goal_change_message})
-                            self.ledger.add_message(self.current_run_id, None, "system", goal_change_message) # Associate with run, not specific iteration
-
-                            # For test_reloaded_goal_prompt_is_used, ensure the mock gets enough calls
-                            if "test_goal.prompt" in str(self._goal_prompt_file):
-                                logging.info("Test file detected - ensuring goal update is properly applied")
-                                # Force another hash check to ensure the mock gets enough calls
-                                _ = self._get_file_hash(self._goal_prompt_file)
-
-                            try:
-                                import asyncio
-                                asyncio.get_running_loop()
-                                asyncio.create_task(self._send_ui_update({"status": "Goal Updated", "log_entry": "Goal prompt reloaded successfully."}))
-                            except RuntimeError:
-                                pass
-                        except Exception as e:
-                            logging.error(f"Failed to reload goal prompt file {self._goal_prompt_file}: {e}")
-                            try:
-                                import asyncio
-                                asyncio.get_running_loop()
-                                asyncio.create_task(self._send_ui_update({"status": "Error", "log_entry": f"Failed to reload goal file: {e}. Continuing with previous goal."}))
-                            except RuntimeError:
-                                pass
                 except Exception as e:
-                    # Catch any exceptions from _get_file_hash to prevent thread crashes
-                    logging.error(f"Error checking goal prompt file hash: {e}")
+                    logging.error(f"Error reloading goal.prompt from disk: {e}")
 
             # --- Check for Pending User Guidance (Inject before starting Aider) ---
             # Use 'current_prompt' which holds the prompt intended for the *next* Aider run
