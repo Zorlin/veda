@@ -35,9 +35,18 @@ You are improving aiderbot according to the information laid out in README.md.
 #### Special Handling for Test Failures
 
 If aiderbot detects a failed test (bad cargo test or pytest), it must:
-- Modify the goal before the next iteration starts to specifically instruct the model to run `cargo test` (or the relevant test command for the failure).
-- Clearly annotate the goal with the reason for the update and the specific test failure encountered.
-- Ensure that the updated goal is used in the *very next* iteration, not delayed.
+- Atomically update the goal *before* the next iteration begins, so the new goal is guaranteed to be used immediately.
+- Insert a clearly marked annotation at the top of the goal, using the following template:
+
+    ```
+    [AUTOMATED GOAL UPDATE DUE TO TEST FAILURE]
+    Reason: <brief description of the failure>
+    Test Output: <relevant error message or summary>
+    Instruction: Please run `cargo test` (or the relevant test command) and address the failure above before proceeding.
+    ```
+
+- The annotation must be removed or updated once the failure is resolved.
+- This update must not be delayed or skipped for any reason.
 
 #### Conceptual Expansion
 
@@ -51,16 +60,17 @@ If aiderbot detects a failed test (bad cargo test or pytest), it must:
 
 #### You should:
 
-1. Make Live Aider Output respect Aider's control codes (like \c for cancel)
-2. Prevent text duplication in both the Live Log and Diff Viewers
-3. Keep the Live Log focused on current state and recent activity
-4. Implement a working interrupt system that actually stops Aider
-5. Respect changes to goal.prompt even after initial run if they're edited
+1. Ensure Live Aider Output always respects Aider's control codes (like \c for cancel).
+2. Prevent any text duplication in both the Live Log and Diff Viewers, both in backend and frontend.
+3. Keep the Live Log focused on current state and recent activity, hiding irrelevant or outdated messages.
+4. Implement a robust interrupt system that reliably stops Aider and cleans up all resources.
+5. Detect and respect changes to goal.prompt at any time, reinitializing Aider with the new instructions immediately.
 
 #### You should make sure:
 
-- All output follows proper formatting control codes
-- Diffs are displayed with clear syntax highlighting
-- The Live Log only shows relevant, non-duplicated activity
-- Interrupt process sends proper signals and cleans up resources
-- Goal changes trigger reinitialization of Aider with new instructions
+- All output follows proper formatting and control codes.
+- Diffs are displayed with clear syntax highlighting.
+- The Live Log only shows relevant, non-duplicated activity.
+- Interrupt process sends proper signals and cleans up all resources (no zombies).
+- Goal changes always trigger immediate reinitialization of Aider with the new instructions.
+- If new requirements or edge cases are discovered, update the test plan in README.md accordingly.
