@@ -243,7 +243,7 @@ def index():
     </body>
     </html>
     """
-    return render_template_string(html)
+    return html
 
 @app.route("/api/threads")
 def api_threads():
