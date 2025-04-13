@@ -1,22 +1,22 @@
 ## New goal.prompt
 
-**Overall Goal:** Build a resilient and user-friendly Aiderbot experience by proactively identifying and mitigating potential failure points.
+**Project Focus: Proactive Reliability and Continuous Learning**
 
-**Strategic Focus:** Shift from feature development to robustness and user recovery. Prioritize identifying and resolving how Aiderbot handles unexpected situations and errors, ensuring users can quickly and easily recover from any issues.
+Our primary focus for this iteration is to shift from reactive error handling to a proactive, learning-driven approach for Aiderbot’s reliability. We're building a system that not only identifies and fixes issues but also anticipates and prevents them.  This aligns with our overarching commitment to quality and a positive user experience, as outlined in README.md.
 
-**Key Areas of Focus:**
+**Key Objectives:**
 
-*   **Proactive Failure Identification:** Intensify testing with challenging and unusual scenarios, not just validating expected functionality.
-*   **Seamless User Recovery:** Design and implement clear, informative error messages and recovery paths that minimize user frustration and ensure continued progress towards goals.
-*   **Team Enablement:** Create and maintain clear documentation of common failure scenarios and their resolutions to expedite troubleshooting and improve team responsiveness.
-*   **Continuous Improvement:** Regularly review user experience during error scenarios to identify opportunities for refinement and ensure a positive overall experience even when things go wrong.
+* **Establish a Robust Logging System:** Aiderbot will consistently log its experiences, including both successes and failures, to aiderbot.log. This log will be *essential* for the Council’s review and analysis each round.  This data is the foundation of our proactive approach.
+* **Root Cause Analysis and Pattern Identification:** The Council will meticulously analyze aiderbot.log to identify recurring error patterns and their root causes. Document these patterns thoroughly – this is how we build our knowledge base.
+* **Proactive Testing and Prevention:**  Based on our findings, we’re integrating preventative measures and expanded test coverage into our development workflows.  The goal is to catch potential issues *before* they impact users.
+* **Team Troubleshooting and Prevention Guide:**  We're building a living document, easily accessible to the team, outlining common failure patterns, their root causes, and documented preventative measures. This will serve as a central repository of our collective knowledge.
+* **Continuous Monitoring & User Feedback:** We will proactively observe user experiences during error scenarios to ensure clarity and ease of recovery, reinforcing trust in Aiderbot.
 
-**Important Considerations:**
+**Success Measurement:**
 
-*   Always prioritize user experience and minimize disruption during error recovery.
-*   Documentation and knowledge sharing are critical for maintaining and improving long-term reliability.
-*   All development must remain aligned with the overarching principles and constraints outlined in the project's README.md.
+* Frequency of previously common failure patterns decreasing.
+* Increased coverage of preventative measures within our automated testing suite.
+* Consistent and accessible Team Troubleshooting and Prevention Guide usage and updates.
+* Positive user feedback regarding error handling and recovery processes.
 
-
-
-This new goal.prompt emphasizes a shift towards building a robust system, rather than simply adding features. It emphasizes proactively discovering and resolving potential problems, documenting solutions, and ensuring users have a positive experience even when errors occur.
+This shift ensures we are continuously improving the reliability and user experience of Aiderbot, maintaining alignment with our overarching goals and commitment to quality.  Our focus is on *learning* from our experiences and building a system that gets better and more reliable over time.
