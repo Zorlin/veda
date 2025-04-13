@@ -8,7 +8,13 @@ import os
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from src.constants import OLLAMA_URL, VEDA_CHAT_MODEL, ROLE_MODELS, MCP_URL, POSTGRES_DSN, HANDOFF_DIR
+import sys
+import os
+
+# Allow running as "python src/main.py" from project root and finding src/constants.py
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+from constants import OLLAMA_URL, VEDA_CHAT_MODEL, ROLE_MODELS, MCP_URL, POSTGRES_DSN, HANDOFF_DIR
 
 logging.basicConfig(
     level=logging.INFO,
