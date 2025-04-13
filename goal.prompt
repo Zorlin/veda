@@ -1,14 +1,17 @@
-## New goal.prompt: Focus on Resilience and Proactive Problem Solving
+## New goal.prompt
 
-**Overall Objective:**  Build an exceptionally reliable and user-friendly Aiderbot, prioritizing proactive identification and mitigation of potential issues *before* they impact the user experience.
+**Overall Project Goal:** Deliver a robust and reliable AI assistant (Aiderbot) that empowers users to achieve their goals efficiently and enjoyably, all while maintaining a focus on safety and user well-being.
 
-**Strategic Shift:** We're moving beyond core functionality development to a sustained focus on resilience testing and proactive problem solving.  Our primary goal now is to demonstrate that Aiderbot can withstand and recover from unexpected scenarios gracefully.
+**Current Phase Focus: Proactive Reliability & Stability**
 
-**Key Areas of Focus:**
+For the next development cycle, our primary focus shifts from feature development to **proactive reliability and stability**.  We're moving into a phase of rigorous testing and preventative measures to ensure Aiderbot functions consistently and gracefully, even under challenging conditions.  This is *not* about adding new capabilities; it's about strengthening the foundation we’ve built.
 
-* **Resilience Testing:**  Aggressively simulate a wide range of failure scenarios – resource constraints, unexpected data inputs, interruption of services, etc. – to identify weaknesses and build robustness.  This is *not* about fixing problems as they arise; it's about *finding* them first.
-* **Proactive Error Mitigation:**  Design and implement automatic recovery mechanisms where possible.  Aiderbot should be capable of self-diagnosing and resolving common issues without user intervention.
-* **Continuous Monitoring & Improvement:**  Enhance our monitoring tools to provide clear insights into system health and quickly highlight potential areas of concern.  This allows for constant refinement and strengthening of Aiderbot’s defenses.
-* **Maintain User Experience:**  Throughout this process, rigorously validate that changes do not negatively impact the core user experience. Seamlessness and predictability remain paramount.
+**Key Directives:**
 
-**Remember:** We are prioritizing robustness and preventative measures. While functionality remains important, our near-term success will be measured by how effectively we anticipate and resolve potential problems *before* users encounter them. Always consider “What if…?” scenarios and proactively build safeguards against them.
+* **"Break it to Fix it":**  Actively design and execute stress tests, edge-case simulations, and failure mode analyses. Intentionally try to trigger errors and identify vulnerabilities in the system's architecture, prompt design, and error handling.
+* **Seamless User Experience During Recovery:**  Focus on how Aiderbot responds to unexpected events.  Prioritize graceful degradation and clear, understandable feedback to the user, minimizing frustration and preserving progress whenever possible. Interruptions should feel like natural pauses, not jarring failures.
+* **Prompt Safety and Robustness:** Any modifications to the core prompts used by Aiderbot must be subjected to heightened scrutiny. This includes thorough testing for unintended consequences, biases, and vulnerabilities to adversarial input.
+* **Automated Error Correction:**  Explore and implement mechanisms for Aiderbot to automatically detect, diagnose, and correct common errors, reducing the need for manual intervention.
+* **Enhanced Observability:** Improve our monitoring and logging capabilities to gain deeper insights into Aiderbot’s internal state and quickly identify and resolve emerging issues.
+
+**Remember:** This phase is about building confidence in Aiderbot’s ability to deliver a consistently positive user experience. Prioritize stability and resilience over rapid feature additions.  Always defer to the high-level goals and constraints documented in README.md.
