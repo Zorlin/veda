@@ -6,7 +6,7 @@
 
 **Key Areas of Focus (Ranked by Priority):**
 
-1. **Stress Testing & Failure Injection:**  Actively design and execute scenarios that push Aiderbot to its limits (e.g., low memory, invalid input, network interruptions).  Document failures thoroughly and prioritize fixes. The goal isn's to just *test* but to *break* the system in controlled ways.
+1. **Stress Testing & Failure Injection:**  Actively design and execute scenarios that push Aiderbot to its limits (e.g., low memory, invalid input, network interruptions).  Document failures thoroughly and prioritize fixes. The goal isn't to just *test* but to *break* the system in controlled ways.
 2. **Seamless Interruption Handling:** Focus on how Aiderbot communicates and recovers when interruptions occur. Prioritize clear, user-friendly messages and automatic resumption of tasks.
 3. **Prompt Stability & Safety:**  Maintain rigorous testing of prompts to prevent unexpected behavior or security vulnerabilities. Focus on identifying potential exploits and designing preventative measures.
 4. **Automated Recovery:**  Design and implement mechanisms for Aiderbot to automatically resolve common issues, minimizing user intervention.
