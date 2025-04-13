@@ -1173,7 +1173,7 @@ class Harness:
                 # 4. Decide next step based on verdict
                 if verdict == "SUCCESS":
                     logging.info("Evaluation confirms SUCCESS.")
-                    self.state["converged"] = True # Mark as converged first
+                    # Do NOT set self.state['converged'] or break the loop; continue to next iteration
 
                     # Run code review if enabled *after* confirming success
                     if self.enable_code_review:
@@ -1208,15 +1208,15 @@ class Harness:
                             except RuntimeError:
                                 pass
 
-                    # Stop the loop after success (and optional review)
-                    logging.info("Stopping loop due to SUCCESS verdict.")
+                    # Log that we would have stopped, but now continue
+                    logging.info("SUCCESS verdict: continuing loop instead of stopping (per new policy).")
                     try:
                         import asyncio
                         asyncio.get_running_loop()
-                        asyncio.create_task(self._send_ui_update({"status": "SUCCESS", "log_entry": "Converged: SUCCESS"}))
+                        asyncio.create_task(self._send_ui_update({"status": "SUCCESS", "log_entry": "SUCCESS: continuing loop instead of stopping."}))
                     except RuntimeError:
                         pass
-                    break # Exit the loop
+                    # Do NOT break; continue to next iteration
 
                 elif verdict == "RETRY":
                     logging.info("Evaluation suggests RETRY.")
