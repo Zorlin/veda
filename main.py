@@ -19,6 +19,8 @@ import socketserver
 from functools import partial
 import fcntl  # For file locking
 
+from logging.handlers import RotatingFileHandler
+
 from src.harness import Harness
 from src.ui_server import UIServer # Import UI Server
 
@@ -36,11 +38,26 @@ DEFAULT_CONFIG = {
 # Configure rich console
 console = Console()
 
-# Configure logging with rich
+# --- Logging Setup: File + Rich Console ---
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / "harness.log"
+
+# Set up rotating file handler (5MB per file, keep 5 backups)
+file_handler = RotatingFileHandler(str(LOG_FILE), maxBytes=5*1024*1024, backupCount=5)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+))
+
+# Rich console handler
+rich_handler = RichHandler(rich_tracebacks=True, console=console)
+rich_handler.setLevel(logging.INFO)
+rich_handler.setFormatter(logging.Formatter("%(message)s"))
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(message)s",
-    handlers=[RichHandler(rich_tracebacks=True, console=console)]
+    handlers=[file_handler, rich_handler]
 )
 
 logger = logging.getLogger("aider_harness")

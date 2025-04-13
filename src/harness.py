@@ -418,6 +418,8 @@ class Harness:
             initial_goal_prompt_or_file: The initial goal prompt string OR path to a file containing the goal.
         """
         logging.info("Starting harness run...")
+        logging.info(f"=== HARNESS RUN STARTED ===")
+        logging.info(f"Run config: {self.config}")
         # Only try to send UI update if we're in a running event loop (ie, not in tests)
         try:
             import asyncio
@@ -522,6 +524,8 @@ class Harness:
             iteration = self.state["current_iteration"]
             iteration_num_display = iteration + 1
             iteration_interrupted = False # Flag specific to this iteration
+
+            logging.info(f"=== STARTING ITERATION {iteration_num_display} ===")
 
             # --- Apply council plan after each round (except first) ---
             if iteration > 0:
@@ -1272,6 +1276,9 @@ class Harness:
             self.state["converged"] = False
             final_log_entry = f"Harness finished: ERROR. Last error: {self.state.get('last_error', 'Unknown error')}"
             final_status = f"ERROR: {self.state.get('last_error', 'Unknown error')}"
+
+        logging.info(f"=== HARNESS RUN ENDED ===")
+        logging.info(f"Run summary: {final_log_entry}")
 
         # Update run status in ledger
         self.ledger.end_run(
