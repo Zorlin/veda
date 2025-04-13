@@ -942,8 +942,6 @@ class Harness:
 
                 # Run tests (pytest or other)
                 test_cmd = self.config.get("aider_test_command", "pytest -v")
-                if test_cmd.startswith("pytest"):
-                    logging.info("Running pytest...")
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
 =======
                     pytest_passed, pytest_output = run_pytest(self.config["project_dir"])
