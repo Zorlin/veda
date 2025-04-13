@@ -417,9 +417,19 @@ class Harness:
         Args:
             initial_goal_prompt_or_file: The initial goal prompt string OR path to a file containing the goal.
         """
+        import os
+        from pathlib import Path
+        import logging
+
         logging.info("Starting harness run...")
         logging.info(f"=== HARNESS RUN STARTED ===")
         logging.info(f"Run config: {self.config}")
+
+        # Prepare log directory and per-run log context
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        self._iteration_log_handlers = []
+
         # Only try to send UI update if we're in a running event loop (ie, not in tests)
         try:
             import asyncio
@@ -523,9 +533,19 @@ class Harness:
         ):
             iteration = self.state["current_iteration"]
             iteration_num_display = iteration + 1
-            iteration_interrupted = False # Flag specific to this iteration
 
+            # --- Per-iteration log file setup ---
+            iter_log_path = log_dir / f"iteration_{iteration_num_display:03d}.log"
+            iter_handler = logging.FileHandler(str(iter_log_path), mode="w")
+            iter_handler.setLevel(logging.INFO)
+            iter_handler.setFormatter(logging.Formatter(
+                "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+            ))
+            logging.getLogger().addHandler(iter_handler)
+            self._iteration_log_handlers.append(iter_handler)
             logging.info(f"=== STARTING ITERATION {iteration_num_display} ===")
+
+            iteration_interrupted = False # Flag specific to this iteration
 
             # --- Apply council plan after each round (except first) ---
             if iteration > 0:
@@ -1240,6 +1260,26 @@ class Harness:
                 break
 
             finally:
+                # Log summary for this iteration
+                summary_lines = [
+                    f"=== END OF ITERATION {iteration_num_display} ===",
+                    f"Iteration {iteration_num_display} summary:",
+                    f"  Converged: {self.state.get('converged', False)}",
+                    f"  Last error: {self.state.get('last_error', None)}",
+                ]
+                # Optionally, add verdict and test result if available
+                if "last_verdict" in self.state:
+                    summary_lines.append(f"  Last verdict: {self.state.get('last_verdict')}")
+                if "last_test_result" in self.state:
+                    summary_lines.append(f"  Last test result: {self.state.get('last_test_result')}")
+                for line in summary_lines:
+                    logging.info(line)
+
+                # Remove per-iteration log handler
+                handler = self._iteration_log_handlers.pop(0)
+                logging.getLogger().removeHandler(handler)
+                handler.close()
+
                 # Only increment iteration if it wasn't interrupted,
                 # otherwise, the 'continue' statement handles moving to the next loop cycle
                 # which effectively retries the *same* iteration number with the new prompt.
@@ -1279,6 +1319,12 @@ class Harness:
 
         logging.info(f"=== HARNESS RUN ENDED ===")
         logging.info(f"Run summary: {final_log_entry}")
+
+        # Clean up any remaining per-iteration log handlers
+        for handler in getattr(self, "_iteration_log_handlers", []):
+            logging.getLogger().removeHandler(handler)
+            handler.close()
+        self._iteration_log_handlers = []
 
         # Update run status in ledger
         self.ledger.end_run(
