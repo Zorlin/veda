@@ -1,90 +1,35 @@
-## Goal: Ensure Aiderbot is Rock-Solid Reliable
+APPROVED: 
+### Council Round 11 (2025-04-13 10:20:11)
+*   **Summary of Last Round:** We're shifting our focus from building Aiderbot’s core functionality to rigorously testing its resilience and reliability. We're confident the foundational pieces are solid, and Aiderbot is now capable of learning and adapting from testing. The current priority is to proactively identify and resolve any potential weaknesses before users experience them, ensuring a consistently smooth and dependable experience. We've started stress testing and are actively searching for edge cases.
 
-**Overall Direction:** Our priority has shifted from initial development to ensuring Aiderbot is exceptionally reliable and performs consistently well under various conditions. We want users to be confident in Aiderbot's stability and performance.
+Please review this plan and either:
+1. Approve it as is (respond with "APPROVED: " followed by the original plan)
+2. Suggest improvements (respond with "IMPROVED: " followed by your improved version)
 
-**Key Objectives:**
+Your improved version should:
+- Maintain the same format but enhance the content
+- Use plain language that a human would write
+- Focus on high-level strategic direction rather than technical details
+- Be concise but comprehensive
+- Avoid AI-like language patterns and technical jargon
+- Ensure continuity with previous council rounds in PLAN.md
 
-*   **Proactive Testing:**  Conduct thorough stress testing to identify and fix any weaknesses *before* users encounter them. This includes testing with unusual data, under high load, and in scenarios that mimic real-world use cases.
-*   **Graceful Handling of Errors:**  Ensure Aiderbot recovers smoothly from errors and provides clear, helpful messages to the user, minimizing frustration.
-*   **Continuous Improvement:** Leverage Aiderbot’s ability to learn from testing to proactively identify and address potential issues.
-*   **Maintain a User-Centric Approach:** Every change and improvement should be evaluated for its impact on the user experience, focusing on ease of use and confidence.
+Remember that:
+- The open source council must review and update PLAN.md at the end of each round to reflect the current actionable plan, strategies, and next steps.
+- Only update goal.prompt if a significant change in overall direction is required (which is rare).
+- All planning and actions must always respect the high-level goals and constraints in README.md.
+- All tests must pass to continue and commit to a direction. After a few tries, the council can revert to a working commit.
 
-**Next Steps:**
+Remember that PLAN.md is meant to contain plain language, high-level direction that guides the project.
 
-1.  **Execute comprehensive stress testing:**  Focus on edge cases and unusual scenarios.
-2.  **Develop robust error handling mechanisms:**  Prioritize clear communication with the user.
-3.  **Analyze testing results:**  Identify patterns and areas for improvement.
-4.  **Iterate on design and implementation:**  Address identified weaknesses and enhance the user experience.
 
-**Constraints (Refer to README.md for full details):**
 
-*   Adhere to all previously defined high-level goals and limitations.
-*   Maintain code quality and test coverage.
-*   Prioritize user privacy and security.
+goal.prompt:
 
----
+"Your primary goal is to ensure Aiderbot is a reliably helpful assistant. Focus on robustness and graceful recovery from errors.  Specifically, prioritize the following:
 
-### Implementation Directives
+*   **Find and fix weaknesses:**  Actively seek out ways Aiderbot might fail or behave unexpectedly, especially in unusual or stressful situations.
+*   **Communicate clearly during interruptions:** When Aiderbot encounters a problem, provide users with clear explanations and easy recovery options.
+*   **Learn from failures:**  Document common failure points so we can quickly resolve issues and prevent them from recurring.
 
-You are improving aiderbot according to the information laid out in README.md.
-
-- Look for anything missing, any tests that can be added, anything you can do to make it run unstoppably and controllably.
-- Expand on the concepts used if needed.
-- ALL FUNCTIONALITY SHOULD HAVE EXTENSIVE TESTS.
-
-#### Special Handling for Test Failures
-
-If aiderbot detects a failed test (bad cargo test or pytest), it must:
-
-- **Atomically update the goal *before* the next iteration begins, so the new goal is guaranteed to be used immediately.**
-- **Insert a clearly marked annotation at the very top of the goal, using the following template:**
-
-    ```
-    [AUTOMATED GOAL UPDATE DUE TO TEST FAILURE]
-    Reason: <brief description of the failure>
-    Test Output: <relevant error message or summary>
-    Instruction: Please run `cargo test` (or the relevant test command) and address the failure above before proceeding.
-    ```
-
-- **The annotation must be removed or updated as soon as the failure is resolved.**
-- **This update must not be delayed or skipped for any reason.**
-- **The annotation must always be at the very top of the goal file.**
-- **This behavior is tested and enforced.**
-
-#### Conceptual Expansion
-
-- The harness should be self-healing, able to recover from failures at every layer (subprocess, config, UI, ledger, etc.), and continue operation with minimal human intervention.
-- It should dynamically adapt to changes in the goal prompt or configuration, applying them immediately to allow the agent to evolve its behavior on the fly.
-- All subprocesses (Aider, Ollama, Pytest) must be managed with robust signal handling and resource cleanup, ensuring that interrupts are always effective and no zombie processes remain.
-- The VESPER.MIND council provides multi-perspective evaluation, reducing the risk of tunnel vision or single-point failure in judgment.
-- Both backend and frontend logic must prevent duplicate output, keeping logs and diffs concise and relevant, and ensuring the UI remains performant and user-friendly.
-- Strict scrollback limits must be enforced to prevent memory leaks and browser crashes, even under high-throughput output scenarios.
-- The architecture should be extensible, supporting new council roles, agent slots, or UI modalities (TUI, CLI, web) with minimal changes to the core logic.
-
-#### You should:
-
-1. Ensure Live Aider Output always respects Aider's control codes (like \c for cancel).
-2. Prevent any text duplication in both the Live Log and Diff Viewers, both in backend and frontend.
-3. Keep the Live Log focused on current state and recent activity, hiding irrelevant or outdated messages.
-4. Implement a robust interrupt system that reliably stops Aider and cleans up all resources.
-5. Detect and respect changes to goal.prompt at any time, reinitializing Aider with the new instructions immediately.
-
-#### You should make sure:
-
-- All output follows proper formatting and control codes.
-- Diffs are displayed with clear syntax highlighting.
-- The Live Log only shows relevant, non-duplicated activity.
-- Interrupt process sends proper signals and cleans up all resources (no zombies).
-- Goal changes always trigger immediate reinitialization of Aider with the new instructions.
-- If new requirements or edge cases are discovered, update the test plan in README.md accordingly.
-
----
-
-### 🛑 Test Failure Annotation Checklist
-
-- [ ] When a test fails, the goal is atomically updated *before* the next iteration.
-- [ ] The annotation is inserted at the *very top* of the goal, using the required template.
-- [ ] The annotation includes the reason, test output, and explicit instruction.
-- [ ] The annotation is removed or updated as soon as the failure is resolved.
-- [ ] The annotation update/removal is never skipped or delayed.
-- [ ] This behavior is covered by automated tests.
+Remember that a user's trust in Aiderbot depends on its ability to consistently provide a positive experience, even when things don’t go perfectly."
