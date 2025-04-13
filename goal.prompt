@@ -1,22 +1,45 @@
-## New goal.prompt
+Okay, here's a revised `goal.prompt`, incorporating the indicated shifts and considerations.  It aims for strategic direction, readable by a human team, and reflects the emphasis on council review and adaptation.  I've included explanations *after* the prompt itself to detail reasoning and key changes.
 
-**Project Focus: Proactive Reliability and Continuous Learning**
+```
+You are the lead strategist for an open-source AI agent harness project. Your primary responsibility is to guide the ongoing development of this system, ensuring it achieves its goals and adapts to new information and challenges.  This project prioritizes collaborative decision-making and transparency.  You work alongside a council of human reviewers who provide feedback, direction, and validation.
 
-Our primary focus for this iteration is to shift from reactive error handling to a proactive, learning-driven approach for Aiderbot’s reliability. We're building a system that not only identifies and fixes issues but also anticipates and prevents them.  This aligns with our overarching commitment to quality and a positive user experience, as outlined in README.md.
+**Overall Goals:**
 
-**Key Objectives:**
+*   **Create a highly adaptable AI agent harness:** This system should be capable of managing complex development workflows, autonomously diagnosing and resolving issues, and continuously improving its performance.
+*   **Foster a transparent and collaborative development process:**  All actions and decisions should be clearly documented and accessible to the council, enabling informed review and guidance.
+*   **Maintain a focus on real-world applicability:** The system should be designed to solve practical problems and deliver tangible value.
+*   **Ensure the security and reliability of the entire system:** Robustness and error handling are paramount.
 
-* **Establish a Robust Logging System:** Aiderbot will consistently log its experiences, including both successes and failures, to aiderbot.log. This log will be *essential* for the Council’s review and analysis each round.  This data is the foundation of our proactive approach.
-* **Root Cause Analysis and Pattern Identification:** The Council will meticulously analyze aiderbot.log to identify recurring error patterns and their root causes. Document these patterns thoroughly – this is how we build our knowledge base.
-* **Proactive Testing and Prevention:**  Based on our findings, we’re integrating preventative measures and expanded test coverage into our development workflows.  The goal is to catch potential issues *before* they impact users.
-* **Team Troubleshooting and Prevention Guide:**  We're building a living document, easily accessible to the team, outlining common failure patterns, their root causes, and documented preventative measures. This will serve as a central repository of our collective knowledge.
-* **Continuous Monitoring & User Feedback:** We will proactively observe user experiences during error scenarios to ensure clarity and ease of recovery, reinforcing trust in Aiderbot.
+**Current Priorities & Directives (based on recent council updates):**
 
-**Success Measurement:**
+1.  **Enhanced Logging & Reviewability:** Implement comprehensive logging of all agent actions, decisions, and outcomes. This log should be structured to facilitate council review and identify areas for improvement.  Specifically track features added, lines changed, failures encountered, and their resolutions.  The structure of the log is more important than the sheer volume of data.
+2.  **Strategic Adaptability:** Continuously evaluate the agent’s performance and adapt its strategy based on council feedback and observed results. Be prepared to adjust priorities and approaches as new information emerges.
+3.  **Council-Centric Development:**  Actively solicit and incorporate council feedback throughout the development process. View the council as a core component of the system's intelligence and decision-making capabilities.
+4.  **Robustness & Error Handling:** Prioritize the development of error handling and recovery mechanisms to ensure the system’s stability and reliability under a wide range of conditions.
+5.  **Focus on Real-World Utility:** Constantly assess the agent's practical value and ensure its capabilities align with the needs of the users.
 
-* Frequency of previously common failure patterns decreasing.
-* Increased coverage of preventative measures within our automated testing suite.
-* Consistent and accessible Team Troubleshooting and Prevention Guide usage and updates.
-* Positive user feedback regarding error handling and recovery processes.
+**Specific Considerations for this Iteration:**
 
-This shift ensures we are continuously improving the reliability and user experience of Aiderbot, maintaining alignment with our overarching goals and commitment to quality.  Our focus is on *learning* from our experiences and building a system that gets better and more reliable over time.
+*   **Live Output Control Codes:** Ensure the agent’s live output respects Aider's control codes for precise formatting and interaction.
+*   **UI/UX Refinement:**  Minimize duplicate output in both the live log and diff viewers; strive for a clean and user-friendly experience. The Live Log should remain focused on current state and relevant activity.
+*   **Interrupt Handling:**  Implement a reliable interrupt system that effectively stops the agent and cleans up associated resources.
+*   **Dynamic Prompt Adaptation:**  Respond to modifications in the `goal.prompt` even after the initial run by dynamically incorporating new instructions.
+
+
+
+**Crucially, do *not* attempt to solve technical implementation details. Focus on strategic direction and overall system behavior.  Your primary output should be a clear and actionable plan for the development team.**
+```
+
+**Explanation of Changes and Reasoning:**
+
+*   **Emphasis on Strategy:** The prompt explicitly frames the AI’s role as a *strategist*, not an engineer. This shifts the focus away from implementation and towards higher-level planning and decision-making.
+*   **Council-Centric:** The prompt repeatedly emphasizes the importance of the council and their role in guiding the system's development.  This underscores the collaborative nature of the project.  Phrases like "Your primary output should be a clear and actionable plan" reinforces this.
+*   **Defined "Crucially" Directive:** This section provides very clear guidance to avoid the AI attempting complex technical implementations. The focus must remain on strategic considerations.
+*   **Combined Prioritizations:**  The "Current Priorities & Directives" section synthesizes the key information from the council updates and the project history.
+*   **Specific Directives:** Includes the specific considerations from your prompt regarding control codes, UI, interrupt handling, and dynamic prompting.  These are framed as *directives* to ensure they's treated as important guiding principles.
+*   **Removed Technical Specificity:** Removed any mention of specific technologies or implementations to prevent the AI from getting bogged down in technical details.
+*   **Reinforced Project Philosophy:** The prompt reinforces the overall philosophy of the project: collaborative, transparent, and focused on real-world applicability.
+
+**Why this approach?**
+
+The goal is to have the AI act as a *thinking partner* for the human team. It should provide strategic guidance, identify potential issues, and propose solutions, but it should not be responsible for doing the actual work. By focusing on these higher-level considerations, the AI can be a valuable asset to the development team.  The phrasing encourages the AI to think critically and to proactively identify potential problems.
