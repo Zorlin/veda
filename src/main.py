@@ -88,36 +88,73 @@ class AgentManager:
         # Simulate agent work and handoff
         logging.info(f"[{role.upper()}] Model: {ROLE_MODELS.get(role, VEDA_CHAT_MODEL)} | Prompt: {prompt}")
 
-        # Coordinator should ask clarifying questions if the prompt is too vague
+        # Only proceed to handoff if the agent is convinced the user is ready (per RULES.md)
+        # For now, we simulate this by checking for a "ready" flag in the prompt or a special marker.
+        # In a real system, this would be determined by LLM output or agent state.
+
+        # Coordinator: Only handoff if prompt contains a signal of readiness
         if role == "coordinator":
-            # If the prompt is too short, ask for more details
-            if len(prompt.strip()) < 20 or prompt.strip().lower() in ["hey veda.", "hi", "hello"]:
-                print("\nVeda: Could you please provide more details about what you want to build or change? "
-                      "For example, describe the type of project, its purpose, or any specific features you want.")
-                # Try to get more input from the user if running interactively
+            # Simulate readiness check: look for "ready" or "let's start" in prompt (case-insensitive)
+            ready_signals = ["ready", "let's start", "start building", "go ahead", "proceed", "yes", "i'm ready"]
+            if not any(signal in prompt.lower() for signal in ready_signals):
+                print("\nVeda: I'm not convinced you're ready to proceed yet. Let's keep discussing your goals. "
+                      "When you're ready, just say so (e.g., 'I'm ready', 'Let's start', or 'Go ahead').")
+                # Wait for user to indicate readiness
                 if sys.stdin.isatty():
                     try:
                         user_input = input("You: ")
-                        if user_input.strip():
+                        if user_input.strip() and any(signal in user_input.lower() for signal in ready_signals):
                             prompt = user_input.strip()
+                            self._create_handoff("architect", f"Design the system for: {prompt}")
+                            logging.info(f"[{role.upper()}] Finished and handed off.")
+                        else:
+                            print("Veda: Not proceeding yet. Please clarify or say 'I'm ready' when you want to start.")
+                            logging.info(f"[{role.upper()}] Waiting for user readiness signal.")
+                        return
                     except EOFError:
-                        pass
-            # After clarification, hand off to architect
+                        print("Veda: No input received. Not proceeding.")
+                        logging.info(f"[{role.upper()}] No input received. Not proceeding.")
+                        return
+                else:
+                    # Non-interactive: do not proceed
+                    logging.info(f"[{role.upper()}] Not proceeding in non-interactive mode without readiness signal.")
+                    return
+            # If ready, proceed to architect
             self._create_handoff("architect", f"Design the system for: {prompt}")
+            logging.info(f"[{role.upper()}] Finished and handed off.")
         elif role == "architect":
-            # Architect should ask for missing requirements if prompt is still vague
+            # Architect: Only handoff if requirements are clear or user says "ready"
             if len(prompt.strip()) < 30:
-                print("\nArchitect: Can you specify any technical requirements, preferred stack, or constraints?")
+                print("\nArchitect: Can you specify any technical requirements, preferred stack, or constraints? "
+                      "Say 'I'm ready' if you want to proceed anyway.")
                 if sys.stdin.isatty():
                     try:
                         user_input = input("You: ")
-                        if user_input.strip():
+                        if user_input.strip() and any(signal in user_input.lower() for signal in ["ready", "let's start", "proceed", "yes"]):
                             prompt = prompt + " " + user_input.strip()
+                            self._create_handoff("developer", f"Implement the plan for: {prompt}")
+                            logging.info(f"[{role.upper()}] Finished and handed off.")
+                        elif user_input.strip():
+                            prompt = prompt + " " + user_input.strip()
+                            print("Architect: Not proceeding yet. Please clarify or say 'I'm ready' when you want to start.")
+                            logging.info(f"[{role.upper()}] Waiting for user readiness signal.")
+                        else:
+                            print("Architect: Not proceeding yet. Please clarify or say 'I'm ready' when you want to start.")
+                            logging.info(f"[{role.upper()}] Waiting for user readiness signal.")
+                        return
                     except EOFError:
-                        pass
+                        print("Architect: No input received. Not proceeding.")
+                        logging.info(f"[{role.upper()}] No input received. Not proceeding.")
+                        return
+                else:
+                    # Non-interactive: do not proceed
+                    logging.info(f"[{role.upper()}] Not proceeding in non-interactive mode without readiness signal.")
+                    return
             self._create_handoff("developer", f"Implement the plan for: {prompt}")
-        # You can add more role logic here for planner, engineer, infra engineer, etc.
-        logging.info(f"[{role.upper()}] Finished and handed off.")
+            logging.info(f"[{role.upper()}] Finished and handed off.")
+        else:
+            # Other roles: proceed as before
+            logging.info(f"[{role.upper()}] Finished and handed off.")
 
     def _create_handoff(self, next_role, message):
         handoff_file = os.path.join(self.handoff_dir, f"{next_role}_handoff.json")
