@@ -251,8 +251,8 @@ class AgentManager:
             except Exception as e:
                 err_msg = f"Failed to spawn agent '{role}': {e}"
                 logger.exception(err_msg)
-            escaped_error = rich.markup.escape(str(e))
-            self.app.post_message(LogMessage(f"[bold red]Failed to spawn agent '{role}': {escaped_error}[/]"))
+                escaped_error = rich.markup.escape(str(e)) # Correct indentation
+                self.app.post_message(LogMessage(f"[bold red]Failed to spawn agent '{role}': {escaped_error}[/]")) # Correct indentation
             # Ensure master_fd is closed if already created before exception
             if 'master_fd' in locals() and master_fd is not None:
                  try:
