@@ -104,7 +104,6 @@ def create_flask_app():
         """Returns the state of active agents from the manager instance."""
         if agent_manager_instance:
             agents_data = agent_manager_instance.get_active_agents_status()
-              <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
             return jsonify(agents_data)
         else:
             logging.error("AgentManager instance not available for /api/threads")
