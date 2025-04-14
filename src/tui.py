@@ -181,7 +181,8 @@ class VedaApp(App[None]):
         if not self.project_goal_set:
             # This is the initial project goal
             escaped_user_input = rich.markup.escape(user_input)
-            self.log_widget.write(f"[bold blue]>>> Project Goal:[/bold] {escaped_user_input}")
+            # Simplify markup further
+            self.log_widget.write(f"[bold]>>> Project Goal:[/bold] {escaped_user_input}")
             if self.agent_manager:
                 self.log_widget.write("[yellow]Initializing project orchestration...[/]")
                 # Pass goal to AgentManager (runs in background, no worker needed here for now)
@@ -204,7 +205,8 @@ class VedaApp(App[None]):
         elif self.ollama_client and not self.input_widget.disabled:
             # Subsequent input: Treat as chat/command for Veda's Ollama client
             escaped_user_input = rich.markup.escape(user_input)
-            self.log_widget.write(f"[bold blue]>>>[/] {escaped_user_input}")
+            # Simplify markup further
+            self.log_widget.write(f"[bold]>>>[/] {escaped_user_input}")
             # Call the worker for Veda's response/action
             self.call_ollama(user_input)
             # Don't clear input here, worker will do it after response
