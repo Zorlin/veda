@@ -99,7 +99,6 @@ mod tests {
     use wiremock::{MockServer, Mock, ResponseTemplate};
     use serde_json::json;
     // Remove unused tracing imports
-    // use tracing::{error, info, warn};
 
     #[tokio::test]
     async fn test_synthesize_goal_success() {
