@@ -114,7 +114,8 @@ mod tests {
             "model": expected_model,
             "prompt": expected_prompt,
             "stream": false,
-            // Remove options from the expectation entirely if it's None in the request
+            // Explicitly expect 'options' to be null in the JSON body
+            "options": serde_json::Value::Null,
         });
 
         let mock_response_body = json!({

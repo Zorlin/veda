@@ -231,7 +231,11 @@ impl AgentManager {
     pub async fn stop(&self) -> Result<()> {
         info!("Stopping Agent Manager...");
 
-        // Stop the monitoring loop first
+        // Signal the main manager task to exit *first*
+        self.shutdown_notify.notify_waiters();
+        info!("Shutdown notification sent.");
+
+        // Stop the monitoring loop
         if let Some(handle) = self.monitor_task_handle.lock().await.take() {
             info!("Aborting monitor task...");
             handle.abort();
@@ -272,10 +276,6 @@ impl AgentManager {
         // Clear the map after attempting termination
         // agents.clear(); // Or keep terminated agents for final status reporting? Let's keep them for now.
         info!("Agent termination process complete.");
-
-        // Signal the main manager task to exit
-        self.shutdown_notify.notify_waiters();
-        info!("Shutdown notification sent.");
 
         Ok(())
     }
