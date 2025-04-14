@@ -2,8 +2,15 @@ import subprocess
 import sys
 import time
 import socket
+import os # Added for path manipulation
+import json # Added for potential future use
 
 import pytest
+from unittest.mock import MagicMock, call # Added for mocking
+
+# Ensure src is importable
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+from src import chat # Import the chat module to mock its functions
 
 def run_veda_cmd(args):
     """Helper to run the CLI and capture output."""
@@ -98,3 +105,159 @@ def test_web_server_starts():
         print("-------------------------------------------------")
 
     assert connected, "Web server did not start on port 9900"
+
+
+# --- Tests for run_readiness_chat file reading ---
+
+# Helper function to simulate chat interaction with file reading
+def simulate_readiness_chat(monkeypatch, user_inputs, mock_responses, expected_final_prompt, tmp_path, files_to_create=None):
+    """
+    Simulates run_readiness_chat, mocking inputs, Ollama, and filesystem.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+        user_inputs: List of strings the user will type.
+        mock_responses: List of strings ollama_chat will return.
+        expected_final_prompt: The expected prompt string returned by run_readiness_chat.
+        tmp_path: Pytest tmp_path fixture.
+        files_to_create: Dict of filename: content for files to create in tmp_path.
+    """
+    # Mock input
+    input_iterator = iter(user_inputs)
+    monkeypatch.setattr("builtins.input", lambda _: next(input_iterator))
+
+    # Mock ollama_chat
+    mock_ollama = MagicMock()
+    # Ensure mock_responses has enough items, repeat last if needed
+    response_iterator = iter(mock_responses + [mock_responses[-1]] * (len(user_inputs) - len(mock_responses)))
+    mock_ollama.side_effect = lambda messages: next(response_iterator)
+    monkeypatch.setattr(chat, "ollama_chat", mock_ollama)
+
+    # Mock getcwd to return the tmp_path
+    monkeypatch.setattr(os, "getcwd", lambda: str(tmp_path))
+
+    # Create mock files if needed
+    if files_to_create:
+        for filename, content in files_to_create.items():
+            file_path = tmp_path / filename
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(content)
+
+    # Run the function
+    final_prompt = chat.run_readiness_chat()
+
+    # Assert the final prompt
+    assert final_prompt == expected_final_prompt
+
+    # Return the mock_ollama calls for further inspection if needed
+    return mock_ollama.call_args_list
+
+
+def test_readiness_chat_reads_file_successfully(monkeypatch, tmp_path):
+    """Test reading an existing file during readiness chat."""
+    filename = "test_readme.md"
+    file_content = "This is the content of the test readme."
+    files_to_create = {filename: file_content}
+    user_inputs = [
+        f"read {filename}",
+        "yes" # Confirm readiness
+    ]
+    mock_responses = [
+        "Okay, I see you want me to read test_readme.md. I have the content now. What should we do with it?",
+        "Great! So the goal is based on the readme. Shall I start?" # Veda asks for confirmation
+    ]
+    expected_final_prompt = f"read {filename}" # The user message before confirmation
+
+    calls = simulate_readiness_chat(monkeypatch, user_inputs, mock_responses, expected_final_prompt, tmp_path, files_to_create)
+
+    # Check that ollama_chat was called with the file content context
+    assert len(calls) == 2
+    # The first call's messages list (index 0) is the one containing the context
+    messages_sent = calls[0].args[0] # Get the 'messages' argument from the first call
+    assert len(messages_sent) == 3 # system, user, user (with context)
+    assert messages_sent[1]["role"] == "user"
+    assert messages_sent[1]["content"] == f"read {filename}"
+    assert messages_sent[2]["role"] == "user"
+    assert f"Context: User asked to read '{filename}'" in messages_sent[2]["content"]
+    assert file_content in messages_sent[2]["content"]
+
+
+def test_readiness_chat_file_not_found(monkeypatch, tmp_path):
+    """Test attempting to read a non-existent file."""
+    filename = "non_existent_file.txt"
+    user_inputs = [
+        f"read {filename}",
+        "yes" # Confirm readiness anyway
+    ]
+    mock_responses = [
+        f"It seems '{filename}' was not found. What should we do instead?",
+        "Okay, proceeding without the file. Shall I start?" # Veda asks for confirmation
+    ]
+    expected_final_prompt = f"read {filename}"
+
+    calls = simulate_readiness_chat(monkeypatch, user_inputs, mock_responses, expected_final_prompt, tmp_path)
+
+    # Check that ollama_chat was called with the system note about the missing file
+    assert len(calls) == 2
+    messages_sent = calls[0].args[0]
+    assert len(messages_sent) == 3 # system, user, user (with system note)
+    assert messages_sent[2]["role"] == "user"
+    assert f"[System note: User asked to read '{filename}', but it was not found" in messages_sent[2]["content"]
+
+
+def test_readiness_chat_file_outside_project(monkeypatch, tmp_path):
+    """Test attempting to read a file outside the mocked project directory."""
+    # Note: os.path.abspath makes testing relative paths tricky without more complex mocking.
+    # This test relies on the internal check `full_path.startswith(os.getcwd())`.
+    # We simulate a path that *would* resolve outside if not for the check.
+    filename = "../../../etc/passwd" # A path attempting traversal
+    user_inputs = [
+        f"read {filename}",
+        "yes" # Confirm readiness anyway
+    ]
+    mock_responses = [
+        "I cannot access files outside the project directory.",
+        "Okay, proceeding without that file. Shall I start?" # Veda asks for confirmation
+    ]
+    # Expected prompt is the user's request before confirmation
+    expected_final_prompt = f"read {filename}"
+
+    calls = simulate_readiness_chat(monkeypatch, user_inputs, mock_responses, expected_final_prompt, tmp_path)
+
+    # Check that ollama_chat was called with the system note about access denial
+    assert len(calls) == 2
+    messages_sent = calls[0].args[0]
+    assert len(messages_sent) == 3 # system, user, user (with system note)
+    assert messages_sent[2]["role"] == "user"
+    # The filename in the note might be normalized by abspath, so check for key phrases
+    assert "[System note: Access denied trying to read" in messages_sent[2]["content"]
+    assert "Inform the user." in messages_sent[2]["content"]
+
+
+def test_readiness_chat_file_truncation(monkeypatch, tmp_path):
+    """Test reading a file that exceeds the size limit."""
+    filename = "large_file.txt"
+    # Create content slightly larger than the limit (50KB)
+    limit = 50 * 1024
+    file_content = "A" * (limit + 100)
+    files_to_create = {filename: file_content}
+    user_inputs = [
+        f"read {filename}",
+        "yes" # Confirm readiness
+    ]
+    mock_responses = [
+        "Okay, I have read the content of large_file.txt, although it was truncated due to its size. What's next?",
+        "Okay, proceeding with the truncated file info. Shall I start?" # Veda asks for confirmation
+    ]
+    expected_final_prompt = f"read {filename}"
+
+    calls = simulate_readiness_chat(monkeypatch, user_inputs, mock_responses, expected_final_prompt, tmp_path, files_to_create)
+
+    # Check that ollama_chat was called with the truncated content and note
+    assert len(calls) == 2
+    messages_sent = calls[0].args[0]
+    assert len(messages_sent) == 3 # system, user, user (with context)
+    assert messages_sent[2]["role"] == "user"
+    assert f"Context: User asked to read '{filename}'" in messages_sent[2]["content"]
+    assert file_content[:limit] in messages_sent[2]["content"] # Check beginning is present
+    assert "[... file truncated due to size limit ...]" in messages_sent[2]["content"] # Check truncation note
