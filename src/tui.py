@@ -243,9 +243,8 @@ class VedaApp(App[None]):
             tabs.active = tab_id # Switch to the new tab
             log_widget.write(f"--- Log for agent '{message.role}' ---")
 
-        # Write the line (potentially styling stderr differently)
-        prefix = "[red]<STDERR>[/] " if message.is_stderr else ""
-        log_widget.write(f"{prefix}{message.line}")
+        # Write the line
+        log_widget.write(message.line)
 
     def on_agent_exited_message(self, message: AgentExitedMessage) -> None:
         """Handles agent process exit."""
