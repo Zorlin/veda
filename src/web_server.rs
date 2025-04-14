@@ -173,9 +173,10 @@ pub async fn start_web_server(port: u16) -> Result<()> {
     let static_files_service = ServeDir::new("static")
         .not_found_service(tower::service_fn(|_| async {
             Ok::<_, std::convert::Infallible>(
-                hyper::Response::builder()
-                    .status(hyper::StatusCode::NOT_FOUND)
-                    .body(hyper::Body::from("Not Found"))
+                // Use axum's body type which is compatible with hyper v1
+                axum::response::Response::builder()
+                    .status(axum::http::StatusCode::NOT_FOUND)
+                    .body(axum::body::Body::from("Not Found"))
                     .unwrap(),
             )
         }));

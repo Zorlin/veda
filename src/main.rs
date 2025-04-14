@@ -76,7 +76,8 @@ async fn main() -> Result<()> {
             // let agent_manager = Arc::new(agent_manager::AgentManager::new()?);
 
             // Start the web server in a separate asynchronous task
-            let web_server_handle = tokio::spawn(async move {
+            // Declare as mutable for use in tokio::select!
+            let mut web_server_handle = tokio::spawn(async move {
                 if let Err(e) = web_server::start_web_server(port).await {
                     error!("Web server failed: {:?}", e);
                 }
