@@ -100,101 +100,11 @@ def create_flask_app():
 
 
     @app.route("/api/threads")
-            <html lang="en">
-            <head>
-              <meta charset="UTF-8" />
-              <title>Veda Web UI (Minimal)</title>
-              <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
-              <script src="https://cdn.tailwindcss.com"></script>
-            </head>
-            <body class="bg-gray-100">
-              <div id="app" class="max-w-4xl mx-auto mt-10 p-4 bg-white rounded shadow">
-                <h1 class="text-2xl font-bold mb-4">Veda Web Interface</h1>
-                <div v-if="apiKeyMissing" class="text-red-600 font-bold mb-4">
-                  Error: OPENROUTER_API_KEY environment variable not set. Agents cannot run.
-                </div>
-                <div>
-                  <h2 class="text-lg font-semibold mb-2">Chat</h2>
-                  <div class="border rounded p-2 mb-4" style="min-height:3em;">Chat UI coming soon...</div>
-                </div>
-                <div>
-                  <h2 class="text-lg font-semibold mb-2">Active Agents</h2>
-                  <ul v-if="threads.length > 0">
-                    <li v-for="thread in threads" :key="thread.id" class="mb-2 p-2 border rounded bg-gray-50">
-                      <div class="flex justify-between items-center">
-                        <span class="font-bold text-blue-700">ID: {{ thread.id }} | Role: {{ thread.role }}</span>
-                        <span :class="statusClass(thread.status)" class="px-2 py-1 rounded text-sm font-semibold">{{ thread.status }}</span>
-                      </div>
-                      <div class="text-sm text-gray-600">Model: {{ thread.model }}</div>
-                      <details class="mt-1 text-xs">
-                        <summary class="cursor-pointer text-gray-500">Output Preview</summary>
-                        <pre class="mt-1 p-1 bg-gray-200 rounded overflow-auto max-h-32"><code>{{ thread.output_preview.join('\\n') || 'No output yet.' }}</code></pre>
-                      </details>
-                    </li>
-                  </ul>
-                   <p v-else class="text-gray-500">No active agents.</p>
-                </div>
-              </div>
-              <script src="/socket.io/socket.io.js"></script>
-              <script>
-                const { createApp, ref, onMounted } = Vue;
-                const app = createApp({
-                  setup() {
-                    const threads = ref([]);
-                    const apiKeyMissing = ref(!'{{ OPENROUTER_API_KEY or '' }}'); // Check key status
-
-                    const socket = io();
-
-                    const fetchThreads = () => {
-                      fetch('/api/threads')
-                        .then(r => r.json())
-                        .then(data => { threads.value = data; })
-                        .catch(err => console.error('Error fetching threads:', err));
-                    };
-
-                    const statusClass = (status) => {
-                      if (status === 'running') return 'bg-green-200 text-green-800';
-                      if (status.startsWith('finished')) return 'bg-blue-200 text-blue-800';
-                      if (status.startsWith('failed') || status.startsWith('error')) return 'bg-red-200 text-red-800';
-                      if (status.startsWith('waiting')) return 'bg-yellow-200 text-yellow-800';
-                      if (status.startsWith('handoff')) return 'bg-purple-200 text-purple-800';
-                      return 'bg-gray-200 text-gray-800';
-                    };
-
-                    onMounted(() => {
-                      fetchThreads(); // Initial load
-
-                      // Listen for updates from server
-                      socket.on('connect', () => {
-                        console.log('Socket connected');
-                      });
-                      socket.on('disconnect', () => {
-                        console.log('Socket disconnected');
-                      });
-                      socket.on('threads_update', (updatedThreads) => {
-                        console.log('Received threads update:', updatedThreads);
-                        threads.value = updatedThreads;
-                      });
-                      socket.on('error', (error) => {
-                        console.error('Socket error:', error);
-                      });
-                    });
-
-                    return { threads, apiKeyMissing, statusClass };
-                  }
-                });
-                app.mount('#app');
-              </script>
-            </body>
-            </html>
-            """
-            return html
-
-    @app.route("/api/threads")
     def api_threads():
         """Returns the state of active agents from the manager instance."""
         if agent_manager_instance:
             agents_data = agent_manager_instance.get_active_agents_status()
+              <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
             return jsonify(agents_data)
         else:
             logging.error("AgentManager instance not available for /api/threads")
