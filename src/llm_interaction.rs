@@ -139,7 +139,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body));
 
         // Assign the result of Mock::given directly to 'mock'
-        let mock = mock_definition; // <-- ERROR: mock_definition doesn't exist
+        let mock = Mock::given(method("POST")) // Correctly assign Mock::given result
+            .and(path("/api/generate"))
+            .and(wiremock::matchers::body_partial_json(&expected_partial_body))
+            .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body));
         // Mount the mock *before* making the request
         mock_server.register(mock).await;
 
