@@ -185,14 +185,14 @@ def main():
         print("Setting options via CLI is currently informational.", file=sys.stderr, flush=True)
         if args.option == "instances":
             if args.value == "auto":
-                print("Agent instance management set to auto.", file=sys.stdout, flush=True)
+                print("Agent instance management set to auto.", file=sys.stderr, flush=True)
             else:
-                print(f"Agent instances set to {args.value}.", file=sys.stdout, flush=True)
+                print(f"Agent instances set to {args.value}.", file=sys.stderr, flush=True)
             agent_manager.set_instances(args.value) # Modify the global instance directly
             # The log message is handled inside set_instances
 
     elif args.command == "chat":
-        print("Welcome to Veda chat", file=sys.stdout, flush=True)
+        print("Welcome to Veda chat", file=sys.stderr, flush=True)
         chat_interface()
 
     elif args.command == "web":
@@ -267,17 +267,17 @@ def main():
     else:
         # No command provided or invalid command
         help_message = "Veda - Software development that doesn't sleep."
-        print(help_message, file=sys.stdout, flush=True)
-        parser.print_help(sys.stdout)
+        print(help_message, file=sys.stderr, flush=True)
+        parser.print_help(sys.stderr)
         # Print examples directly, as shown in README.md
-        print("\nExamples:", file=sys.stdout, flush=True)
-        print("  veda start --prompt \"Create a flask app with a single route\"", file=sys.stdout, flush=True)
-        print("  veda start                 # Start Veda and chat to define the goal", file=sys.stdout, flush=True)
+        print("\nExamples:", file=sys.stderr, flush=True)
+        print("  veda start --prompt \"Create a flask app with a single route\"", file=sys.stderr, flush=True)
+        print("  veda start                 # Start Veda and chat to define the goal", file=sys.stderr, flush=True)
         # print("  veda set instances 5")   # Deferring detailed 'set' examples
         # print("  veda set instances auto")
-        print("  veda chat                  # Chat with the running Veda instance", file=sys.stdout, flush=True)
-        print("  veda web                   # Open the web UI in a browser", file=sys.stdout, flush=True)
-        print("  veda status                # Show the status of active agents", file=sys.stdout, flush=True)
+        print("  veda chat                  # Chat with the running Veda instance", file=sys.stderr, flush=True)
+        print("  veda web                   # Open the web UI in a browser", file=sys.stderr, flush=True)
+        print("  veda status                # Show the status of active agents", file=sys.stderr, flush=True)
 
 
 # Helper function for periodic broadcast loop
