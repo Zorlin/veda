@@ -421,8 +421,17 @@ def index():
 @app.route("/api/threads")
 def api_threads():
     """Returns the state of active agents."""
-    # Minimal stub: always return an empty list for now
-    return jsonify([])
+    with agent_manager.lock:
+        agents_data = []
+        for role, agent_info in agent_manager.active_agents.items():
+            agents_data.append({
+                "id": agent_info["id"],
+                "role": agent_info["role"],
+                "status": agent_info["status"],
+                "model": agent_info["model"],
+                "output_preview": list(agent_info["output"])[-5:], # Last 5 lines
+            })
+    return jsonify(agents_data)
 
 # --- SocketIO Events (Optional: for real-time updates) ---
 @sio.event
