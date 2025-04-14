@@ -16,10 +16,11 @@ struct OllamaRequest {
 
 #[derive(Deserialize, Debug)]
 struct OllamaResponse {
-    model: String,
-    created_at: String,
+    // Prefix unused fields with _ to silence warnings
+    _model: String,
+    _created_at: String,
     response: String, // The generated text
-    done: bool,
+    _done: bool,
     // Other fields like context, timings, etc., are ignored for now
 }
 

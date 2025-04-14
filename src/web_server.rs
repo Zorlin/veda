@@ -297,15 +297,14 @@ mod tests {
     // Helper to create a mock AgentManager for testing
     // Note: Accessing private fields like active_agents directly is not ideal.
     // Consider adding public methods to AgentManager for test setup if needed.
+    // Use the public constructor instead of manual instantiation
     fn create_mock_agent_manager() -> Arc<AgentManager> {
-        // We don't need a real handoff dir for these tests
-        let manager = AgentManager {
-             active_agents: Arc::new(Mutex::new(HashMap::new())), // Keep direct access for now
-             next_agent_id: AtomicU32::new(1),
-             handoff_dir: PathBuf::from("/tmp/veda-test-handoff"), // Dummy path
-             monitor_task_handle: Mutex::new(None),
-             shutdown_notify: Arc::new(Notify::new()),
-        };
+        // We need a runtime to call the async `new` function.
+        // This assumes the test is running within a tokio runtime context.
+        let manager = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(AgentManager::new())
+            .expect("Failed to create mock AgentManager using new()");
         Arc::new(manager)
     }
 
