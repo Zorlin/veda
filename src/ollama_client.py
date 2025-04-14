@@ -34,10 +34,11 @@ class OllamaClient:
         self.model = model
         self.timeout = timeout
         self.options = options if options else {}
-        self._client = httpx.AsyncClient(timeout=self.timeout)
+        # Use synchronous client for worker threads
+        self._client = httpx.Client(timeout=self.timeout)
         logger.info(f"OllamaClient initialized for model '{self.model}' at {self.api_url}")
 
-    async def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> str:
         """Sends a prompt to the Ollama API and returns the generated response.
 
         Args:
@@ -54,7 +55,8 @@ class OllamaClient:
         }
         logger.debug(f"Sending request to Ollama: {payload}")
         try:
-            response = await self._client.post(self.api_url, json=payload)
+            # Synchronous call
+            response = self._client.post(self.api_url, json=payload)
             response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
             response_data = response.json()
@@ -79,12 +81,8 @@ class OllamaClient:
             logger.exception(f"An unexpected error occurred during Ollama request: {e}")
             return f"[Error: An unexpected error occurred: {e}]"
 
-    async def close(self):
-        """Closes the underlying HTTP client."""
-        await self._client.aclose()
-        logger.info("OllamaClient HTTP client closed.")
-
 # Example usage (optional, for testing)
+# No async close needed for synchronous client in this context
 # if __name__ == "__main__":
 #     import asyncio
 #     import os

@@ -83,17 +83,29 @@ class VedaApp(App[None]):
         # TODO: Add other initial status information based on config/state
 
     @work(exclusive=True, thread=True) # Run Ollama call in a worker thread
-    async def call_ollama(self, prompt: str) -> None:
-        """Worker method to call Ollama and update the log."""
+    def call_ollama(self, prompt: str) -> None:
+        """Worker method to call Ollama (synchronously) and update the log."""
         if not self.ollama_client:
-            self.log_widget.write("[bold red]Cannot process: Ollama client not available.[/]")
+            # Use call_from_thread for UI updates from worker
+            self.call_from_thread(self.log_widget.write, "[bold red]Cannot process: Ollama client not available.[/]")
             return
 
-        self.log_widget.write("[italic grey50]Thinking...[/]")
-        response = await self.ollama_client.generate(prompt)
-        self.log_widget.write(f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}")
-        self.input_widget.clear()
-        self.input_widget.focus()
+        # Use call_from_thread for UI updates from worker
+        self.call_from_thread(self.log_widget.write, "[italic grey50]Thinking...[/]")
+        try:
+            # Synchronous call within the worker thread
+            response = self.ollama_client.generate(prompt)
+            # Update UI from the worker thread safely
+            self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}")
+        except Exception as e:
+            # Log the exception and display an error in the TUI
+            logger.exception("Error during Ollama call in worker thread:")
+            self.call_from_thread(self.log_widget.write, f"[bold red]Error during Ollama call: {e}[/]")
+        finally:
+            # Ensure input is cleared and focused even if there was an error
+            self.call_from_thread(self.input_widget.clear)
+            self.call_from_thread(self.input_widget.focus)
+
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user input submission."""
@@ -112,11 +124,11 @@ class VedaApp(App[None]):
             # Handle empty input if needed, or just ignore
             self.input_widget.focus()
 
-
-    async def on_unmount(self) -> None:
-        """Called when the app is about to unmount."""
-        if self.ollama_client:
-            await self.ollama_client.close() # Gracefully close the client
+    # No longer needed for synchronous client
+    # async def on_unmount(self) -> None:
+    #     """Called when the app is about to unmount."""
+    #     if self.ollama_client:
+    #         await self.ollama_client.close() # Gracefully close the client
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
