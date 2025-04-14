@@ -99,7 +99,7 @@ struct SynthesizeGoalResponse {
 // API handler for synthesizing goals
 #[instrument(skip(state, request))]
 async fn synthesize_goal_handler(
-    State(state): State<AppState>, // Access AppState if needed later (e.g., for config)
+    State(_state): State<AppState>, // Prefix unused state with underscore
     axum::extract::Json(request): axum::extract::Json<SynthesizeGoalRequest>,
 ) -> Result<axum::response::Json<SynthesizeGoalResponse>, axum::http::StatusCode> {
     info!(tags = ?request.tags, "Handling request for /api/synthesize-goal");

@@ -58,7 +58,8 @@ pub struct AgentManager {
     // Handle for the main monitoring task
     monitor_task_handle: Mutex<Option<JoinHandle<()>>>,
     // Used to signal the main manager task in main.rs to exit
-    shutdown_notify: Arc<Notify>,
+    // Make this public so main.rs can access it
+    pub shutdown_notify: Arc<Notify>,
 }
 
 impl AgentManager {
