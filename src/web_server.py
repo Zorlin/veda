@@ -35,7 +35,7 @@ def create_flask_app():
     """Creates and configures the Flask application."""
     # Calculate project root and static directory path
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    static_dir = os.path.join(project_root, 'static') # Changed from 'webui' to 'static'
+    static_dir = os.path.join(project_root, 'webui') # Use 'webui' directory where index.html is located
 
     # Check if static dir exists during app creation for early feedback
     if not os.path.isdir(static_dir):
