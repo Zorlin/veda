@@ -98,8 +98,8 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{MockServer, Mock, ResponseTemplate};
     use serde_json::json;
-    use tracing::{error, info, warn}; // Add tracing imports for logging in test
-    // use test_log::test;
+    // Remove unused tracing imports
+    // use tracing::{error, info, warn};
 
     #[tokio::test]
     async fn test_synthesize_goal_success() {
@@ -139,6 +139,8 @@ mod tests {
             .and(wiremock::matchers::body_partial_json(&expected_partial_body))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body));
 
+        // Assign the mock definition to a variable named 'mock'
+        let mock = mock_definition;
         // Mount the mock *before* making the request
         mock_server.register(mock).await;
 
