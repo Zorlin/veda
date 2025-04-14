@@ -24,15 +24,18 @@ struct OllamaResponse {
     // Other fields like context, timings, etc., are ignored for now
 }
 
-#[instrument(skip(tags))]
-pub async fn synthesize_goal_with_ollama(tags: Vec<String>) -> Result<String> {
+// Modify signature to accept base URL
+#[instrument(skip(tags, ollama_api_base_url))]
+pub async fn synthesize_goal_with_ollama(tags: Vec<String>, ollama_api_base_url: &str) -> Result<String> {
     if tags.is_empty() {
         return Ok("".to_string()); // Return empty if no tags provided
     }
 
     let client = Client::new();
     let model_name = constants::VEDA_CHAT_MODEL.clone(); // Use the configured chat model
-    let ollama_api_url = format!("{}/api/generate", *constants::OLLAMA_URL);
+    // Construct full URL from base URL argument
+    let ollama_api_url = format!("{}/api/generate", ollama_api_base_url.trim_end_matches('/'));
+
 
     // Construct the prompt for the LLM
     let tag_list = tags
@@ -100,11 +103,7 @@ mod tests {
         // Arrange
         let mock_server = MockServer::start().await;
         let mock_uri = mock_server.uri(); // Use the variable again
-        // Override the OLLAMA_URL for this test scope using wiremock's URI
-        // NOTE: The `set` helper was removed due to unsafety. This test now relies
-        // on the default OLLAMA_URL *or* requires running with an env var override.
-        // For robust testing, inject the URL dependency instead of using lazy_static directly.
-        let _lock = constants::OLLAMA_URL.set(mock_uri); // Re-add override
+        // let _lock = constants::OLLAMA_URL.set(mock_uri); // Removed override
 
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
         let expected_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- tag1\n- tag2\n\nSynthesized Goal:";
@@ -138,8 +137,8 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        // Act
-        let result = synthesize_goal_with_ollama(tags).await;
+        // Act - Pass the mock server URI to the function
+        let result = synthesize_goal_with_ollama(tags, &mock_uri).await;
 
         // Assert
         assert!(result.is_ok());
@@ -164,8 +163,8 @@ mod tests {
     async fn test_synthesize_goal_ollama_error() {
         // Arrange
         let mock_server = MockServer::start().await;
-        let mock_uri = mock_server.uri(); // Use the variable again
-        let _lock = constants::OLLAMA_URL.set(mock_uri); // Re-add override
+        let mock_uri = mock_server.uri();
+        // let _lock = constants::OLLAMA_URL.set(mock_uri); // Removed override
 
         let tags = vec!["tag1".to_string()];
 
@@ -175,8 +174,8 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        // Act
-        let result = synthesize_goal_with_ollama(tags).await;
+        // Act - Pass the mock server URI
+        let result = synthesize_goal_with_ollama(tags, &mock_uri).await;
 
         // Assert
         assert!(result.is_err());
@@ -189,15 +188,13 @@ mod tests {
      #[tokio::test]
     async fn test_synthesize_goal_network_error() {
          // Arrange - No mock server running at this address
-         let invalid_uri = "http://127.0.0.1:1".to_string(); // Use the variable again
-         let _lock = constants::OLLAMA_URL.set(invalid_uri); // Re-add override
-         // This test might fail if the default OLLAMA_URL is reachable.
-         // Ideally, inject the URL.
+         let invalid_uri = "http://127.0.0.1:1"; // Use a port very unlikely to be open
+         // let _lock = constants::OLLAMA_URL.set(invalid_uri); // Removed override
 
          let tags = vec!["tag1".to_string()];
 
-         // Act
-         let result = synthesize_goal_with_ollama(tags).await;
+         // Act - Pass the invalid URI
+         let result = synthesize_goal_with_ollama(tags, invalid_uri).await;
 
          // Assert
          assert!(result.is_err());
@@ -206,26 +203,5 @@ mod tests {
          assert!(err_string.contains("Failed to send request") || err_string.contains("error sending request"));
      }
 
-     // NOTE: Re-adding unsafe constant override helpers for reliable testing until DI is implemented.
-     // --- Test Helpers for Constants ---
-     impl constants::OLLAMA_URL {
-         // Make the set method public for use in other test modules
-         pub fn set(&'static self, value: String) -> impl Drop {
-             let original = self.as_str().to_string();
-             unsafe {
-                 let ptr = &**self as *const String as *mut String;
-                 *ptr = value;
-             }
-             StaticGuardOllama { original }
-         }
-     }
-     struct StaticGuardOllama { original: String }
-     impl Drop for StaticGuardOllama {
-         fn drop(&mut self) {
-             unsafe {
-                 let ptr = &*constants::OLLAMA_URL as *const String as *mut String;
-                 *ptr = self.original.clone();
-             }
-         }
-     }
+     // NOTE: Removed unsafe constant override helpers. Tests now pass the URL directly.
 }
