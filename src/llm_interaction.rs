@@ -89,6 +89,32 @@ pub async fn synthesize_goal_with_ollama(tags: Vec<String>, ollama_api_base_url:
     Ok(ollama_response.response.trim().to_string())
 }
 
+// --- Test Helpers for Constants (moved outside mod tests) ---
+// NOTE: Unsafe constant override helpers for reliable testing until DI is implemented.
+#[cfg(test)]
+impl constants::OLLAMA_URL {
+    // Make the set method public for use in other test modules
+    pub fn set(&'static self, value: String) -> impl Drop {
+        let original = self.as_str().to_string();
+        unsafe {
+            let ptr = &**self as *const String as *mut String;
+            *ptr = value;
+        }
+        StaticGuardOllama { original }
+    }
+}
+#[cfg(test)]
+struct StaticGuardOllama { original: String }
+#[cfg(test)]
+impl Drop for StaticGuardOllama {
+    fn drop(&mut self) {
+        unsafe {
+            let ptr = &*constants::OLLAMA_URL as *const String as *mut String;
+            *ptr = self.original.clone();
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
