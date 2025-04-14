@@ -5,6 +5,7 @@ import webbrowser
 import os
 import json
 from flask import Flask, send_from_directory, jsonify, render_template_string, request
+import os # Added import
 import socketio
 from werkzeug.serving import run_simple
 
@@ -47,9 +48,11 @@ def create_flask_app():
 
     @app.route("/")
     def index():
-        # Check if OPENROUTER_API_KEY is set before serving
-        # More robust check - consider empty string as not set
-        if OPENROUTER_API_KEY is None or OPENROUTER_API_KEY.strip() == "":
+        # Check if OPENROUTER_API_KEY is set in the environment before serving
+        # Read directly from os.environ within the request context
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if api_key is None or api_key.strip() == "":
+            logging.error("OPENROUTER_API_KEY environment variable not set or empty in web server process.")
             return """
             <!DOCTYPE html><html><head><title>Veda Error</title></head>
             <body><h1>Configuration Error</h1>

@@ -32,9 +32,10 @@ def test_webui_serves_vue_and_tailwind():
         # Give the server a moment to serve the UI
         time.sleep(1)
         resp = requests.get("http://localhost:9900")
-        assert resp.status_code == 200
+        assert resp.status_code == 200, f"Expected status code 200, but got {resp.status_code}. Response text: {resp.text[:500]}" # Add response text on failure
         # Check for Vue.js and TailwindCSS in the HTML (we've added both to the page)
-        assert "vue" in resp.text.lower() or "Vue" in resp.text, "Vue.js not found in the HTML response"
+        # Use a more general check for vue.global script
+        assert "vue.global" in resp.text.lower(), "Vue.js global script not found in the HTML response"
         assert "tailwind" in resp.text.lower() or "Tailwind" in resp.text, "Tailwind CSS not found in the HTML response"
         # Check for chat UI elements
         assert "chat" in resp.text.lower(), "Chat element not found in the HTML response"
