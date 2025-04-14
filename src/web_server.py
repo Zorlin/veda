@@ -323,7 +323,7 @@ def create_flask_app():
     return app, sio # Return both app and sio
 
 # --- SocketIO Server ---
-sio = socketio.Server(async_mode="threading", cors_allowed_origins="*") # Allow all origins for now
+sio = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False) # Allow all origins for now
 
 @sio.event
 def connect(sid, environ):
@@ -424,7 +424,7 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     app = create_flask_app()
     
     # Create Socket.IO server
-    sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*")
+    sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False)
     
     # Register Socket.IO event handlers
     @sio_server.event
