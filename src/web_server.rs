@@ -170,7 +170,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     info!("WebSocket connection closed");
 }
 
-pub async fn start_web_server(port: u16) -> Result<()> {
+// Modify function signature to accept AgentManager
+pub async fn start_web_server(port: u16, agent_manager: Arc<AgentManager>) -> Result<()> {
     let templates = create_minijinja_env().context("Failed to initialize template engine")?;
     // Create a broadcast channel for WebSocket messages
     let (broadcast_tx, _) = broadcast::channel::<BroadcastMessage>(100); // Capacity of 100 messages
@@ -178,7 +179,7 @@ pub async fn start_web_server(port: u16) -> Result<()> {
     let state = AppState {
         templates: Arc::new(templates),
         broadcast_tx, // Add sender to state
-                      // Initialize other state fields here
+        agent_manager, // Add agent manager to state
     };
 
     // Serve static files from the `static` directory
