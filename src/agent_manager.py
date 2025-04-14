@@ -8,6 +8,23 @@ from typing import Dict, Optional
 from textual import work
 from textual.app import App
 from textual.message import Message
+import rich.markup # Import for escaping
+
+# Import LogMessage from tui (or define it here if preferred)
+# Assuming it's better defined alongside other messages if it becomes more complex,
+# but for now, import from where it's used.
+# If this causes circular import issues later, we'll move message definitions.
+try:
+    from tui import LogMessage
+except ImportError:
+    # Fallback if run standalone or during certain test setups
+    @dataclass
+    class LogMessage(Message):
+        """Custom message to log text to the RichLog."""
+        def __init__(self, text: str) -> None:
+            self.text = text
+            super().__init__()
+
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +153,7 @@ class AgentManager:
         except Exception as e:
             err_msg = f"Failed to spawn agent '{role}': {e}"
             logger.exception(err_msg)
-            escaped_error = rich.markup.escape(str(e))
+            escaped_error = rich.markup.escape(str(e)) # Use imported rich.markup
             self.app.post_message(LogMessage(f"[bold red]Failed to spawn agent '{role}': {escaped_error}[/]"))
 
     async def _monitor_agent_exit(self, role: str, process: asyncio.subprocess.Process):

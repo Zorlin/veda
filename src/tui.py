@@ -117,8 +117,8 @@ class VedaApp(App[None]):
 
         if not self.agent_manager:
              self.log_widget.write("[bold red]Error: Agent Manager failed to initialize. Agent spawning disabled.[/]")
-            self.log_widget.write("Interaction disabled.")
-            self.input_widget.disabled = True # Disable input if client failed
+             self.log_widget.write("Interaction disabled.") # Correct indentation
+             self.input_widget.disabled = True # Disable input if client failed
 
         # TODO: Add other initial status information based on config/state
 
