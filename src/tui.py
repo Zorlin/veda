@@ -6,9 +6,10 @@ from textual import work
 
 from ollama_client import OllamaClient # Import the new client
 
-# Configure logging for TUI (optional, helps debugging)
-# logging.basicConfig(filename='veda_tui.log', level=logging.DEBUG)
-# logger = logging.getLogger(__name__)
+# Configure logging for TUI
+# Use a file for more persistent logs during development
+logging.basicConfig(filename='veda_tui.log', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class VedaApp(App[None]):
