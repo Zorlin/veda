@@ -233,11 +233,13 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
              # Common error: Port already in use
              if "Address already in use" in str(e) or "make_sock: address already in use" in str(e):
                  logging.error(f"Port {port} is already in use. Cannot start web server.")
-                 print(f"Error: Port {port} is already in use. Is another Veda instance running?")
+                 print(f"Error: Port {port} is already in use. Is another Veda instance running?", file=sys.stdout, flush=True)
              else:
                  logging.error(f"Failed to start web server due to OS Error: {e}")
+                 print(f"Failed to start web server due to OS Error: {e}", file=sys.stdout, flush=True)
         except Exception as e:
             logging.error(f"Failed to start web server: {e}", exc_info=True) # Log traceback
+            print(f"Failed to start web server: {e}", file=sys.stdout, flush=True)
 
     # Start the server in a daemon thread so it doesn't block the main Veda process
     server_thread = threading.Thread(target=run_server, daemon=True)
