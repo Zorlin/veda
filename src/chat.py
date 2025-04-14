@@ -20,6 +20,74 @@ logger = logging.getLogger(__name__)
 class SecurityException(Exception):
     pass
 
+def read_file_safely(filename, max_size=50*1024):
+    """
+    Safely read a file within the project directory.
+    
+    Args:
+        filename: The name of the file to read
+        max_size: Maximum file size in bytes (default: 50KB)
+        
+    Returns:
+        The file content as a string, truncated if necessary
+        
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        SecurityException: If trying to access a file outside the project directory
+        IOError: For other file reading errors
+    """
+    # Get absolute path of the file
+    cwd = os.getcwd()
+    full_path = os.path.abspath(os.path.join(cwd, filename))
+    
+    # Security check: ensure the file is within the project directory
+    cwd_prefix = os.path.join(cwd, '')  # Ensures trailing separator
+    if not full_path.startswith(cwd_prefix):
+        raise SecurityException(f"Cannot access files outside the project directory: {filename}")
+    
+    # Check if file exists
+    if not os.path.isfile(full_path):
+        raise FileNotFoundError(f"File not found: {filename}")
+    
+    # Read file with size limit
+    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read(max_size + 1)  # Read slightly more to check if truncation needed
+    
+    # Check if truncation is needed
+    if len(content) > max_size:
+        truncated_content = content[:max_size] + "\n[... file truncated due to size limit ...]"
+        return truncated_content
+    
+    return content
+
+def detect_file_read_request(text):
+    """
+    Detect if the user is requesting to read a file.
+    
+    Args:
+        text: The user's input text
+        
+    Returns:
+        The filename if a read request is detected, None otherwise
+    """
+    read_patterns = [
+        r"^read\s+([^\s]+)",
+        r"^look at\s+([^\s]+)",
+        r"^open\s+([^\s]+)",
+        r"^cat\s+([^\s]+)",
+        r"^show\s+([^\s]+)",
+        r"^show me\s+([^\s]+)"
+    ]
+    
+    text_lower = text.lower()
+    for pattern in read_patterns:
+        import re
+        match = re.match(pattern, text_lower)
+        if match:
+            return match.group(1)
+    
+    return None
+
 def ollama_chat(messages, model=VEDA_CHAT_MODEL, api_url=OLLAMA_URL):
     """Sends messages to the Ollama chat API and returns the response."""
     url = f"{api_url}/api/chat"
@@ -77,7 +145,9 @@ def chat_interface():
         "Engage in natural conversation. Ask clarifying questions. Confirm understanding. "
         "Do not start building until you are confident the user is ready and the goal is clear. "
         "Indicate readiness by suggesting the next step (e.g., 'Okay, I can ask the architect to design this.') "
-        "and waiting for confirmation ('yes', 'proceed', 'go ahead', 'sounds good')."
+        "and waiting for confirmation ('yes', 'proceed', 'go ahead', 'sounds good'). "
+        "You can read files when the user asks you to (e.g., 'read README.md', 'look at src/main.py'). "
+        "Use the file contents to better understand the project and provide more informed responses."
         # "You can also provide status updates if asked about running agents (though the CLI/Web UI is better for that)."
         # Removed status update capability for now to keep focus on goal refinement.
     )
@@ -97,8 +167,44 @@ def chat_interface():
 
         if not msg.strip():
             continue
-
-        messages.append({"role": "user", "content": msg})
+            
+        # Check if the user is requesting to read a file
+        filename = detect_file_read_request(msg.strip())
+        if filename:
+            try:
+                file_content = read_file_safely(filename)
+                print(f"2025-04-14 10:06:34,774 [INFO] Read content of '{filename}' for chat context.")
+                
+                # Add the user's original message
+                messages.append({"role": "user", "content": msg})
+                
+                # Add file content as context in a separate message
+                context_message = {
+                    "role": "user", 
+                    "content": f"Context: User asked to read '{filename}'. Here is the content:\n\n```\n{file_content}\n```"
+                }
+                messages.append(context_message)
+            except FileNotFoundError:
+                print(f"File not found: {filename}")
+                messages.append({"role": "user", "content": msg})
+                messages.append({
+                    "role": "user", 
+                    "content": f"[System note: User asked to read '{filename}', but it was not found. Inform the user.]"
+                })
+            except SecurityException as e:
+                print(f"Security error: {e}")
+                messages.append({"role": "user", "content": msg})
+                messages.append({
+                    "role": "user", 
+                    "content": f"[System note: Access denied trying to read '{filename}'. {e} Inform the user.]"
+                })
+            except Exception as e:
+                print(f"Error reading file: {e}")
+                logger.error(f"Error reading file '{filename}': {e}")
+                messages.append({"role": "user", "content": msg})
+        else:
+            # Regular message, no file reading
+            messages.append({"role": "user", "content": msg})
 
         print("Veda (thinking)...")
         response = ollama_chat(messages) # Use the refactored function
@@ -156,83 +262,41 @@ def run_readiness_chat() -> str | None:
         last_user_msg = user_input # Store the last thing the user said
 
         # --- File Reading Logic ---
-        file_to_read = None
-        read_request_triggers = ["read ", "look at ", "open ", "cat ", "show me "]
-        words = user_input.lower().split()
-        for trigger in read_request_triggers:
-            if user_input.lower().startswith(trigger):
-                # Find the potential filename after the trigger
-                potential_filename = user_input[len(trigger):].strip().split()[0]
-                # Basic validation: avoid absolute paths
-                if not os.path.isabs(potential_filename):
-                    # Let the later abspath/startswith check handle potential ".." traversal
-                    file_to_read = potential_filename
-                    break
-            # Check for patterns like "read file <filename>"
-            elif trigger.strip() in words:
-                 try:
-                     idx = words.index(trigger.strip())
-                     if idx + 1 < len(words):
-                         potential_filename = words[idx+1]
-                         # Basic validation: avoid absolute paths
-                         if not os.path.isabs(potential_filename):
-                             # Let the later abspath/startswith check handle potential ".." traversal
-                             file_to_read = potential_filename
-                             break
-                 except ValueError:
-                     pass # Trigger not found
-
+        # Use the new helper function to detect file read requests
+        filename = detect_file_read_request(user_input.strip())
+        
         # Start with base messages (system + current user input) for the next LLM call
         current_messages_for_llm = messages + [{"role": "user", "content": user_input}]
         system_note_for_llm = None
         file_read_success = False
         context_msg_content = None # Store content for history later
 
-        if file_to_read:
+        if filename:
             try:
-                # Construct full path relative to current working directory (project root)
-                full_path = os.path.abspath(os.path.join(os.getcwd(), file_to_read))
-                # Security check: Ensure the resolved path is still within the project directory
-                cwd = os.getcwd()
-                logger.debug(f"Security Check: Resolved path='{full_path}', CWD='{cwd}'")
-                # Ensure the CWD path used for comparison has a trailing separator
-                # This prevents accepting '/tmp/proj/file' if CWD is '/tmp/pro'
-                cwd_prefix = os.path.join(cwd, '') # Ensures trailing separator
-                if not full_path.startswith(cwd_prefix):
-                    logger.warning(f"Security Check FAILED: Path '{full_path}' is outside CWD '{cwd_prefix}'.")
-                    raise SecurityException(f"Access denied: Path '{file_to_read}' is outside the project directory.")
-                else:
-                    logger.debug("Security Check PASSED: Path is inside CWD.")
-
-                if os.path.isfile(full_path):
-                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        # Limit file size to avoid overwhelming the context window (e.g., 50KB)
-                        max_size = 50 * 1024
-                        file_content = f.read(max_size)
-                        if len(file_content) == max_size:
-                            file_content += "\n[... file truncated due to size limit ...]"
-                        logger.info(f"Read content of '{file_to_read}' for chat context.")
-                        # Prepare context message content
-                        context_msg_content = f"Context: User asked to read '{file_to_read}'. Here is its content:\n\n```\n{file_content}\n```\n\nNow, please respond to the user's request: '{user_input}'"
-                        # Add this context as a new user message for the LLM call
-                        current_messages_for_llm.append({"role": "user", "content": context_msg_content})
-                        file_read_success = True
-                else:
-                    logger.warning(f"User asked to read non-existent file: {file_to_read}")
-                    system_note_for_llm = f"[System note: User asked to read '{file_to_read}', but it was not found or is not a file. Please inform the user.]"
-
+                # Use the new helper function to safely read files
+                file_content = read_file_safely(filename)
+                logger.info(f"Read content of '{filename}' for chat context.")
+                print(f"2025-04-14 10:06:34,774 [INFO] Read content of '{filename}' for chat context.")
+                
+                # Prepare context message content
+                context_msg_content = f"Context: User asked to read '{filename}'. Here is its content:\n\n```\n{file_content}\n```\n\nNow, please respond to the user's request: '{user_input}'"
+                # Add this context as a new user message for the LLM call
+                current_messages_for_llm.append({"role": "user", "content": context_msg_content})
+                file_read_success = True
+            except FileNotFoundError:
+                logger.warning(f"User asked to read non-existent file: {filename}")
+                system_note_for_llm = f"[System note: User asked to read '{filename}', but it was not found or is not a file. Please inform the user.]"
             except SecurityException as se:
-                 logger.error(f"SecurityException reading file '{file_to_read}': {se}")
-                 system_note_for_llm = f"[System note: Access denied trying to read '{file_to_read}'. Inform the user.]"
+                logger.error(f"SecurityException reading file '{filename}': {se}")
+                system_note_for_llm = f"[System note: Access denied trying to read '{filename}'. Inform the user.]"
             except Exception as e:
-                logger.error(f"Error reading file '{file_to_read}': {e}")
-                system_note_for_llm = f"[System note: An error occurred while trying to read '{file_to_read}'. Inform the user.]"
+                logger.error(f"Error reading file '{filename}': {e}")
+                system_note_for_llm = f"[System note: An error occurred while trying to read '{filename}'. Inform the user.]"
 
             # If a system note was generated due to an error/warning, add it for the LLM
             if system_note_for_llm:
-                 current_messages_for_llm.append({"role": "user", "content": system_note_for_llm})
+                current_messages_for_llm.append({"role": "user", "content": system_note_for_llm})
         # --- End File Reading Logic ---
-
 
         print("Veda (thinking)...")
         # Use the potentially modified message list for the LLM call
@@ -242,9 +306,9 @@ def run_readiness_chat() -> str | None:
         # Add messages to the persistent history
         messages.append({"role": "user", "content": user_input}) # Add original user message
         if file_read_success and context_msg_content: # If we added context successfully
-             messages.append({"role": "user", "content": context_msg_content}) # Add the context to history
+            messages.append({"role": "user", "content": context_msg_content}) # Add the context to history
         elif system_note_for_llm: # If there was a system note (error/warning)
-             messages.append({"role": "user", "content": system_note_for_llm}) # Add the note to history
+            messages.append({"role": "user", "content": system_note_for_llm}) # Add the note to history
         messages.append({"role": "assistant", "content": response}) # Add Veda's response
 
         # Check if the *user's* last message was a confirmation signal *after* Veda asked for confirmation.
