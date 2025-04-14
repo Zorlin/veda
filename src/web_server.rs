@@ -391,8 +391,9 @@ mod tests {
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        let _mock_uri = mock_ollama_server.uri(); // Prefix unused variable
-        // let _lock = constants::OLLAMA_URL.set(mock_uri); // Removed override
+        let mock_uri = mock_ollama_server.uri();
+        // Set the OLLAMA_URL environment variable to the mock server URI
+        // std::env::set_var("OLLAMA_URL", &mock_uri);
 
         // NOTE: This test now relies on the handler using the actual OLLAMA_URL constant.
         // To make it work reliably with wiremock, the handler would need to accept the URL,
@@ -433,6 +434,7 @@ mod tests {
             .await;
 
         // Assert
+        println!("Actual goal: {:?}", response.json::<SynthesizeGoalResponse>().goal);
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: SynthesizeGoalResponse = response.json();
         assert_eq!(body.goal, "API synthesized goal.");

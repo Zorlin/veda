@@ -255,11 +255,22 @@ impl AgentManager {
         info!("Stop: Waiting for monitor task to stop...");
         if let Some(handle) = self.monitor_task_handle.lock().await.take() { // Use handle
              info!("Stop: Awaiting monitor task handle...");
-             // Await the handle gracefully
-             if let Err(e) = handle.await {
-                  error!("Stop: Error awaiting monitor task handle: {:?}", e);
+             // Await the handle gracefully with a timeout
+             let timeout_duration = Duration::from_secs(10); // Example timeout: 10 seconds
+             match tokio::time::timeout(timeout_duration, handle).await {
+                 Ok(Ok(_)) => {
+                     info!("Stop: Monitor task stopped gracefully.");
+                 }
+                 Ok(Err(e)) => {
+                     // Task completed with an error (e.g., panicked)
+                     error!("Stop: Monitor task completed with error: {:?}", e);
+                 }
+                 Err(_) => {
+                     // Timeout elapsed
+                     warn!("Stop: Timeout waiting for monitor task to stop after {} seconds. Proceeding with agent termination.", timeout_duration.as_secs());
+                     // The handle is dropped here, which might detach the task, but we proceed.
+                 }
              }
-             info!("Stop: Monitor task stopped.");
         } else {
             info!("Monitor task was not running.");
         }

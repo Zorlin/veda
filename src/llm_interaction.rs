@@ -132,19 +132,20 @@ mod tests {
             "eval_duration": 400000000
         });
 
-        Mock::given(method("POST"))
+        let mock = Mock::given(method("POST"))
             .and(path("/api/generate"))
             // Use body_partial_json matcher
             .and(wiremock::matchers::body_partial_json(&expected_partial_body));
             // Don't call respond_with here
 
-        // Assign the Mock::given chain to 'mock'
-        let mock = mock_definition;
         // Now call respond_with separately before registering
         mock_server.register(mock.respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body))).await;
 
         // Act - Pass the mock server URI to the function
         let result = synthesize_goal_with_ollama(tags, &mock_uri).await;
+
+        // Debug print the actual result
+        println!("Actual result: {:?}", result);
 
         // Assert
         // Find the request received by the mock server
