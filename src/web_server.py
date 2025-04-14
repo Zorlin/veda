@@ -48,6 +48,8 @@ def ensure_webui_directory():
     if os.path.exists(index_path) and os.path.getsize(index_path) > 0:
         logging.info(f"index.html already exists at {index_path}")
     else:
+        # Create or update the index.html file
+        logging.info(f"Creating new index.html at {index_path}")
     
     # Also create a copy in the project root for tests
     root_index_path = os.path.join(project_root, 'index.html')
