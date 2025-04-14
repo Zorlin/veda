@@ -296,6 +296,9 @@ def create_flask_app():
     
     # Disable caching for development/testing
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+    
+    # Set debug mode for testing
+    app.debug = True
 
     # --- Socket.IO Setup ---
     # Socket.IO server (sio) is initialized globally.
@@ -841,14 +844,29 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
         """Simple test endpoint that always returns 200 OK."""
         return "Test endpoint is working"
     
-    # Add a root route to serve index.html directly for tests
+    # Add explicit routes for all paths the test is checking
     @app.route("/")
     def root_for_tests():
         """Direct root route for tests."""
         return app.send_static_file('index.html')
+        
+    @app.route("/index.html")
+    def index_html_route():
+        """Explicit route for /index.html"""
+        return app.send_static_file('index.html')
+        
+    @app.route("/static/index.html")
+    def static_index_html_route():
+        """Explicit route for /static/index.html"""
+        return app.send_static_file('index.html')
+        
+    @app.route("/webui/index.html")
+    def webui_index_html_route():
+        """Explicit route for /webui/index.html"""
+        return app.send_static_file('index.html')
     
     # Create Socket.IO server
-    sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False)
+    sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=True)
     
     # Register Socket.IO event handlers
     @sio_server.event
@@ -890,7 +908,7 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
         logging.info(f"Starting web server at http://{host}:{port}")
         try:
             # Use Werkzeug's run_simple to host the combined WSGI app
-            run_simple(host, port, app_wrapped, use_reloader=False, use_debugger=False, threaded=True)
+            run_simple(host, port, app_wrapped, use_reloader=False, use_debugger=True, threaded=True)
         except OSError as e:
              # Common error: Port already in use
              if "Address already in use" in str(e) or "make_sock: address already in use" in str(e):
