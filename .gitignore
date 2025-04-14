@@ -1,3 +1,6 @@
+# cargo
+target/**
+
 .aider*
 # Python artifacts
 __pycache__/

@@ -39,7 +39,7 @@ For more details on Veda's orchestration philosophy, see [RULES.md](RULES.md).
 
 ## Prerequisites
 
-*   **Python 3.9+**
+*   **Rust**
 *   **Git**
 *   **Ollama:** Ensure Ollama is installed and running. Veda uses it for internal chat and coordination. See [ollama.com](https://ollama.com/).
 *   **Aider:** Veda uses Aider as its primary coding engine. Install it using:
@@ -59,7 +59,8 @@ Install Veda.
 ```
 git clone https://github.com/zorlin/veda
 cd veda
-python -m pip install -r requirements.txt
+cargo build --release
+# Optional - install the binary by copying it to /usr/local/bin
 ```
 
 

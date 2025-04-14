@@ -1,0 +1,54 @@
+# Aider Autoloop Harness Configuration
+
+# Ollama Configuration
+ollama_model: "gemma3:12b"
+ollama_api_url: "http://localhost:11434/api/generate"
+ollama_request_timeout: 300 # Timeout in seconds for Ollama API requests
+ollama_options:
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 40
+
+# Aider Configuration
+# Base command for Aider (without model specification)
+aider_command: "aider"
+# Model to use with Aider (will be passed as --model parameter)
+aider_model: "gemini"
+# Alternative models (uncomment to use)
+#aider_model: "ollama_chat/deepcoder:14b"
+#aider_model: "gpt-4"
+aider_test_command: "pytest -v" # Command Aider uses with --auto-test
+test_cmd: "pytest -v" # Command the harness uses to run tests (configurable)
+project_dir: "."
+
+# VESPER.MIND Council Configuration
+enable_council: true
+# Open-Source Thinkers
+theorist_model: "qwen2.5:14b"
+architect_model: "deepcoder:14b"
+skeptic_model: "gemma3:12b"
+historian_model: "qwen2.5:14b"
+coordinator_model: "command-r7b"
+# Final Authority (Closed-Source Models - using open-source fallbacks)
+arbiter_model: "claude-3.7-sonnet" # Fallback to ollama_model if not available
+canonizer_model: "gemini-2.5-pro" # Fallback to ollama_model if not available
+redactor_model: "gpt-4-turbo" # Fallback to ollama_model if not available
+
+# Code Review Configuration
+enable_code_review: true
+# Model to use for code review. Falls back to ollama_model if not specified.
+# Example: "ollama/codellama:13b" or "openai/gpt-3.5-turbo" (if integration exists)
+code_review_model: null # Use null to explicitly rely on ollama_model fallback
+
+# Storage Configuration
+storage_type: "sqlite"  # "sqlite" or "json"
+
+# UI Configuration
+enable_ui: true # Defaulting to true now as we're setting it up
+websocket_host: "localhost"
+websocket_port: 9940
+http_port: 9950 # Port for serving index.html
+
+# Convergence Settings
+max_iterations: 100
+stuck_cycle_threshold: 2
