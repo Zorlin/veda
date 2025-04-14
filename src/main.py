@@ -144,9 +144,12 @@ class AgentManager:
                       "When you're ready, just say so (e.g., 'I'm ready', 'Let's start', or 'Go ahead').")
                 agent_info["output"].append("Waiting for user readiness signal...")
                 agent_info["status"] = "waiting_user"
-                # In a real scenario, this thread might wait for an event or message
-                # For now, it just stops until a new handoff/prompt arrives for the coordinator.
-                return # Stop thread execution here
+                # Instead of stopping, keep the thread alive and periodically check for new input.
+                while True:
+                    time.sleep(1)
+                    # In a real implementation, this would check for new user input or a readiness event.
+                    # For now, just keep the thread alive to allow further user interaction.
+                # return # Do not stop thread execution here
 
             # If ready, handoff to architect
             agent_info["output"].append("User ready. Handing off to Architect.")
