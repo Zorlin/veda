@@ -65,12 +65,14 @@ class AgentManager:
                 return
             self.running = True
             logging.info("Starting AgentManager...")
-            # Check for API key before starting
-            if not OPENROUTER_API_KEY:
-                logging.error("OPENROUTER_API_KEY environment variable not set. Aider agents cannot start.")
-                print("Error: OPENROUTER_API_KEY environment variable not set. Please set it and restart.")
+            # Check for API key before starting - more robust check
+            if OPENROUTER_API_KEY is None or OPENROUTER_API_KEY.strip() == "":
+                logging.error("OPENROUTER_API_KEY environment variable not set or empty. Aider agents cannot start.")
+                print("Error: OPENROUTER_API_KEY environment variable not set or empty. Please set it and restart.")
                 self.running = False # Prevent the manager loop from continuing
                 return
+            else:
+                logging.info(f"Using OpenRouter API key (length: {len(OPENROUTER_API_KEY)})")
 
             # Start the main coordinator agent thread (doesn't use Aider directly)
             if initial_prompt:
@@ -212,8 +214,8 @@ class AgentManager:
                 # TODO: Decide how to handle: queue, replace, ignore? For now, ignore.
                 return
 
-            if not OPENROUTER_API_KEY:
-                 logging.error(f"Cannot start Aider agent '{role}': OPENROUTER_API_KEY not set.")
+            if OPENROUTER_API_KEY is None or OPENROUTER_API_KEY.strip() == "":
+                 logging.error(f"Cannot start Aider agent '{role}': OPENROUTER_API_KEY not set or empty.")
                  return
 
             # Determine the model to use

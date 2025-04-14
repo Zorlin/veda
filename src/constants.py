@@ -36,4 +36,9 @@ AIDER_DEFAULT_FLAGS = [
 ]
 
 # Environment variable for API key
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+# Print debug info about the API key (masked for security)
+if OPENROUTER_API_KEY:
+    print(f"Debug: OpenRouter API key found (length: {len(OPENROUTER_API_KEY)})")
+else:
+    print("Debug: OpenRouter API key not found or empty")

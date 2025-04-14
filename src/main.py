@@ -83,16 +83,17 @@ def main():
     # --- Command Handling ---
 
     # --- Check for OpenRouter API Key (Required for 'start' and potentially 'chat' if it triggers agents) ---
-    if not OPENROUTER_API_KEY and args.command in ["start"]:
-         logger.error("OPENROUTER_API_KEY environment variable is not set.")
-         print("\nError: OPENROUTER_API_KEY environment variable is not set.")
+    # More robust check for API key - check if it's None or empty string
+    if (OPENROUTER_API_KEY is None or OPENROUTER_API_KEY.strip() == "") and args.command in ["start"]:
+         logger.error("OPENROUTER_API_KEY environment variable is not set or empty.")
+         print("\nError: OPENROUTER_API_KEY environment variable is not set or empty.")
          print("This key is required to run Aider agents.")
          print("Please set the environment variable and try again.")
          print("Example: export OPENROUTER_API_KEY=\"your-key-here\"")
          sys.exit(1)
-    elif not OPENROUTER_API_KEY and args.command == "chat":
-         logger.warning("OPENROUTER_API_KEY is not set. Chat interface will work, but Veda cannot start Aider agents.")
-         print("\nWarning: OPENROUTER_API_KEY is not set. You can chat with Veda, but it won't be able to start development agents.")
+    elif (OPENROUTER_API_KEY is None or OPENROUTER_API_KEY.strip() == "") and args.command == "chat":
+         logger.warning("OPENROUTER_API_KEY is not set or empty. Chat interface will work, but Veda cannot start Aider agents.")
+         print("\nWarning: OPENROUTER_API_KEY is not set or empty. You can chat with Veda, but it won't be able to start development agents.")
 
 
     if args.command == "start":

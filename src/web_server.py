@@ -47,11 +47,12 @@ def create_flask_app():
     @app.route("/")
     def index():
         # Check if OPENROUTER_API_KEY is set before serving
-        if not OPENROUTER_API_KEY:
+        # More robust check - consider empty string as not set
+        if OPENROUTER_API_KEY is None or OPENROUTER_API_KEY.strip() == "":
             return """
             <!DOCTYPE html><html><head><title>Veda Error</title></head>
             <body><h1>Configuration Error</h1>
-            <p>Error: OPENROUTER_API_KEY environment variable not set.</p>
+            <p>Error: OPENROUTER_API_KEY environment variable not set or empty.</p>
             <p>Please set this environment variable and restart Veda.</p>
             </body></html>
             """, 500
