@@ -276,12 +276,11 @@ mod tests {
     use serde_json::json;
     use std::{
         collections::HashMap,
-        path::PathBuf, // Import PathBuf
-        sync::atomic::AtomicU32, // Import AtomicU32
+        path::PathBuf,
+        sync::atomic::AtomicU32,
     };
-    use tokio::sync::{Mutex, Notify};
-    // Remove unused test_log::test
-    // use test_log::test;
+    // Remove unused Mutex and Notify imports from here
+    // use tokio::sync::{Mutex, Notify};
 
     // Import wiremock items needed for mocking
     use wiremock::{
@@ -298,12 +297,11 @@ mod tests {
     // Note: Accessing private fields like active_agents directly is not ideal.
     // Consider adding public methods to AgentManager for test setup if needed.
     // Use the public constructor instead of manual instantiation
-    fn create_mock_agent_manager() -> Arc<AgentManager> {
-        // We need a runtime to call the async `new` function.
-        // This assumes the test is running within a tokio runtime context.
-        let manager = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(AgentManager::new())
+    // Make the helper async
+    async fn create_mock_agent_manager() -> Arc<AgentManager> {
+        // Await the async constructor
+        let manager = AgentManager::new()
+            .await
             .expect("Failed to create mock AgentManager using new()");
         Arc::new(manager)
     }
@@ -331,7 +329,7 @@ mod tests {
     #[tokio::test]
     async fn test_api_agent_status_empty() {
         // Arrange
-        let agent_manager = create_mock_agent_manager();
+        let agent_manager = create_mock_agent_manager().await; // Await the async helper
         let server = create_test_app(agent_manager).await;
 
         // Act
@@ -346,8 +344,9 @@ mod tests {
     #[tokio::test]
     async fn test_api_agent_status_with_agents() {
         // Arrange
-        let agent_manager = create_mock_agent_manager();
+        let agent_manager = create_mock_agent_manager().await; // Await the async helper
         { // Scope for mutex guard
+            // Accessing active_agents directly is okay here since we made it pub for tests
             let mut agents = agent_manager.active_agents.lock().await;
             agents.insert(1, AgentInfo {
                 id: 1,
@@ -386,14 +385,14 @@ mod tests {
     #[tokio::test]
     async fn test_synthesize_goal_api_success() {
         // Arrange
-        let agent_manager = create_mock_agent_manager();
+        let agent_manager = create_mock_agent_manager().await; // Await the async helper
         let server = create_test_app(agent_manager).await;
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        let _mock_uri = mock_ollama_server.uri(); // Prefix unused variable
+        let mock_uri = mock_ollama_server.uri(); // Use the variable again
         // Remove the problematic constant override for now. Test will use default OLLAMA_URL unless mocked.
-        // let _lock = constants::OLLAMA_URL.set(mock_uri);
+        let _lock = constants::OLLAMA_URL.set(mock_uri); // Re-add override
 
         let request_tags = vec!["api_tag1".to_string(), "api_tag2".to_string()];
         let expected_ollama_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- api_tag1\n- api_tag2\n\nSynthesized Goal:";
@@ -435,7 +434,7 @@ mod tests {
      #[tokio::test]
     async fn test_synthesize_goal_api_empty_tags() {
         // Arrange
-        let agent_manager = create_mock_agent_manager();
+        let agent_manager = create_mock_agent_manager().await; // Await the async helper
         let server = create_test_app(agent_manager).await;
 
         // Act
@@ -454,14 +453,14 @@ mod tests {
     #[tokio::test]
     async fn test_synthesize_goal_api_ollama_error() {
         // Arrange
-        let agent_manager = create_mock_agent_manager();
+        let agent_manager = create_mock_agent_manager().await; // Await the async helper
         let server = create_test_app(agent_manager).await;
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        let _mock_uri = mock_ollama_server.uri(); // Prefix unused variable
+        let mock_uri = mock_ollama_server.uri(); // Use the variable again
         // Remove the problematic constant override
-        // let _lock = constants::OLLAMA_URL.set(mock_uri);
+        let _lock = constants::OLLAMA_URL.set(mock_uri); // Re-add override
 
         Mock::given(method("POST"))
             .and(path("/api/generate"))
