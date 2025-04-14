@@ -1,6 +1,14 @@
+import logging
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import Header, Footer, Input, RichLog
+from textual import work
+
+from ollama_client import OllamaClient # Import the new client
+
+# Configure logging for TUI (optional, helps debugging)
+# logging.basicConfig(filename='veda_tui.log', level=logging.DEBUG)
+# logger = logging.getLogger(__name__)
 
 
 class VedaApp(App[None]):
@@ -30,7 +38,22 @@ class VedaApp(App[None]):
     def __init__(self, config: dict, **kwargs):
         super().__init__(**kwargs)
         self.config = config
-        # You can access config values like self.config.get('ollama_model')
+        self.log_widget = None # Initialize log widget reference
+        self.input_widget = None # Initialize input widget reference
+
+        # Initialize Ollama Client
+        try:
+            self.ollama_client = OllamaClient(
+                api_url=self.config.get("ollama_api_url"),
+                model=self.config.get("ollama_model"),
+                timeout=self.config.get("ollama_request_timeout", 300),
+                options=self.config.get("ollama_options")
+            )
+        except ValueError as e:
+            # Handle potential config errors during init
+            # Log this properly or display in TUI later
+            print(f"Error initializing Ollama Client: {e}") # Simple print for now
+            self.ollama_client = None # Ensure it's None if init fails
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -44,25 +67,56 @@ class VedaApp(App[None]):
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
-        self.query_one(Input).focus()
-        log = self.query_one(RichLog)
-        log.write("[bold green]Welcome to Veda TUI![/]")
-        log.write("Enter your project goal or type commands.")
-        # TODO: Add initial status information based on config/state
+        self.log_widget = self.query_one(RichLog)
+        self.input_widget = self.query_one(Input)
+        self.input_widget.focus()
+
+        self.log_widget.write("[bold green]Welcome to Veda TUI![/]")
+        if self.ollama_client:
+            self.log_widget.write(f"Connected to Ollama model: [cyan]{self.ollama_client.model}[/]")
+            self.log_widget.write("Enter your message or command.")
+        else:
+            self.log_widget.write("[bold red]Error: Ollama client not initialized. Check config and logs.[/]")
+            self.log_widget.write("Interaction disabled.")
+            self.input_widget.disabled = True # Disable input if client failed
+
+        # TODO: Add other initial status information based on config/state
+
+    @work(exclusive=True, thread=True) # Run Ollama call in a worker thread
+    async def call_ollama(self, prompt: str) -> None:
+        """Worker method to call Ollama and update the log."""
+        if not self.ollama_client:
+            self.log_widget.write("[bold red]Cannot process: Ollama client not available.[/]")
+            return
+
+        self.log_widget.write("[italic grey50]Thinking...[/]")
+        response = await self.ollama_client.generate(prompt)
+        self.log_widget.write(f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}")
+        self.input_widget.clear()
+        self.input_widget.focus()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user input submission."""
         user_input = event.value
-        log = self.query_one(RichLog)
-        input_widget = self.query_one(Input)
 
-        if user_input:
-            log.write(f"[bold blue]>>>[/] {user_input}")
-            # TODO: Process the user input (e.g., send to chat logic, command parser)
-            # For now, just echo it back or provide a placeholder response
-            log.write(f"[yellow]Processing: '{user_input}'...[/] (Not implemented yet)")
-            input_widget.clear()
-            input_widget.focus() # Keep focus on input
+        if user_input and self.ollama_client and not self.input_widget.disabled:
+            self.log_widget.write(f"[bold blue]>>>[/] {user_input}")
+            # Call the worker
+            self.call_ollama(user_input)
+            # Don't clear input here, worker will do it after response
+        elif not self.ollama_client or self.input_widget.disabled:
+             self.log_widget.write("[bold red]Interaction disabled. Ollama client not available.[/]")
+             self.input_widget.clear() # Clear input even if disabled
+             self.input_widget.focus()
+        else:
+            # Handle empty input if needed, or just ignore
+            self.input_widget.focus()
+
+
+    async def on_unmount(self) -> None:
+        """Called when the app is about to unmount."""
+        if self.ollama_client:
+            await self.ollama_client.close() # Gracefully close the client
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
