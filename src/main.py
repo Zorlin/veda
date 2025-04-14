@@ -539,6 +539,8 @@ def main():
          sys.exit(1)
 
     if args.command == "start":
+        # Always start the web server first, even if AgentManager cannot start
+        start_web_server()
         initial_prompt = args.prompt
         # If running in a non-interactive environment (like pytest), provide a default prompt
         if not initial_prompt:
@@ -590,9 +592,13 @@ def main():
                         initial_prompt = msg # Use the first user message as the prompt
                         print(f"Veda: Okay, using '{initial_prompt}' as the initial goal. Starting agents...")
                         break
-        agent_manager.start(initial_prompt=initial_prompt) # Use global manager
-        start_web_server()
-        print("Veda Agent Manager is running.")
+        # Try to start AgentManager, but do not exit if API key is missing
+        if not OPENROUTER_API_KEY:
+            logging.error("OPENROUTER_API_KEY environment variable is not set. AgentManager will not start, but web server is running.")
+            print("Warning: OPENROUTER_API_KEY environment variable is not set. AgentManager will not start, but the web server is running for UI tests.")
+        else:
+            agent_manager.start(initial_prompt=initial_prompt) # Use global manager
+            print("Veda Agent Manager is running.")
         print("Web UI available at http://localhost:9900")
         print("Use 'veda status' to check agent activity.")
         print("Press Ctrl+C to stop.")
