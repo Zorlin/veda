@@ -294,7 +294,8 @@ mod tests {
     async fn test_agent_manager_new() {
         // Arrange
         let temp_dir = tempdir().unwrap();
-        let handoff_path = temp_dir.path().join("handoffs");
+        // Prefix unused variable
+        let _handoff_path = temp_dir.path().join("handoffs");
         // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
         // Test now uses default or env var for HANDOFF_DIR. Ensure it's writable or mock fs::create_dir_all.
         // For now, we assume the default 'handoffs' dir can be created relative to where tests run.
@@ -491,45 +492,6 @@ mod tests {
         assert!(notified.is_ok(), "Shutdown should have been notified");
      }
 
-    // NOTE: Re-adding unsafe constant override helpers for reliable testing until DI is implemented.
-    // --- Test Helpers for Constants ---
-     impl constants::HANDOFF_DIR {
-          fn set(&'static self, value: String) -> impl Drop {
-              let original = self.as_str().to_string();
-              unsafe {
-                  let ptr = &**self as *const String as *mut String;
-                  *ptr = value;
-              }
-              StaticGuardHandoff { original }
-          }
-      }
-      struct StaticGuardHandoff { original: String }
-      impl Drop for StaticGuardHandoff {
-          fn drop(&mut self) {
-              unsafe {
-                  let ptr = &*constants::HANDOFF_DIR as *const String as *mut String;
-                  *ptr = self.original.clone();
-              }
-          }
-      }
-      // Add similar helpers for other constants if needed (like OLLAMA_URL used in web_server tests)
-      impl constants::OLLAMA_URL {
-          fn set(&'static self, value: String) -> impl Drop {
-              let original = self.as_str().to_string();
-              unsafe {
-                  let ptr = &**self as *const String as *mut String;
-                  *ptr = value;
-              }
-              StaticGuardOllama { original }
-          }
-      }
-      struct StaticGuardOllama { original: String }
-      impl Drop for StaticGuardOllama {
-          fn drop(&mut self) {
-              unsafe {
-                  let ptr = &*constants::OLLAMA_URL as *const String as *mut String;
-                  *ptr = self.original.clone();
-              }
-          }
-      }
+    // NOTE: Constant override helpers removed from here to avoid duplication.
+    // The helper for OLLAMA_URL is defined in llm_interaction.rs tests.
 }

@@ -274,13 +274,12 @@ mod tests {
     // Remove unused Deserialize import from here (it's used on the struct derives)
     // use serde::Deserialize;
     use serde_json::json;
-    use std::{
-        collections::HashMap,
-        path::PathBuf,
-        sync::atomic::AtomicU32,
-    };
-    // Remove unused Mutex and Notify imports from here
-    // use tokio::sync::{Mutex, Notify};
+    // Remove unused std imports
+    // use std::{
+    //     collections::HashMap,
+    //     path::PathBuf,
+    //     sync::atomic::AtomicU32,
+    // };
 
     // Import wiremock items needed for mocking
     use wiremock::{
@@ -300,6 +299,7 @@ mod tests {
     // Make the helper async
     async fn create_mock_agent_manager() -> Arc<AgentManager> {
         // Await the async constructor
+        // Ensure this uses the public ::new() and not direct struct instantiation
         let manager = AgentManager::new()
             .await
             .expect("Failed to create mock AgentManager using new()");
