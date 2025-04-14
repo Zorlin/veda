@@ -114,8 +114,7 @@ mod tests {
             "model": expected_model,
             "prompt": expected_prompt,
             "stream": false,
-            // Adjust mock expectation: options field might be omitted by serde when None
-            // If this still fails, try expecting `options: serde_json::Value::Null` explicitly.
+            // Remove options from the expectation entirely if it's None in the request
         });
 
         let mock_response_body = json!({

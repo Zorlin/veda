@@ -488,9 +488,17 @@ mod tests {
         // assert!(kill_result.is_ok()); // Remove OS process check
         // assert!(!kill_result.unwrap().success(), "Process should no longer exist after stop"); // Remove OS process check
 
-        // Check if shutdown was notified (increase timeout significantly)
+        // Check if shutdown was notified first (increase timeout significantly)
         let notified = timeout(Duration::from_secs(1), manager.shutdown_notify.notified()).await;
         assert!(notified.is_ok(), "Shutdown should have been notified within 1 second");
+
+        // Check monitor task was stopped
+        assert!(manager.monitor_task_handle.lock().await.is_none()); // Handle should be taken
+
+        // Check agent status
+        let agents = manager.active_agents.lock().await;
+        let agent_info = agents.get(&agent_id).unwrap();
+        assert!(matches!(agent_info.status, AgentStatus::Failed(ref msg) if msg == "Terminated by shutdown"));
      }
 
     // NOTE: Constant override helpers removed from here to avoid duplication.
