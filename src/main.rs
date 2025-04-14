@@ -100,24 +100,6 @@ async fn main() -> Result<()> {
              });
 
             // Keep the main thread alive and wait for shutdown signals or task completion
-            let mut web_server_handle = tokio::spawn(async move {
-                if let Err(e) = web_server::start_web_server(port).await {
-                    error!("Web server failed: {:?}", e);
-                }
-            });
-
-            // TODO: Start AgentManager loop if needed, potentially passing the prompt
-            // let agent_manager_clone = agent_manager.clone();
-            // let agent_manager_handle = tokio::spawn(async move {
-            //     if let Some(p) = prompt {
-            //         info!("Passing initial prompt to Agent Manager: {}", p);
-            //     }
-            //     if let Err(e) = agent_manager_clone.start(prompt).await {
-            //         error!("Agent manager failed: {:?}", e);
-            //     }
-            // });
-
-            // Keep the main thread alive and wait for shutdown signals or task completion
             let ctrl_c = tokio::signal::ctrl_c();
             // Pin the ctrl_c future to the stack so its address is stable
             tokio::pin!(ctrl_c);
