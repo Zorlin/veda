@@ -40,13 +40,14 @@ logger = logging.getLogger("veda.main")
 
 
 # --- Global Agent Manager Instance ---
-# Instantiated in main() to ensure it's created after potential checks
-agent_manager: AgentManager | None = None
+# Instantiated early to be available for all commands if needed
+# We will still check for API key specifically for commands that need it.
+agent_manager: AgentManager = AgentManager()
 
 # --- Main Application Logic ---
 
 def main():
-    global agent_manager # Allow modification of the global instance
+    # agent_manager is already instantiated globally
 
     parser = argparse.ArgumentParser(
         description="Veda - Software development that doesn't sleep.",
@@ -96,8 +97,7 @@ def main():
 
     if args.command == "start":
         logger.info("Starting Veda...")
-        # Instantiate the Agent Manager
-        agent_manager = AgentManager()
+        # Agent Manager is already instantiated globally
 
         # Start the Web Server, passing the agent manager instance
         web_server_thread = start_web_server(agent_manager, host=args.host, port=args.port)
@@ -172,8 +172,9 @@ def main():
         if args.option == "instances":
             print(f"To set instances, please interact with a running Veda instance (Web UI/API planned).")
             # If we had a way to connect to a running instance:
-            # response = call_api_set_instances(args.value)
-            # print(response)
+            # If we had a way to connect to a running instance or modify the global one:
+            agent_manager.set_instances(args.value) # Modify the global instance directly
+            # The log message is handled inside set_instances
 
     elif args.command == "chat":
         chat_interface()

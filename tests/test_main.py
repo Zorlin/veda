@@ -22,13 +22,27 @@ def test_help_message():
     assert "set" in result.stdout
     assert "chat" in result.stdout
 
-def test_set_instances_manual():
+def test_set_instances_manual(caplog): # Use caplog fixture
+    # Clear previous logs if any
+    caplog.clear()
     result = run_veda_cmd(["set", "instances", "3"])
-    assert "Agent instances set to 3." in result.stderr or "Agent instances set to 3." in result.stdout
+    # Check stderr for the log message from AgentManager
+    assert "Agent instances set to 3." in result.stderr
+    # Optionally check stdout for the informational message from main.py
+    assert "Setting options via CLI is currently informational." in result.stdout
+    # Check return code is 0 for success
+    assert result.returncode == 0, f"Expected return code 0, got {result.returncode}. Stderr: {result.stderr}"
 
-def test_set_instances_auto():
+def test_set_instances_auto(caplog): # Use caplog fixture
+    # Clear previous logs if any
+    caplog.clear()
     result = run_veda_cmd(["set", "instances", "auto"])
-    assert "Agent instance management set to auto." in result.stderr or "Agent instance management set to auto." in result.stdout
+    # Check stderr for the log message from AgentManager
+    assert "Agent instance management set to auto." in result.stderr
+    # Optionally check stdout for the informational message from main.py
+    assert "Setting options via CLI is currently informational." in result.stdout
+    # Check return code is 0 for success
+    assert result.returncode == 0, f"Expected return code 0, got {result.returncode}. Stderr: {result.stderr}"
 
 def test_chat_interface(monkeypatch):
     # Simulate user typing 'exit' immediately
