@@ -301,6 +301,9 @@ def create_flask_app():
     # Set static_url_path to empty string to serve static files from root URL
     app = Flask(__name__, static_folder=static_dir, static_url_path='')
     
+    # Print debug info about static folder configuration
+    logging.info(f"Flask app created with static_folder={static_dir}, static_url_path=''")
+    
     # Disable caching for development/testing
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
     
@@ -685,19 +688,23 @@ def create_flask_app():
     @app.route('/index.html')
     def serve_index_html():
         try:
+            logging.info("Attempting to serve index.html from static folder")
             return app.send_static_file('index.html')
         except Exception as e:
             logging.error(f"Error serving index.html: {e}")
             # Fallback to direct file serving if static_folder approach fails
             webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
             if os.path.exists(os.path.join(webui_dir, 'index.html')):
+                logging.info(f"Serving index.html directly from {webui_dir}")
                 return send_from_directory(webui_dir, 'index.html')
             
             # Try project root as last resort
             project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
             if os.path.exists(os.path.join(project_root, 'index.html')):
+                logging.info(f"Serving index.html directly from {project_root}")
                 return send_from_directory(project_root, 'index.html')
-                
+            
+            logging.error("index.html not found in any location")
             return "Index.html not found", 404
         
     # Add routes to serve static files from multiple locations
@@ -827,6 +834,9 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     # Create Flask app
     app, _ = create_flask_app()  # Properly unpack the tuple
     
+    # Print debug info about static folder configuration
+    logging.info(f"Flask app static_folder={app.static_folder}, static_url_path={app.static_url_path}")
+    
     # Register the health endpoint directly to ensure it's available
     @app.route("/api/health")
     def api_health_direct():
@@ -924,14 +934,18 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     def catch_all(path):
         # Skip API routes
         if path.startswith('api/'):
+            logging.info(f"API endpoint not found: {path}")
             return f"API endpoint not found: {path}", 404
             
         # For all other routes, try to serve as static file first
         try:
+            logging.info(f"Attempting to serve static file: {path}")
             return app.send_static_file(path)
-        except:
+        except Exception as e:
+            logging.info(f"Static file {path} not found, trying index.html fallback: {e}")
             # If not found, serve index.html (SPA support)
             try:
+                logging.info("Serving index.html as fallback")
                 return app.send_static_file('index.html')
             except Exception as e:
                 logging.error(f"Error serving index.html as fallback: {e}")
