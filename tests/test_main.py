@@ -52,8 +52,32 @@ def test_web_server_starts():
         connected = True
     except Exception:
         connected = False
+        stdout, stderr = None, None # Initialize for capturing output
     finally:
         s.close()
-        proc.terminate()
-        proc.wait(timeout=2)
+        # Capture output before terminating if connection failed
+        if not connected:
+            try:
+                # Ensure text=True for string output
+                stdout, stderr = proc.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+
+        # Ensure termination
+        if proc.poll() is None:
+             proc.terminate()
+             try:
+                 proc.wait(timeout=2)
+             except subprocess.TimeoutExpired:
+                 proc.kill()
+                 proc.wait() # Wait for kill
+
+    if not connected:
+        print("\n--- Subprocess stdout (test_web_server_starts) ---")
+        print(stdout if stdout else "(No stdout)")
+        print("--- Subprocess stderr (test_web_server_starts) ---")
+        print(stderr if stderr else "(No stderr)")
+        print("-------------------------------------------------")
+
     assert connected, "Web server did not start on port 9900"
