@@ -1,8 +1,8 @@
 import logging
 import rich.markup # Import for escaping
 from textual.app import App, ComposeResult
-from textual.containers import Container
-from textual.widgets import Header, Footer, Input, RichLog
+from textual.containers import Container, VerticalScroll
+from textual.widgets import Header, Footer, Input, RichLog, TabbedContent, TabPane
 from pathlib import Path
 from textual import work, message # Import message base class
 
@@ -16,12 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 # --- Custom Messages for Worker -> UI Communication ---
-class LogMessage(message.Message):
-    """Custom message to log text to the RichLog."""
-    def __init__(self, text: str) -> None:
-        self.text = text
-        super().__init__()
+# Use messages defined in agent_manager
+from agent_manager import AgentOutputMessage, AgentExitedMessage, LogMessage
 
+# Keep UI-specific messages here
 class ClearInput(message.Message):
     """Custom message to clear the Input widget."""
     pass
@@ -66,9 +64,9 @@ class VedaApp(App[None]):
         # Define work directory path
         self.work_dir = Path(config.get("project_dir", ".")).resolve() / "workdir"
 
-        # Initialize Agent Manager
+        # Initialize Agent Manager - Pass the app instance!
         try:
-            self.agent_manager = AgentManager(config=self.config, work_dir=self.work_dir)
+            self.agent_manager = AgentManager(app=self, config=self.config, work_dir=self.work_dir)
         except Exception as e:
             logger.exception("Failed to initialize AgentManager")
             # Log this properly or display in TUI later
@@ -92,26 +90,33 @@ class VedaApp(App[None]):
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        with Container(id="main-content"):
-            with Container(id="log-container"):
-                yield RichLog(id="main-log", wrap=True, highlight=True, markup=True)
-            with Container(id="input-container"):
-                yield Input(placeholder="Enter your command or message...", id="main-input")
+        # Use TabbedContent instead of a single log container
+        with TabbedContent(id="main-tabs"):
+             # General/System Log Tab
+             with TabPane("Veda Log", id="tab-veda-log"):
+                 yield RichLog(id="main-log", wrap=True, highlight=True, markup=True)
+             # Agent tabs will be added dynamically
+        with Container(id="input-container"):
+             yield Input(placeholder="Enter project goal...", id="main-input")
         yield Footer()
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
-        self.log_widget = self.query_one(RichLog)
+        # Get reference to the main log widget (now inside a tab)
+        self.log_widget = self.query_one("#main-log", RichLog)
         self.input_widget = self.query_one(Input)
         self.input_widget.focus()
 
-        self.log_widget.write("[bold green]Welcome to Veda TUI![/]")
+        self.log_widget.write("[bold green]Welcome to Veda TUI![/]") # Write to main log
         if self.ollama_client:
-            self.log_widget.write(f"Using Ollama model: [cyan]{self.ollama_client.model}[/]")
-            # Trigger the initial prompt generation
+            self.log_widget.write(f"Using Ollama model for Veda: [cyan]{self.ollama_client.model}[/]")
+            # Trigger the initial prompt generation (writes to main log)
             self.ask_initial_prompt()
         else:
-            self.log_widget.write("[bold red]Error: Ollama client not initialized. Check config and logs.[/]")
+            self.log_widget.write("[bold red]Error: Veda's Ollama client not initialized. Check config and logs.[/]")
+
+        if not self.agent_manager:
+             self.log_widget.write("[bold red]Error: Agent Manager failed to initialize. Agent spawning disabled.[/]")
             self.log_widget.write("Interaction disabled.")
             self.input_widget.disabled = True # Disable input if client failed
 
@@ -121,19 +126,19 @@ class VedaApp(App[None]):
     def ask_initial_prompt(self) -> None:
         """Worker method to ask the initial user prompt using Ollama."""
         if not self.ollama_client:
-            self.post_message(LogMessage("[bold red]Cannot generate initial prompt: Ollama client not available.[/]"))
+            self.post_message(LogMessage("[bold red]Cannot generate initial prompt: Veda's Ollama client not available.[/]"))
             return
 
         initial_question = "What project goal should I work on today?"
+        # Post general status messages to the main log
         self.post_message(LogMessage("[italic grey50]Veda is thinking about the first question...[/]"))
         try:
             # Optional: Could ask Ollama to phrase the initial question, but let's keep it simple for now.
             # response = self.ollama_client.generate("Ask the user what project goal they want to work on.")
             # self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {response}")
 
-            # Restore original markup, assuming escaping user input/LLM output fixes issues
-            # Simplify markup first to diagnose
-            self.post_message(LogMessage(f"[bold]Veda:[/bold] {initial_question}"))
+            # Restore original markup
+            self.post_message(LogMessage(f"[bold magenta]Veda:[/bold] {initial_question}"))
         except Exception as e:
             logger.exception("Error generating initial prompt:")
             escaped_error = rich.markup.escape(str(e))
@@ -148,19 +153,18 @@ class VedaApp(App[None]):
         """Worker method to call Ollama (synchronously) for user prompts and update the log."""
         if not self.ollama_client:
             # Post message for UI updates from worker
-            self.post_message(LogMessage("[bold red]Cannot process: Ollama client not available.[/]"))
+            self.post_message(LogMessage("[bold red]Cannot process: Veda's Ollama client not available.[/]"))
             return
 
-        # Post message for UI updates from worker
+        # Post message for UI updates from worker (to main log)
         self.post_message(LogMessage("[italic grey50]Thinking...[/]"))
         try:
             # Synchronous call within the worker thread
             response = self.ollama_client.generate(prompt)
-            # Update UI from the worker thread safely
-            # Simplify markup first to diagnose
-            self.post_message(LogMessage(f"[bold]Veda ({self.ollama_client.model}):[/] {response}"))
+            # Update UI from the worker thread safely (to main log)
+            self.post_message(LogMessage(f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}"))
         except Exception as e:
-            # Log the exception and display an error in the TUI
+            # Log the exception and display an error in the TUI (to main log)
             logger.exception("Error during Ollama call in worker thread:")
             escaped_error = rich.markup.escape(str(e))
             self.post_message(LogMessage(f"[bold red]Error during Ollama call: {escaped_error}[/]"))
@@ -181,24 +185,18 @@ class VedaApp(App[None]):
         if not self.project_goal_set:
             # This is the initial project goal
             escaped_user_input = rich.markup.escape(user_input)
-            # Simplify markup further
-            self.log_widget.write(f"[bold]>>> Project Goal:[/bold] {escaped_user_input}")
+            self.log_widget.write(f"[bold blue]>>> Project Goal:[/bold] {escaped_user_input}") # Log goal to main log
             if self.agent_manager:
                 self.log_widget.write("[yellow]Initializing project orchestration...[/]")
-                # Pass goal to AgentManager (runs in background, no worker needed here for now)
-                # In the future, this might trigger async tasks within AgentManager
-                try:
-                    self.agent_manager.initialize_project(user_input)
-                    self.project_goal_set = True
-                    self.log_widget.write("[green]Project goal received. Veda will start working.[/]")
-                    self.log_widget.write("You can provide further instructions or ask questions.")
-                    self.input_widget.placeholder = "Enter further instructions or commands..."
-                except Exception as e:
-                    logger.exception("Error during project initialization")
-                    escaped_error = rich.markup.escape(str(e))
-                    self.log_widget.write(f"[bold red]Error initializing project: {escaped_error}[/]")
+                # Run the async agent initialization in a worker
+                self.run_worker(self.agent_manager.initialize_project(user_input), exclusive=True)
+                # Don't set project_goal_set immediately, wait for confirmation/agent start?
+                # For now, set it optimistically. We might need a message back from AgentManager later.
+                self.project_goal_set = True
+                self.input_widget.placeholder = "Enter further instructions or commands..."
             else:
-                self.log_widget.write("[bold red]Error: Agent Manager not available.[/]")
+                self.log_widget.write("[bold red]Error: Agent Manager not available. Cannot start project.[/]")
+            # Clear input after submitting goal
             self.input_widget.clear()
             self.input_widget.focus()
 
@@ -221,9 +219,40 @@ class VedaApp(App[None]):
 
     # --- Custom Message Handlers ---
     def on_log_message(self, message: LogMessage) -> None:
-        """Handles logging text to the RichLog."""
+        """Handles logging general status text to the main Veda log."""
         if self.log_widget:
             self.log_widget.write(message.text)
+
+    def on_agent_output_message(self, message: AgentOutputMessage) -> None:
+        """Handles output lines from agent subprocesses."""
+        tabs = self.query_one(TabbedContent)
+        tab_id = f"tab-{message.role}"
+        try:
+            # Try to find existing tab/log
+            log_widget = self.query_one(f"#{tab_id} RichLog", RichLog)
+        except Exception:
+            # Tab doesn't exist, create it
+            log_widget = RichLog(wrap=True, highlight=True, markup=True)
+            new_pane = TabPane(f"Agent: {message.role}", log_widget, id=tab_id)
+            tabs.add_pane(new_pane)
+            tabs.active = tab_id # Switch to the new tab
+            log_widget.write(f"--- Log for agent '{message.role}' ---")
+
+        # Write the line (potentially styling stderr differently)
+        prefix = "[red]<STDERR>[/] " if message.is_stderr else ""
+        log_widget.write(f"{prefix}{message.line}")
+
+    def on_agent_exited_message(self, message: AgentExitedMessage) -> None:
+        """Handles agent process exit."""
+        log_line = f"Agent '{message.role}' exited with code {message.return_code}."
+        logger.info(log_line)
+        # Log to main log and agent's log if it exists
+        self.post_message(LogMessage(f"[yellow]{log_line}[/]"))
+        try:
+            agent_log = self.query_one(f"#tab-{message.role} RichLog", RichLog)
+            agent_log.write(f"[yellow]--- {log_line} ---[/]")
+        except Exception:
+            pass # Agent tab might not exist if spawn failed
 
     def on_clear_input(self, message: ClearInput) -> None:
         """Handles clearing the input widget."""
@@ -237,8 +266,10 @@ class VedaApp(App[None]):
     # --- End Custom Message Handlers ---
 
 
-    # No longer needed for synchronous client
-    # async def on_unmount(self) -> None:
+    async def on_unmount(self) -> None:
+        """Called when the app is about to unmount. Stop agents."""
+        if self.agent_manager:
+            await self.agent_manager.stop_all_agents() # Gracefully stop agents
     #     """Called when the app is about to unmount."""
     #     if self.ollama_client:
     #         await self.ollama_client.close() # Gracefully close the client
