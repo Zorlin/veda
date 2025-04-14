@@ -231,5 +231,5 @@ mod tests {
          assert!(err_string.contains("Failed to send request") || err_string.contains("error sending request"));
      }
 
-     // NOTE: Removed unsafe constant override helpers. Tests now pass the URL directly.
+     // NOTE: Unsafe constant override helpers moved outside this test module.
 }
