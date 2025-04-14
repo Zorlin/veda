@@ -405,11 +405,12 @@ mod tests {
         let expected_model = constants::VEDA_CHAT_MODEL.clone();
 
         // Define expected body *with* options explicitly set to json!(null)
+        // Ensure field order matches OllamaRequest struct
         let ollama_request_body = json!({
             "model": expected_model,
             "prompt": expected_ollama_prompt,
             "stream": false,
-            "options": json!(null), // Use json! macro for null
+            "options": json!(null)
         });
 
          let ollama_response_body = json!({

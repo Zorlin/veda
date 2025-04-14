@@ -254,11 +254,8 @@ impl AgentManager {
         // Wait for the monitor loop task to complete
         info!("Waiting for monitor task to stop...");
         if let Some(handle) = self.monitor_task_handle.lock().await.take() {
-            // Await the handle gracefully
-            if let Err(e) = handle.await {
-                 error!("Error awaiting monitor task handle: {:?}", e);
-            }
-            info!("Monitor task stopped.");
+            // Don't await the aborted handle
+            info!("Monitor task aborted signal sent.");
         } else {
             info!("Monitor task was not running.");
         }
