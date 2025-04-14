@@ -40,12 +40,11 @@ def ensure_webui_directory():
         logging.warning(f"Static directory not found at {static_dir}. Creating it now.")
         os.makedirs(static_dir, exist_ok=True)
     
-    # Copy index.html from the project root if it exists there
+    # Always create/update index.html in webui directory to ensure it exists
     index_path = os.path.join(static_dir, 'index.html')
-    if not os.path.exists(index_path):
-        # Create a basic index.html file with the full content from webui/index.html
-        with open(index_path, 'w') as f:
-            f.write("""<!DOCTYPE html>
+    logging.info(f"Creating/updating index.html at {index_path}")
+    with open(index_path, 'w') as f:
+        f.write("""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -291,9 +290,6 @@ def create_flask_app():
     # Configure Flask to find static files in webui directory
     # Set static_url_path to empty string to serve static files from root URL
     app = Flask(__name__, static_folder=static_dir, static_url_path='')
-    
-    # Also serve static files from project root for tests
-    app.static_folder = project_root
 
     # --- Socket.IO Setup ---
     # Socket.IO server (sio) is initialized globally.
@@ -317,11 +313,20 @@ def create_flask_app():
 
         # Serve index.html from the configured static folder
         try:
-            # Use Flask's send_from_directory to serve index.html from the static folder
-            return send_from_directory(app.static_folder, 'index.html')
-        except FileNotFoundError:
-            # If index.html is missing, serve a basic UI directly
-            logging.warning(f"index.html not found in {app.static_folder}, serving basic UI")
+            # First try to serve from webui directory
+            webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
+            if os.path.exists(os.path.join(webui_dir, 'index.html')):
+                logging.info(f"Serving index.html from {webui_dir}")
+                return send_from_directory(webui_dir, 'index.html')
+            
+            # Then try project root as fallback
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            if os.path.exists(os.path.join(project_root, 'index.html')):
+                logging.info(f"Serving index.html from {project_root}")
+                return send_from_directory(project_root, 'index.html')
+                
+            # If index.html is missing in both locations, serve a basic UI directly
+            logging.warning(f"index.html not found in {webui_dir} or {project_root}, serving basic UI")
             return render_template_string("""
 <!DOCTYPE html>
 <html lang="en">
@@ -662,12 +667,35 @@ def create_flask_app():
     # Add a route to serve index.html from the root URL
     @app.route('/index.html')
     def serve_index_html():
-        return send_from_directory(app.static_folder, 'index.html')
+        webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
+        if os.path.exists(os.path.join(webui_dir, 'index.html')):
+            return send_from_directory(webui_dir, 'index.html')
         
-    # Add a route to serve static files
+        # Fallback to project root
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        if os.path.exists(os.path.join(project_root, 'index.html')):
+            return send_from_directory(project_root, 'index.html')
+            
+        return "Index.html not found", 404
+        
+    # Add routes to serve static files from multiple locations
     @app.route('/static/<path:filename>')
     def serve_static(filename):
-        return send_from_directory(app.static_folder, filename)
+        webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
+        if os.path.exists(os.path.join(webui_dir, filename)):
+            return send_from_directory(webui_dir, filename)
+            
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        if os.path.exists(os.path.join(project_root, filename)):
+            return send_from_directory(project_root, filename)
+            
+        return f"File {filename} not found", 404
+        
+    # Add a route to serve files from webui directory
+    @app.route('/webui/<path:filename>')
+    def serve_webui(filename):
+        webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
+        return send_from_directory(webui_dir, filename)
         
     # Return the Flask app instance and the Socket.IO server instance
     return app, sio # Return both app and sio
@@ -781,6 +809,12 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     def api_health_direct():
         """Simple health check endpoint for tests."""
         return jsonify({"status": "ok"})
+        
+    # Register additional routes for tests
+    @app.route("/test")
+    def test_endpoint():
+        """Simple test endpoint that always returns 200 OK."""
+        return "Test endpoint is working"
     
     # Create Socket.IO server
     sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False)
