@@ -68,12 +68,10 @@ def create_flask_app():
 
         # Serve index.html from the configured static folder
         try:
-            # Ensure static_folder is configured and exists before trying to serve from it
-            if not app.static_folder or not os.path.isdir(app.static_folder):
-                 logging.error(f"Static folder '{app.static_folder}' not configured or does not exist.")
-                 return "Server configuration error: Static folder not found.", 500
-
             # Use Flask's send_from_directory to serve index.html from the static folder
+            # Flask handles the static_folder path provided during app initialization.
+            # If index.html or the static folder itself is missing/inaccessible,
+            # send_from_directory will raise an appropriate exception (e.g., NotFound).
             return send_from_directory(app.static_folder, 'index.html')
         except FileNotFoundError:
             # This exception is raised by send_from_directory if index.html is missing
