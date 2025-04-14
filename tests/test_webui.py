@@ -36,5 +36,24 @@ def test_webui_serves_vue_and_tailwind():
         assert "chat" in resp.text.lower()
         assert "thread" in resp.text.lower()
     finally:
-        proc.terminate()
-        proc.wait(timeout=2)
+        # Capture output if server didn't start
+        if not server_started:
+             try:
+                 stdout_data, stderr_data = proc.communicate(timeout=1)
+             except subprocess.TimeoutExpired:
+                 proc.kill()
+                 stdout_data, stderr_data = proc.communicate()
+             print("\n--- Subprocess stdout (test_webui) ---")
+             print(stdout_data)
+             print("--- Subprocess stderr (test_webui) ---")
+             print(stderr_data)
+             print("---------------------------------------")
+
+        # Ensure termination
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()

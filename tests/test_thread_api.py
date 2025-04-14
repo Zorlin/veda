@@ -37,5 +37,24 @@ def test_thread_api_returns_threads():
             assert "role" in thread
             assert "status" in thread
     finally:
-        proc.terminate()
-        proc.wait(timeout=2)
+        # Capture output if server didn't start
+        if not server_started:
+             try:
+                 stdout_data, stderr_data = proc.communicate(timeout=1)
+             except subprocess.TimeoutExpired:
+                 proc.kill()
+                 stdout_data, stderr_data = proc.communicate()
+             print("\n--- Subprocess stdout (test_thread_api) ---")
+             print(stdout_data)
+             print("--- Subprocess stderr (test_thread_api) ---")
+             print(stderr_data)
+             print("------------------------------------------")
+
+        # Ensure termination
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
