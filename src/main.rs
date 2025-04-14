@@ -68,15 +68,37 @@ async fn main() -> Result<()> {
 
     // Handle the parsed command
     match cli.command {
-        // Prefix unused 'prompt' with underscore
-        Commands::Start { prompt: _prompt, port } => {
+        Commands::Start { prompt, port } => { // Use prompt again
             info!("Starting Veda services on port {}...", port);
 
-            // TODO: Initialize AgentManager properly and use _prompt
-            // let agent_manager = Arc::new(agent_manager::AgentManager::new()?);
+            // Initialize AgentManager
+            let agent_manager = Arc::new(
+                agent_manager::AgentManager::new()
+                    .await
+                    .context("Failed to initialize Agent Manager")?,
+            );
 
+            // Clone Arc for web server state
+            let agent_manager_web_clone = agent_manager.clone();
             // Start the web server in a separate asynchronous task
             // Declare as mutable for use in tokio::select!
+            let mut web_server_handle = tokio::spawn(async move {
+                // Pass agent manager handle to web server
+                if let Err(e) = web_server::start_web_server(port, agent_manager_web_clone).await {
+                    error!("Web server failed: {:?}", e);
+                }
+            });
+
+            // Clone Arc for agent manager task
+            let agent_manager_task_clone = agent_manager.clone();
+            // Spawn the agent manager's main loop task
+            let mut agent_manager_handle = tokio::spawn(async move {
+                 if let Err(e) = agent_manager_task_clone.start(prompt).await {
+                     error!("Agent manager task failed: {:?}", e);
+                 }
+             });
+
+            // Keep the main thread alive and wait for shutdown signals or task completion
             let mut web_server_handle = tokio::spawn(async move {
                 if let Err(e) = web_server::start_web_server(port).await {
                     error!("Web server failed: {:?}", e);
@@ -103,8 +125,10 @@ async fn main() -> Result<()> {
                 // Wait for Ctrl-C signal for graceful shutdown
                 _ = &mut ctrl_c => {
                     info!("Ctrl-C received, initiating shutdown...");
-                    // TODO: Add graceful shutdown for agent_manager
-                    // agent_manager.stop().await?; // Example
+                    // Initiate graceful shutdown for AgentManager
+                    if let Err(e) = agent_manager.stop().await {
+                        error!("Error stopping agent manager: {:?}", e);
+                    }
                 }
                 // Handle potential completion/failure of the web server task
                 res = &mut web_server_handle => {
@@ -115,24 +139,30 @@ async fn main() -> Result<()> {
                          Err(e) => error!("Web server task failed: {:?}", e),
                      }
                 }
-                // Handle potential completion/failure of the agent manager task
-                // res = &mut agent_manager_handle => {
-                //    match res {
-                //        Ok(_) => info!("Agent manager task completed unexpectedly."),
-                //        Err(e) if e.is_panic() => error!("Agent manager task panicked: {:?}", e),
-                //        Err(e) => error!("Agent manager task failed: {:?}", e),
-                //    }
-                // }
+                 // Handle potential completion/failure of the agent manager task
+                 res = &mut agent_manager_handle => {
+                    match res {
+                        Ok(_) => info!("Agent manager task completed unexpectedly."),
+                        Err(e) if e.is_panic() => error!("Agent manager task panicked: {:?}", e),
+                        Err(e) => error!("Agent manager task failed: {:?}", e),
+                    }
+                 }
             }
 
             // After select! finishes (due to Ctrl+C or task completion), ensure shutdown.
             info!("Shutting down remaining tasks...");
             if !web_server_handle.is_finished() {
+                 info!("Aborting web server task...");
                  web_server_handle.abort();
             }
-            // if !agent_manager_handle.is_finished() {
-            //     agent_manager_handle.abort();
-            // }
+             if !agent_manager_handle.is_finished() {
+                 info!("Aborting agent manager task...");
+                 agent_manager_handle.abort();
+                 // Also ensure agent_manager.stop() is called if the manager task finished early
+                 if let Err(e) = agent_manager.stop().await {
+                     error!("Error during final agent manager stop: {:?}", e);
+                 }
+             }
             info!("Shutdown complete.");
         }
         Commands::Chat => {

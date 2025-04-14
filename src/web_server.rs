@@ -14,7 +14,9 @@ use minijinja_autoreload::AutoReloader;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::broadcast;
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn}; // Added debug
+
+use crate::agent_manager::{AgentManager, AgentStatusReport}; // Import AgentManager
 
 // Define the structure for messages broadcasted to clients
 // Using serde allows easy conversion to/from JSON for WebSocket messages
@@ -31,8 +33,8 @@ struct AppState {
     templates: Arc<AutoReloader>,
     // Channel for broadcasting messages to all connected WebSocket clients
     broadcast_tx: broadcast::Sender<BroadcastMessage>,
-    // TODO: Add AgentManager handle or similar state later
-    // agent_manager: Arc<AgentManager>,
+    // Handle to the Agent Manager
+    agent_manager: Arc<AgentManager>,
 }
 
 // Minijinja Environment setup
@@ -70,6 +72,16 @@ async fn index_handler(
         axum::response::Html(format!("Internal Server Error: {}", e))
     })
 }
+
+// API handler to get agent statuses
+async fn api_agent_status_handler(
+    State(state): State<AppState>,
+) -> axum::response::Json<Vec<AgentStatusReport>> {
+    debug!("Handling request for /api/agents/status");
+    let report = state.agent_manager.get_status_report().await;
+    axum::response::Json(report)
+}
+
 
 // WebSocket upgrade handler
 async fn ws_handler(
@@ -184,7 +196,8 @@ pub async fn start_web_server(port: u16) -> Result<()> {
     // Build our application router
     let app = Router::new()
         .route("/", get(index_handler))
-        .route("/ws", get(ws_handler)) // Add WebSocket route
+        .route("/ws", get(ws_handler)) // WebSocket route
+        .route("/api/agents/status", get(api_agent_status_handler)) // API route for status
         // Route for static files must be nested under a path like /static
         // or it will conflict with other routes.
         .nest_service("/static", static_files_service)
