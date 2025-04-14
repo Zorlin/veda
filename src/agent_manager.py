@@ -45,14 +45,21 @@ class AgentExitedMessage(Message):
     return_code: Optional[int]
 # --- End Custom Messages ---
 
+# Forward declaration for type hinting
+class OllamaClient:
+    pass
 
 @dataclass
 class AgentInstance:
-    """Holds information about a running agent process."""
+    """Holds information about a running agent process or client."""
     role: str
-    process: asyncio.subprocess.Process
+    agent_type: str # "aider" or "ollama"
+    # For Aider agents (pty subprocess)
+    process: Optional[asyncio.subprocess.Process] = None
     master_fd: Optional[int] = None # Master side of the pty
     read_task: Optional[asyncio.Task] = None
+    # For Ollama agents (direct client)
+    ollama_client: Optional[OllamaClient] = None
     # TODO: Add state, current task file, etc.
 
 
@@ -73,10 +80,21 @@ class AgentManager:
         self.config = config
         self.work_dir = work_dir
         self.aider_command_base = config.get("aider_command", "aider")
-        # Default Aider model if not specified per role
-        self.default_aider_model = config.get("aider_model")
+        self.aider_model = config.get("aider_model") # Model specifically for aider agents
         self.test_command = config.get("aider_test_command")
         self.agents: Dict[str, AgentInstance] = {} # role -> AgentInstance
+
+        # Define roles that use direct Ollama interaction
+        self.ollama_roles = {
+            "theorist", "architect", "skeptic", "historian", "coordinator", "planner",
+            "arbiter", "canonizer", "redactor" # Add council roles if they interact directly
+        }
+        # Add code_reviewer if enabled and configured for direct ollama
+        if config.get("enable_code_review") and config.get("code_review_model"):
+             # Assuming direct ollama if a specific model is set, otherwise it might use aider?
+             # Let's refine this logic if needed. For now, assume specific model means direct ollama.
+             self.ollama_roles.add("code_reviewer")
+
 
         # Ensure work_dir exists
         self.work_dir.mkdir(parents=True, exist_ok=True)
@@ -134,69 +152,100 @@ class AgentManager:
         # Note: Closing the master_fd is handled by _monitor_agent_exit or stop_all_agents
 
     async def spawn_agent(self, role: str, model: Optional[str] = None, initial_prompt: Optional[str] = None):
-        """Spawns a new Aider agent process."""
+        """Spawns a new agent process (aider) or initializes a client (ollama)."""
         if role in self.agents:
             logger.warning(f"Agent with role '{role}' already running.")
-            # Optionally, post a message to the UI
             self.app.post_message(LogMessage(f"[orange3]Agent '{role}' is already running.[/]"))
             return
 
-        agent_model = model or self.config.get(f"{role}_model") or self.default_aider_model
-        if not agent_model:
-            logger.error(f"No model specified for agent role '{role}' and no default aider_model configured.")
-            self.app.post_message(LogMessage(f"[bold red]Error: No model configured for agent '{role}'.[/]"))
-            return
+        # Determine agent type and model
+        agent_type = "ollama" if role in self.ollama_roles else "aider"
+        if agent_type == "ollama":
+            # Use the specific model defined for this role, fallback to general ollama_model
+            agent_model = self.config.get(f"{role}_model") or self.config.get("ollama_model")
+            if not agent_model:
+                 logger.error(f"No model specified for Ollama agent role '{role}' and no default ollama_model configured.")
+                 self.app.post_message(LogMessage(f"[bold red]Error: No model configured for Ollama agent '{role}'.[/]"))
+                 return
+            log_line = f"Initializing Ollama client for agent '{role}' with model '{agent_model}'..."
+            logger.info(log_line)
+            self.app.post_message(LogMessage(f"[cyan]{log_line}[/]"))
+            try:
+                # Import late to avoid circular dependency if OllamaClient uses AgentManager types
+                from ollama_client import OllamaClient
+                client = OllamaClient(
+                    api_url=self.config.get("ollama_api_url"),
+                    model=agent_model,
+                    timeout=self.config.get("ollama_request_timeout", 300),
+                    options=self.config.get("ollama_options") # Use general ollama options for now
+                )
+                # Store agent info
+                self.agents[role] = AgentInstance(
+                    role=role, agent_type=agent_type, ollama_client=client
+                )
+                logger.info(f"Ollama client for agent '{role}' initialized.")
+                # Post initial prompt if provided (needs handling in send_to_agent)
+                if initial_prompt:
+                    # We need to trigger the async send operation
+                    asyncio.create_task(self.send_to_agent(role, initial_prompt))
 
-        # Construct the command
-        # Use shlex.split for basic safety, but be cautious with complex commands/paths
-        command_parts = shlex.split(self.aider_command_base)
-        command_parts.extend(["--model", agent_model])
-        # Add other necessary aider args like git repo path, test command etc.
-        # For now, just the model. Aider typically detects the git repo.
-        if self.test_command:
-             command_parts.extend(["--test-cmd", self.test_command])
+            except Exception as e:
+                 err_msg = f"Failed to initialize Ollama client for agent '{role}': {e}"
+                 logger.exception(err_msg)
+                 escaped_error = rich.markup.escape(str(e))
+                 self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
 
-        # TODO: Add logic to pass initial_prompt (maybe via stdin or a temp file?)
-        # For now, we just start the agent.
+        else: # agent_type == "aider"
+            # Use the dedicated aider_model from config
+            agent_model = self.aider_model
+            if not agent_model:
+                logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
+                self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
+                return
 
-        log_line = f"Spawning agent '{role}' with model '{agent_model}'..."
-        logger.info(log_line)
-        self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
+            # Construct the aider command
+            command_parts = shlex.split(self.aider_command_base)
+            command_parts.extend(["--model", agent_model])
+            if self.test_command:
+                 command_parts.extend(["--test-cmd", self.test_command])
+            # Add --no-show-model-warnings flag suggested by aider output
+            command_parts.append("--no-show-model-warnings")
 
-        master_fd, slave_fd = pty.openpty()
+            # TODO: Pass initial_prompt to aider (maybe via stdin after start?)
 
-        # Make master_fd non-blocking
-        fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+            log_line = f"Spawning Aider agent '{role}' with model '{agent_model}'..."
+            logger.info(log_line)
+            self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *command_parts,
-                stdin=slave_fd,
-                stdout=slave_fd,
-                stderr=slave_fd,
-                cwd=self.config.get("project_dir", "."), # Run aider in the project dir
-                start_new_session=True # Important for pty
-            )
-            logger.info(f"Agent '{role}' spawned with PID {process.pid} using pty")
+            master_fd, slave_fd = pty.openpty()
+            fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
 
-            # Close slave fd in parent process, it's not needed anymore
-            os.close(slave_fd)
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *command_parts,
+                    stdin=slave_fd,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    cwd=self.config.get("project_dir", "."),
+                    start_new_session=True
+                )
+                logger.info(f"Aider agent '{role}' spawned with PID {process.pid} using pty")
+                os.close(slave_fd)
+                read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
+                self.agents[role] = AgentInstance(
+                    role=role, agent_type=agent_type, process=process,
+                    master_fd=master_fd, read_task=read_task
+                )
+                asyncio.create_task(self._monitor_agent_exit(role, process))
+                # Send initial prompt if provided, after a short delay for aider to start
+                if initial_prompt:
+                    await asyncio.sleep(1.0) # Give aider a moment to start up
+                    await self.send_to_agent(role, initial_prompt)
 
-            # Create task to read combined output from the pty
-            read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
 
-            # Store agent info
-            self.agents[role] = AgentInstance(
-                role=role, process=process, master_fd=master_fd, read_task=read_task
-            )
-
-            # Create a task to wait for the process to exit and post a message
-            asyncio.create_task(self._monitor_agent_exit(role, process))
-
-        except FileNotFoundError:
-            os.close(master_fd) # Clean up master fd on error
-            # os.close(slave_fd) # Already closed or handled by subprocess exec
-            err_msg = f"Error: Command '{self.aider_command_base}' not found. Is Aider installed and in PATH?"
+            except FileNotFoundError:
+                os.close(master_fd)
+                err_msg = f"Error: Command '{self.aider_command_base}' not found. Is Aider installed and in PATH?"
             logger.error(err_msg)
             self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
         except Exception as e:
@@ -218,26 +267,33 @@ class AgentManager:
                      pass # Ignore if already closed
 
     async def _monitor_agent_exit(self, role: str, process: asyncio.subprocess.Process):
-        """Waits for an agent process to exit and posts a message."""
+        """Waits for an Aider agent process to exit and posts a message."""
+        # This monitor only applies to subprocesses (aider agents)
         return_code = await process.wait()
-        logger.info(f"Agent '{role}' (PID {process.pid}) exited with code {return_code}")
+        logger.info(f"Aider agent '{role}' (PID {process.pid}) exited with code {return_code}")
+
         agent_instance = self.agents.get(role)
-        self.app.post_message(AgentExitedMessage(role=role, return_code=return_code))
-        # Clean up agent entry
-        if agent_instance:
+        # Ensure we only clean up if it's still the same process instance we were monitoring
+        if agent_instance and agent_instance.process == process:
+            self.app.post_message(AgentExitedMessage(role=role, return_code=return_code))
+            # Clean up agent entry
             # Cancel the reader task
             if agent_instance.read_task:
                 agent_instance.read_task.cancel()
             # Close the master pty descriptor
             if agent_instance.master_fd is not None:
                 try:
-                    logger.info(f"Closing master_fd {agent_instance.master_fd} for agent '{role}'")
+                    logger.info(f"Closing master_fd {agent_instance.master_fd} for agent '{role}' on exit")
                     os.close(agent_instance.master_fd)
                 except OSError as e:
-                    logger.error(f"Error closing master_fd for agent '{role}': {e}")
+                    # May already be closed by stop_all_agents, ignore EBADF
+                    if e.errno != 9: # errno 9 is EBADF (Bad file descriptor)
+                         logger.error(f"Error closing master_fd for agent '{role}' on exit: {e}")
             # Remove from tracking dict
             if role in self.agents:
                  del self.agents[role]
+        else:
+             logger.warning(f"Monitor task for agent '{role}' found inconsistent state or agent already removed.")
 
 
     async def initialize_project(self, project_goal: str):
@@ -284,26 +340,67 @@ class AgentManager:
         # -----------------------------
 
     async def send_to_agent(self, role: str, data: str):
-        """Sends data (e.g., user input) to the specified agent's pty."""
+        """Sends data (e.g., user input) to the specified agent."""
         agent_instance = self.agents.get(role)
-        if not agent_instance or agent_instance.master_fd is None:
-            logger.warning(f"Attempted to send data to non-existent or invalid agent '{role}'")
+        if not agent_instance:
+            logger.warning(f"Attempted to send data to non-existent agent '{role}'")
             return
 
-        if not data.endswith('\n'):
-            data += '\n' # Ensure input is terminated with newline for most CLIs
+        if agent_instance.agent_type == "ollama":
+            if agent_instance.ollama_client:
+                # Run Ollama call in a worker thread
+                logger.info(f"Sending prompt to Ollama agent '{role}': {data[:100]}...")
+                # Post a message indicating the agent is thinking
+                self.app.post_message(LogMessage(f"[italic grey50]Agent '{role}' is thinking...[/]"))
+                self.app.run_worker(self._call_ollama_agent(agent_instance, data), exclusive=True)
+            else:
+                logger.error(f"Ollama agent '{role}' has no client instance.")
+                self.app.post_message(LogMessage(f"[bold red]Error: Ollama agent '{role}' not properly initialized.[/]"))
+
+        elif agent_instance.agent_type == "aider":
+            if agent_instance.master_fd is None:
+                 logger.warning(f"Attempted to send data to Aider agent '{role}' with no valid pty")
+                 return
+
+            if not data.endswith('\n'):
+                data += '\n' # Ensure input is terminated with newline for most CLIs
+
+            try:
+                logger.debug(f"Sending to Aider agent '{role}' (fd {agent_instance.master_fd}): {data.strip()}")
+                encoded_data = data.encode('utf-8')
+                bytes_written = os.write(agent_instance.master_fd, encoded_data)
+                if bytes_written != len(encoded_data):
+                     logger.warning(f"Short write to Aider agent '{role}': wrote {bytes_written}/{len(encoded_data)} bytes")
+            except OSError as e:
+                logger.error(f"Error writing to pty for Aider agent '{role}': {e}")
+                # Maybe post an error message or try to handle agent exit?
+            except Exception as e:
+                logger.exception(f"Unexpected error sending data to Aider agent '{role}': {e}")
+        else:
+             logger.error(f"Unknown agent type '{agent_instance.agent_type}' for role '{role}'")
+
+    @work(exclusive=True, thread=True)
+    def _call_ollama_agent(self, agent_instance: AgentInstance, prompt: str):
+        """Worker thread function to call the Ollama client for a specific agent."""
+        role = agent_instance.role
+        client = agent_instance.ollama_client
+        if not client:
+             logger.error(f"No Ollama client found for agent '{role}' in worker.")
+             return # Should not happen if called correctly
 
         try:
-            logger.debug(f"Sending to agent '{role}' (fd {agent_instance.master_fd}): {data.strip()}")
-            encoded_data = data.encode('utf-8')
-            # Use os.write directly - consider loop.call_soon_threadsafe if called from worker
-            bytes_written = os.write(agent_instance.master_fd, encoded_data)
-            if bytes_written != len(encoded_data):
-                 logger.warning(f"Short write to agent '{role}': wrote {bytes_written}/{len(encoded_data)} bytes")
-        except OSError as e:
-            logger.error(f"Error writing to pty for agent '{role}': {e}")
+            response = client.generate(prompt)
+            # Post the response back to the UI, attributed to the agent
+            self.app.post_message(AgentOutputMessage(role=role, line=response))
         except Exception as e:
-            logger.exception(f"Unexpected error sending data to agent '{role}': {e}")
+            logger.exception(f"Error during Ollama call for agent '{role}':")
+            escaped_error = rich.markup.escape(str(e))
+            # Post error message attributed to the agent
+            self.app.post_message(AgentOutputMessage(role=role, line=f"[bold red]Error: {escaped_error}[/]"))
+        finally:
+             # Maybe focus input or indicate completion? Depends on workflow.
+             # For now, just log completion.
+             logger.info(f"Ollama call finished for agent '{role}'")
 
 
     async def manage_agents(self):
@@ -318,35 +415,54 @@ class AgentManager:
 
     async def stop_all_agents(self):
         """
-        Stops all managed agent processes gracefully.
+        Stops all managed agent processes/clients gracefully.
         """
         logger.info(f"Stopping {len(self.agents)} agents...")
-        for role, agent in list(self.agents.items()): # Iterate over a copy
+        agent_roles = list(self.agents.keys()) # Get roles before iterating/deleting
+
+        for role in agent_roles:
+            agent = self.agents.get(role)
+            if not agent:
+                continue # Agent might have exited and been removed already
+
             try:
-                logger.info(f"Terminating agent '{role}' (PID {agent.process.pid})...")
-                agent.process.terminate()
-                # Wait briefly for termination, then kill if necessary
-                await asyncio.wait_for(agent.process.wait(), timeout=5.0)
-                logger.info(f"Agent '{role}' terminated.")
+                if agent.agent_type == "aider" and agent.process:
+                    logger.info(f"Terminating Aider agent '{role}' (PID {agent.process.pid})...")
+                    if agent.process.returncode is None: # Only terminate if running
+                        agent.process.terminate()
+                        # Wait briefly for termination, then kill if necessary
+                        await asyncio.wait_for(agent.process.wait(), timeout=5.0)
+                        logger.info(f"Aider agent '{role}' terminated.")
+                    else:
+                         logger.info(f"Aider agent '{role}' already exited with code {agent.process.returncode}.")
+
+                elif agent.agent_type == "ollama":
+                    # Ollama clients don't need explicit stopping currently
+                    logger.info(f"Stopping Ollama agent '{role}' (no process to terminate).")
+                    pass # No process to stop
+
             except asyncio.TimeoutError:
-                logger.warning(f"Agent '{role}' did not terminate gracefully, killing.")
-                agent.process.kill()
+                if agent.agent_type == "aider" and agent.process:
+                    logger.warning(f"Aider agent '{role}' did not terminate gracefully, killing.")
+                    if agent.process.returncode is None:
+                         agent.process.kill()
             except ProcessLookupError:
-                 logger.warning(f"Agent '{role}' process already exited.")
+                 logger.warning(f"Aider agent '{role}' process already exited.")
             except Exception as e:
                 logger.exception(f"Error stopping agent '{role}': {e}")
             finally:
-                # Cancel the reader task
-                if agent.read_task:
+                # Cleanup resources regardless of agent type or errors
+                if agent.read_task: # Cancel reader task if it exists (aider)
                     agent.read_task.cancel()
-                # Close the master pty descriptor
-                if agent.master_fd is not None:
+                if agent.master_fd is not None: # Close pty fd if it exists (aider)
                     try:
                         logger.info(f"Closing master_fd {agent.master_fd} for agent '{role}' during stop_all")
                         os.close(agent.master_fd)
                     except OSError as e:
-                        logger.error(f"Error closing master_fd for agent '{role}' during stop_all: {e}")
-                # Remove from tracking - _monitor_agent_exit might also do this, but ensure removal
+                         # Ignore EBADF as it might be closed by _monitor_agent_exit already
+                         if e.errno != 9:
+                             logger.error(f"Error closing master_fd for agent '{role}' during stop_all: {e}")
+                # Remove from tracking dict
                 if role in self.agents:
                     del self.agents[role]
         logger.info("Finished stopping agents.")
