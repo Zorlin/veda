@@ -269,8 +269,8 @@ def ensure_webui_directory():
     </script>
 </body>
 </html>""")
-            logging.info(f"Created basic index.html file at {index_path}")
-            
+        logging.info(f"Created basic index.html file at {index_path}")
+        
         # Also create a copy in the project root for tests
         root_index_path = os.path.join(project_root, 'index.html')
         if not os.path.exists(root_index_path):
