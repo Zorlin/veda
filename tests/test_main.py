@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, call # Added for mocking
 
 # Ensure src is importable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-from src import chat # Import the chat module to mock its functions
+import chat # Import the chat module directly to mock its functions
 
 def run_veda_cmd(args):
     """Helper to run the CLI and capture output."""
