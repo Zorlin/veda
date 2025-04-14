@@ -12,9 +12,10 @@ from werkzeug.serving import run_simple
 import sys
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from constants import OPENROUTER_API_KEY
+from constants import OPENROUTER_API_KEY, VEDA_CHAT_MODEL, OLLAMA_URL
+from chat import ollama_chat # Import the chat function
 # Import AgentManager type hint without circular dependency during initialization
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Dict
 if TYPE_CHECKING:
     from agent_manager import AgentManager
 
@@ -198,7 +199,60 @@ def connect(sid, environ):
 def disconnect(sid):
     logging.info(f"Client disconnected: {sid}")
 
-# Function to be called by AgentManager or other components to push updates
+# Store chat history per session (simple in-memory example)
+# TODO: Persist history or integrate with a more robust chat management system
+chat_histories: Dict[str, List[Dict[str, str]]] = {}
+
+@sio.event
+def chat_message(sid, data):
+    """Handles incoming chat messages from a client."""
+    logging.info(f"Received chat message from {sid}: {data}")
+    if not isinstance(data, dict) or 'text' not in data:
+        logging.warning(f"Invalid chat message format from {sid}: {data}")
+        return
+
+    user_message = data['text']
+
+    # Get or initialize history for this session
+    if sid not in chat_histories:
+        chat_histories[sid] = [] # Start fresh history for new connection
+
+    session_history = chat_histories[sid]
+    session_history.append({"role": "user", "content": user_message})
+
+    # Limit history size (optional, prevents memory issues)
+    max_history = 10
+    if len(session_history) > max_history * 2: # Keep last N pairs
+         chat_histories[sid] = session_history[-(max_history * 2):]
+
+
+    try:
+        # Call the Ollama chat function
+        # Use the VEDA_CHAT_MODEL and OLLAMA_URL from constants
+        # Pass the current session's history
+        veda_response = ollama_chat(
+            messages=chat_histories[sid], # Pass history for context
+            model=VEDA_CHAT_MODEL,
+            api_url=OLLAMA_URL
+        )
+
+        if veda_response:
+            logging.info(f"Veda response for {sid}: {veda_response}")
+            # Add Veda's response to history
+            chat_histories[sid].append({"role": "assistant", "content": veda_response})
+            # Send response back to the specific client
+            sio.emit('chat_update', {'sender': 'veda', 'text': veda_response}, room=sid)
+        else:
+            logging.warning(f"Received empty response from ollama_chat for {sid}")
+            sio.emit('chat_update', {'sender': 'veda', 'text': "[Error: Could not get response]"}, room=sid)
+
+    except Exception as e:
+        logging.error(f"Error processing chat message for {sid}: {e}", exc_info=True)
+        # Notify the user of the error
+        sio.emit('chat_update', {'sender': 'veda', 'text': f"[Error: {e}]"}, room=sid)
+
+
+# Function to be called by AgentManager or other components to push agent updates
 def broadcast_agent_update():
     """Fetches current agent status and broadcasts it via SocketIO."""
     if agent_manager_instance and sio:
@@ -212,7 +266,6 @@ def broadcast_agent_update():
         logging.warning("Cannot broadcast agent update: AgentManager not initialized.")
     elif not sio:
          logging.warning("Cannot broadcast agent update: SocketIO server not initialized.")
-
 
 # --- Web Server Start Function ---
 def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", port: int = 9900):
@@ -246,24 +299,5 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
     logging.info("Web server thread started.")
+    # Removed periodic broadcast - updates should be pushed when state changes
     return server_thread # Return the thread object if needed
-
-# Example of how to periodically broadcast updates (can be called from AgentManager loop)
-def start_periodic_broadcast(interval_seconds=5):
-    """Starts a background thread to periodically broadcast agent status."""
-    def broadcaster():
-        while True:
-            broadcast_agent_update()
-            time.sleep(interval_seconds)
-
-    # Check if agent_manager_instance is set before starting
-    if agent_manager_instance:
-        broadcast_thread = threading.Thread(target=broadcaster, daemon=True)
-        broadcast_thread.start()
-        logging.info(f"Started periodic agent status broadcast (every {interval_seconds}s).")
-    else:
-        logging.warning("Cannot start periodic broadcast: AgentManager not initialized.")
-
-# Note: The periodic broadcast might be better integrated into the AgentManager's
-# monitoring loop (_agent_monitor_loop) to trigger updates only when changes occur.
-# For simplicity now, a separate periodic broadcast is shown.
