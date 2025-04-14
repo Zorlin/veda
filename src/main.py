@@ -6,522 +6,270 @@ import logging
 import webbrowser
 import os
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import subprocess # Added for running Aider
-import select # Added for non-blocking reads
-from queue import Queue, Empty # For thread-safe output capture
-from collections import deque # For limited output buffer
 
-import sys
-import os
-
-# Allow running as "python src/main.py" from project root and finding src/constants.py
+# Allow running as "python src/main.py" from project root and finding other src modules
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from constants import (
-    OLLAMA_URL, VEDA_CHAT_MODEL, ROLE_MODELS, MCP_URL, POSTGRES_DSN, HANDOFF_DIR,
-    AIDER_PRIMARY_MODEL, AIDER_SECONDARY_MODEL, AIDER_TERTIARY_MODEL, AIDER_DEFAULT_FLAGS,
-    OPENROUTER_API_KEY # Import Aider constants
-)
+# --- Project Imports ---
+try:
+    from constants import OPENROUTER_API_KEY, OLLAMA_URL, VEDA_CHAT_MODEL
+    from agent_manager import AgentManager
+    from web_server import start_web_server, broadcast_agent_update # Import broadcast function
+    from chat import chat_interface, run_readiness_chat
+except ImportError as e:
+    print(f"Error importing Veda components: {e}")
+    print("Please ensure all source files (constants.py, agent_manager.py, web_server.py, chat.py) exist in the 'src' directory.")
+    sys.exit(1)
 
+# --- Setup Logging ---
+# Configure root logger
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
-
-class AgentManager:
-    def __init__(self):
-        self.instances = "auto"
-        self.running = False
-        self.lock = threading.Lock()
-        self.handoff_dir = HANDOFF_DIR
-        os.makedirs(self.handoff_dir, exist_ok=True)
-        # Store agent info: role -> {process: Popen, status: str, model: str, thread: Thread, output: deque, id: int}
-        self.active_agents = {}
-        self.next_agent_id = 1
-
-    def set_instances(self, value):
-        with self.lock:
-            if value == "auto":
-                self.instances = "auto"
-                logging.info("Agent instance management set to auto.")
-            else:
-                try:
-                    count = int(value)
-                    if count < 1:
-                        raise ValueError
-                    self.instances = count
-                    logging.info(f"Agent instances set to {count}.")
-                except ValueError:
-                    logging.error("Invalid instance count. Must be a positive integer or 'auto'.")
-
-    def start(self, initial_prompt=None):
-        with self.lock:
-            if self.running:
-                logging.info("AgentManager already running.")
-                return
-            self.running = True
-            logging.info("Starting AgentManager...")
-            # Check for API key before starting
-            if not OPENROUTER_API_KEY:
-                logging.error("OPENROUTER_API_KEY environment variable not set. Aider agents cannot start.")
-                print("Error: OPENROUTER_API_KEY environment variable not set. Please set it and restart.")
-                self.running = False # Prevent the manager loop from continuing
-                return
-
-            # Start the main coordinator agent thread (doesn't use Aider directly)
-            if initial_prompt:
-                self._start_coordinator_agent("coordinator", initial_prompt)
-            else:
-                self._start_coordinator_agent("coordinator", "No prompt provided.")
-
-            # Always start at least one aider agent for the current project directory
-            if "aider" not in self.active_agents:
-                project_dir = os.getcwd()
-                prompt = initial_prompt or f"Improve and maintain this codebase: {os.path.basename(project_dir)}"
-                self._start_aider_agent("aider", prompt)
-
-            # Start the main agent monitoring loop in a separate thread
-            monitor_thread = threading.Thread(target=self._agent_monitor_loop, daemon=True)
-            monitor_thread.start()
-
-    def _agent_monitor_loop(self):
-        """Monitors handoffs and agent statuses."""
-        while self.running:
-            self._process_handoffs()
-            self._update_agent_statuses()
-            # Optionally implement auto-scaling logic here based on self.instances
-            time.sleep(2) # Check every 2 seconds
-
-    def _update_agent_statuses(self):
-        """Checks status of running Aider processes."""
-        with self.lock:
-            for role, agent_info in list(self.active_agents.items()): # Iterate over a copy
-                if agent_info['process'] and agent_info['process'].poll() is not None:
-                    # Process finished
-                    return_code = agent_info['process'].returncode
-                    agent_info['status'] = f"finished (code: {return_code})"
-                    logging.info(f"Aider agent '{role}' (ID: {agent_info['id']}) finished with code {return_code}.")
-                    # Optionally trigger next step or handoff based on return code
-                    # For now, just mark as finished. Consider removing from active_agents after a delay.
-
-    def _start_coordinator_agent(self, role, prompt):
-        """Starts a non-Aider agent thread (like coordinator, architect)."""
-        with self.lock:
-            if role in self.active_agents:
-                logging.warning(f"{role.capitalize()} agent already running.")
-                return
-            agent_id = self.next_agent_id
-            self.next_agent_id += 1
-            agent_info = {
-                "id": agent_id,
-                "process": None, # Not a subprocess
-                "status": "running",
-                "model": ROLE_MODELS.get(role, VEDA_CHAT_MODEL),
-                "thread": None,
-                "output": deque(maxlen=100), # Limited buffer for status/logs
-                "role": role,
-            }
-            agent_info["output"].append(f"Starting {role}...")
-            t = threading.Thread(target=self._coordinator_thread, args=(role, prompt, agent_info), daemon=True)
-            agent_info["thread"] = t
-            self.active_agents[role] = agent_info
-            t.start()
-            logging.info(f"Started {role} agent (ID: {agent_id}) using model {agent_info['model']}.")
-
-    def _coordinator_thread(self, role, prompt, agent_info):
-        """Thread logic for coordinator/architect roles (simulated)."""
-        agent_info["output"].append(f"Processing prompt: {prompt[:50]}...")
-        logging.info(f"[{role.upper()}-{agent_info['id']}] Model: {agent_info['model']} | Prompt: {prompt}")
-
-        # --- Readiness Check Logic (as before, adapted for agent_info) ---
-        ready_signals = ["ready", "let's start", "start building", "go ahead", "proceed", "yes", "i'm ready"]
-        is_ready = any(signal in prompt.lower() for signal in ready_signals)
-
-        if role == "coordinator":
-            if not is_ready:
-                print("\nVeda: I'm not convinced you're ready to proceed yet. Let's keep discussing your goals. "
-                      "When you're ready, just say so (e.g., 'I'm ready', 'Let's start', or 'Go ahead').")
-                agent_info["output"].append("Waiting for user readiness signal...")
-                agent_info["status"] = "waiting_user"
-                # Instead of stopping, keep the thread alive and periodically check for new input.
-                while True:
-                    time.sleep(1)
-                    # In a real implementation, this would check for new user input or a readiness event.
-                    # For now, just keep the thread alive to allow further user interaction.
-                # return # Do not stop thread execution here
-
-            # If ready, handoff to architect
-            agent_info["output"].append("User ready. Handing off to Architect.")
-            self._create_handoff("architect", f"Design the system for: {prompt}")
-            agent_info["status"] = "handoff_architect"
-
-        elif role == "architect":
-             # Simple check: assume ready if prompt is long enough or user says ready
-            if len(prompt.strip()) < 30 and not is_ready:
-                 print("\nArchitect: Can you specify any technical requirements, preferred stack, or constraints? "
-                       "Say 'I'm ready' if you want to proceed anyway.")
-                 agent_info["output"].append("Waiting for user clarification or readiness signal...")
-                 agent_info["status"] = "waiting_user"
-                 return # Stop thread execution
-
-            # If ready or requirements seem sufficient, handoff to developer (Aider)
-            agent_info["output"].append("Requirements sufficient. Handing off to Developer.")
-            self._create_handoff("developer", f"Implement the plan based on these requirements: {prompt}")
-            agent_info["status"] = "handoff_developer"
-
-        else:
-            # Other non-Aider roles (if any)
-            logging.warning(f"Unhandled non-Aider role: {role}")
-            agent_info["status"] = "finished"
-
-        # Remove self from active agents after handoff/completion
-        # with self.lock:
-        #     del self.active_agents[role] # Maybe keep it for history? Mark as finished instead.
-        logging.info(f"Coordinator thread for {role} (ID: {agent_info['id']}) finished.")
-
-
-    def _start_aider_agent(self, role, prompt, model=AIDER_PRIMARY_MODEL):
-        """Starts an Aider subprocess for a given role and prompt."""
-        with self.lock:
-            if role in self.active_agents:
-                logging.warning(f"Aider agent for role '{role}' already running.")
-                # Decide how to handle: queue, replace, ignore? For now, ignore.
-                return
-
-            if not OPENROUTER_API_KEY:
-                 logging.error(f"Cannot start Aider agent '{role}': OPENROUTER_API_KEY not set.")
-                 return
-
-            agent_id = self.next_agent_id
-            self.next_agent_id += 1
-            output_buffer = deque(maxlen=200) # Store last 200 lines of output
-
-            # Construct Aider command
-            aider_cmd = [
-                "aider",
-                "--model", model,
-                *AIDER_DEFAULT_FLAGS,
-                # Add file paths if needed, or let Aider manage them
-                # For now, pass the prompt directly
-                prompt # Pass the prompt as the initial message to Aider
-            ]
-            logging.info(f"Starting Aider agent '{role}' (ID: {agent_id}) with command: {' '.join(aider_cmd)}")
-            output_buffer.append(f"Starting Aider ({model})...")
-
-            try:
-                # Start Aider process
-                process = subprocess.Popen(
-                    aider_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT, # Redirect stderr to stdout
-                    text=True,
-                    bufsize=1, # Line buffered
-                    universal_newlines=True,
-                    env={**os.environ, "OPENROUTER_API_KEY": OPENROUTER_API_KEY} # Ensure API key is passed
-                )
-            except FileNotFoundError:
-                logging.error("Error: 'aider' command not found. Is Aider installed and in PATH?")
-                print("Error: 'aider' command not found. Please ensure Aider is installed correctly.")
-                output_buffer.append("Error: 'aider' command not found.")
-                # Mark as failed immediately
-                self.active_agents[role] = {
-                    "id": agent_id, "process": None, "status": "failed_to_start",
-                    "model": model, "thread": None, "output": output_buffer, "role": role,
-                }
-                return
-            except Exception as e:
-                logging.error(f"Failed to start Aider process for role '{role}': {e}")
-                output_buffer.append(f"Error starting Aider: {e}")
-                self.active_agents[role] = {
-                    "id": agent_id, "process": None, "status": "failed_to_start",
-                    "model": model, "thread": None, "output": output_buffer, "role": role,
-                }
-                return
-
-
-            # Start a thread to read the output
-            output_queue = Queue()
-            output_thread = threading.Thread(target=self._read_agent_output, args=(process.stdout, output_queue, output_buffer), daemon=True)
-            output_thread.start()
-
-            agent_info = {
-                "id": agent_id,
-                "process": process,
-                "status": "running",
-                "model": model,
-                "thread": output_thread,
-                "output": output_buffer,
-                "role": role,
-            }
-            self.active_agents[role] = agent_info
-
-    def _read_agent_output(self, stream, queue, buffer):
-        """Reads output from a stream (Aider stdout) and puts it on a queue and buffer."""
-        try:
-            for line in iter(stream.readline, ''):
-                line = line.strip()
-                if line:
-                    queue.put(line)
-                    buffer.append(line)
-                    print(f"[Aider-{buffer.maxlen}] {line}") # Print Aider output to console
-        except Exception as e:
-            logging.error(f"Error reading agent output: {e}")
-        finally:
-            stream.close()
-            queue.put(None) # Signal end of output
-
-    def _create_handoff(self, next_role, message):
-        """Creates a handoff file for the next agent."""
-        handoff_file = os.path.join(self.handoff_dir, f"{next_role}_handoff_{time.time_ns()}.json") # Unique filename
-        try:
-            with open(handoff_file, "w") as f:
-                json.dump({"role": next_role, "message": message}, f)
-            logging.info(f"Created handoff for {next_role} with message: {message[:50]}...")
-        except Exception as e:
-            logging.error(f"Failed to create handoff file {handoff_file}: {e}")
-
-    def _process_handoffs(self):
-        """Processes handoff files, starting the appropriate agent."""
-        processed_files = []
-        for fname in os.listdir(self.handoff_dir):
-            if fname.endswith(".json") and fname.startswith(("coordinator_", "architect_", "developer_", "tester_")): # Define roles needing handoffs
-                path = os.path.join(self.handoff_dir, fname)
-                try:
-                    with open(path, "r") as f:
-                        data = json.load(f)
-                    role = data.get("role")
-                    message = data.get("message")
-                    if role and message:
-                        logging.info(f"Processing handoff for role: {role}")
-                        # Decide which type of agent to start based on role
-                        if role in ["coordinator", "architect"]: # Roles handled by coordinator thread
-                             self._start_coordinator_agent(role, message)
-                        elif role in ["developer", "tester", "refactorer"]: # Roles handled by Aider
-                             # Potentially choose model based on task complexity or history
-                             self._start_aider_agent(role, message, model=AIDER_PRIMARY_MODEL)
-                        else:
-                             logging.warning(f"Handoff received for unknown role type: {role}")
-                        processed_files.append(path) # Mark for deletion after loop
-                    else:
-                        logging.warning(f"Invalid handoff file (missing role or message): {fname}")
-                        processed_files.append(path) # Delete invalid file
-
-                except json.JSONDecodeError:
-                    logging.error(f"Error decoding JSON from handoff file: {fname}")
-                    processed_files.append(path) # Delete corrupted file
-                except Exception as e:
-                    logging.error(f"Error processing handoff file {fname}: {e}")
-                    # Decide whether to retry or delete
-
-        # Delete processed files outside the loop
-        for path in processed_files:
-            try:
-                os.remove(path)
-                logging.debug(f"Removed processed handoff file: {os.path.basename(path)}")
-            except OSError as e:
-                logging.error(f"Error removing handoff file {path}: {e}")
-
-
-    def stop(self):
-        """Stops all running agents and the manager."""
-        with self.lock:
-            if not self.running:
-                return
-            self.running = False
-            logging.info("Stopping AgentManager and all agents...")
-            for role, agent_info in self.active_agents.items():
-                if agent_info['process']:
-                    logging.info(f"Terminating Aider agent '{role}' (ID: {agent_info['id']})...")
-                    try:
-                        agent_info['process'].terminate() # Send SIGTERM
-                        agent_info['process'].wait(timeout=5) # Wait for termination
-                    except subprocess.TimeoutExpired:
-                        logging.warning(f"Aider agent '{role}' (ID: {agent_info['id']}) did not terminate gracefully, killing.")
-                        agent_info['process'].kill() # Force kill
-                    except Exception as e:
-                        logging.error(f"Error terminating process for agent '{role}': {e}")
-                if agent_info['thread'] and agent_info['thread'].is_alive():
-                     # No direct way to stop the coordinator thread cleanly without events
-                     # It's a daemon thread, so it will exit when the main process exits
-                     logging.debug(f"Coordinator thread for '{role}' (ID: {agent_info['id']}) is a daemon, will exit.")
-            self.active_agents.clear()
-            logging.info("AgentManager stopped.")
-
-from flask import Flask, send_from_directory, jsonify, render_template_string, request
-import socketio
-
-# --- Flask Web UI with Vue.js and TailwindCSS ---
-
-app = Flask(__name__, static_folder="webui", template_folder="webui")
-# Disable Flask's default logging to avoid duplication with our setup
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR)
-
-sio = socketio.Server(async_mode="threading")
-app.wsgi_app = socketio.WSGIApp(sio, app.wsgi_app)
-
-# Global agent manager instance
-agent_manager = AgentManager()
-
-@app.route("/")
-def index():
-    # Check if OPENROUTER_API_KEY is set before serving
-    if not OPENROUTER_API_KEY:
-        return """
-        <!DOCTYPE html><html><head><title>Veda Error</title></head>
-        <body><h1>Configuration Error</h1>
-        <p>Error: OPENROUTER_API_KEY environment variable not set.</p>
-        <p>Please set this environment variable and restart Veda.</p>
-        </body></html>
-        """, 500
-    # Serve a minimal Vue.js + Tailwind app inline for test to pass
-    html = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <title>Veda Web UI</title>
-      <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
-      <script src="https://cdn.tailwindcss.com"></script>
-    </head>
-    <body class="bg-gray-100">
-      <div id="app" class="max-w-2xl mx-auto mt-10 p-4 bg-white rounded shadow">
-        <h1 class="text-2xl font-bold mb-4">Veda Web Interface</h1>
-        <div>
-          <h2 class="text-lg font-semibold mb-2">Chat</h2>
-          <div class="border rounded p-2 mb-4" style="min-height:3em;">Chat UI coming soon...</div>
-        </div>
-        <div>
-          <h2 class="text-lg font-semibold mb-2">Threads</h2>
-          <ul>
-            <li v-for="thread in threads" :key="thread.id" class="mb-1">
-              <span class="font-mono text-blue-700">[{{ thread.role }}]</span>
-              <span class="ml-2">Status: <span class="font-semibold">{{ thread.status }}</span></span>
-            </li>
-          </ul>
-        </div>
-      </div>
-      <script>
-        const { createApp } = Vue;
-        createApp({
-          data() {
-            return { threads: [] }
-          },
-          mounted() {
-            fetch('/api/threads').then(r => r.json()).then(data => { this.threads = data; });
-          }
-        }).mount('#app');
-      </script>
-    </body>
-    </html>
-    """
-    return html
-
-@app.route("/api/threads")
-def api_threads():
-    """Returns the state of active agents."""
-    with agent_manager.lock:
-        agents_data = []
-        for role, agent_info in agent_manager.active_agents.items():
-            agents_data.append({
-                "id": agent_info["id"],
-                "role": agent_info["role"],
-                "status": agent_info["status"],
-                "model": agent_info["model"],
-                "output_preview": list(agent_info["output"])[-5:], # Last 5 lines
-            })
-    return jsonify(agents_data)
-
-# --- SocketIO Events (Optional: for real-time updates) ---
-@sio.event
-def connect(sid, environ):
-    logging.info(f"Client connected: {sid}")
-    # Optionally send initial state
-    sio.emit('threads_update', api_threads().get_json(), room=sid)
-
-@sio.event
-def disconnect(sid):
-    logging.info(f"Client disconnected: {sid}")
-
-# TODO: Add a mechanism to push agent state updates via sio.emit('threads_update', ...)
-# This could be done periodically or triggered by state changes in AgentManager.
-
-def start_web_server():
-    """Starts the Flask-SocketIO web server."""
-    def run_server():
-        host = "0.0.0.0"
-        port = 9900
-        logging.info(f"Starting web server at http://{host}:{port}")
-        try:
-            # Use socketio.WSGIApp with a WSGI server (Werkzeug) for compatibility
-            from werkzeug.serving import run_simple
-            logging.info(f"Attempting to start SocketIO server on {host}:{port}")
-            run_simple(host, port, app, use_reloader=False, use_debugger=False)
-            # run_simple is blocking, so the thread will stay alive running the server.
-        except OSError as e:
-             # Common error: Port already in use
-             if "Address already in use" in str(e):
-                 logging.error(f"Port {port} is already in use. Cannot start web server.")
-             else:
-                 logging.error(f"Failed to start web server due to OS Error: {e}")
-        except Exception as e:
-            logging.error(f"Failed to start web server: {e}", exc_info=True) # Log traceback
-
-    # Start the server in a daemon thread so it doesn't block the main Veda process
-    threading.Thread(target=run_server, daemon=True).start()
-
-
-def chat_interface():
-    # Check for API key before starting chat
-    if not OPENROUTER_API_KEY:
-        print("Error: OPENROUTER_API_KEY environment variable not set. Cannot start chat.")
-        return
-    print("Welcome to Veda chat. Type 'exit' to quit.")
-    print("Connecting to Ollama at", OLLAMA_URL)
-    system_prompt = (
-        "You are Veda, an advanced AI orchestrator for software development. "
-        "You coordinate multiple specialized AI agents (architect, planner, developer, engineer, infra engineer, etc) "
-        "and personalities (theorist, architect, skeptic, historian, coordinator) to collaboratively build, improve, "
-        "and maintain software projects. You use a common knowledge base (Postgres for deep knowledge, RAG via MCP server) "
-        "and JSON files for inter-agent handoff. Your job is to understand the user's goals and break them down for your agents. "
-        "Ask the user what they want to build or change, then coordinate the agents accordingly."
-    )
-    try:
-        import requests
-    except ImportError:
-        print("Please install 'requests' to use the chat interface.")
-        return
-
-    def ollama_chat(messages):
-        # Use Ollama's /api/chat endpoint
-        url = f"{OLLAMA_URL}/api/chat"
-        payload = {
-            "model": VEDA_CHAT_MODEL,
-            "messages": messages,
-            "stream": False
-        }
-        try:
-            resp = requests.post(url, json=payload, timeout=60)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("message", {}).get("content", "[No response]")
-        except Exception as e:
-            return f"[Error communicating with Ollama: {e}]"
-
-    messages = [
-        {"role": "system", "content": system_prompt},
+    format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout) # Log to console
+        # TODO: Add file handler later if needed
     ]
+)
+# Suppress overly verbose logs from libraries if necessary
+# logging.getLogger("werkzeug").setLevel(logging.WARNING)
+# logging.getLogger("socketio").setLevel(logging.WARNING)
+# logging.getLogger("engineio").setLevel(logging.WARNING)
+
+logger = logging.getLogger("veda.main")
+
+
+# --- Global Agent Manager Instance ---
+# Instantiated in main() to ensure it's created after potential checks
+agent_manager: AgentManager | None = None
+
+# --- Main Application Logic ---
+
+def main():
+    global agent_manager # Allow modification of the global instance
+
+    parser = argparse.ArgumentParser(
+        description="Veda - Software development that doesn't sleep.",
+        formatter_class=argparse.RawTextHelpFormatter # Preserve formatting in help
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # --- 'start' command ---
+    start_parser = subparsers.add_parser("start", help="Start Veda agent manager and web server.")
+    start_parser.add_argument("--prompt", help="Initial project prompt. If omitted, Veda will chat to define the goal.")
+    start_parser.add_argument("--host", default="0.0.0.0", help="Host for the web server (default: 0.0.0.0)")
+    start_parser.add_argument("--port", type=int, default=9900, help="Port for the web server (default: 9900)")
+
+    # --- 'set' command ---
+    set_parser = subparsers.add_parser("set", help="Set configuration options (currently only 'instances').")
+    set_parser.add_argument("option", choices=["instances"], help="Configuration option to set.")
+    set_parser.add_argument("value", help="Value to set (e.g., 'auto' or a positive integer for instances).")
+
+    # --- 'chat' command ---
+    subparsers.add_parser("chat", help="Open an interactive chat session with Veda's coordinator.")
+
+    # --- 'web' command ---
+    subparsers.add_parser("web", help="Open the Veda web interface in your browser.")
+
+    # --- 'status' command ---
+    subparsers.add_parser("status", help="Show the status of running agents via the web API.")
+
+    # --- 'stop' command ---
+    # subparsers.add_parser("stop", help="Stop the Veda agent manager (if running as daemon - TBD).") # Future command
+
+    args = parser.parse_args()
+
+    # --- Command Handling ---
+
+    # --- Check for OpenRouter API Key (Required for 'start' and potentially 'chat' if it triggers agents) ---
+    if not OPENROUTER_API_KEY and args.command in ["start"]:
+         logger.error("OPENROUTER_API_KEY environment variable is not set.")
+         print("\nError: OPENROUTER_API_KEY environment variable is not set.")
+         print("This key is required to run Aider agents.")
+         print("Please set the environment variable and try again.")
+         print("Example: export OPENROUTER_API_KEY=\"your-key-here\"")
+         sys.exit(1)
+    elif not OPENROUTER_API_KEY and args.command == "chat":
+         logger.warning("OPENROUTER_API_KEY is not set. Chat interface will work, but Veda cannot start Aider agents.")
+         print("\nWarning: OPENROUTER_API_KEY is not set. You can chat with Veda, but it won't be able to start development agents.")
+
+
+    if args.command == "start":
+        logger.info("Starting Veda...")
+        # Instantiate the Agent Manager
+        agent_manager = AgentManager()
+
+        # Start the Web Server, passing the agent manager instance
+        web_server_thread = start_web_server(agent_manager, host=args.host, port=args.port)
+        # Give the server a moment to start up
+        time.sleep(1.5)
+
+        initial_prompt = args.prompt
+
+        # If no prompt provided, run the readiness chat
+        if not initial_prompt:
+            if not sys.stdin.isatty():
+                # Non-interactive environment (e.g., CI/CD, testing)
+                logger.warning("Running in non-interactive mode without a prompt. Using default.")
+                initial_prompt = "Default task: Analyze the current project structure and suggest improvements."
+                print(f"Running non-interactively. Using default prompt: '{initial_prompt}'")
+            else:
+                # Interactive environment, run readiness chat
+                try:
+                    initial_prompt = run_readiness_chat()
+                    if initial_prompt is None:
+                        logger.info("User exited readiness chat. Shutting down.")
+                        print("Setup cancelled by user.")
+                        # Attempt graceful shutdown if possible (though agent manager hasn't started threads yet)
+                        if agent_manager:
+                            agent_manager.stop()
+                        sys.exit(0)
+                except Exception as e:
+                    logger.error(f"Error during readiness chat: {e}", exc_info=True)
+                    print(f"\nAn error occurred during the readiness chat: {e}")
+                    sys.exit(1)
+
+        # Start the Agent Manager's main loop and initial agents
+        logger.info(f"Starting Agent Manager with initial prompt: {initial_prompt[:100]}...")
+        agent_manager.start(initial_prompt=initial_prompt)
+
+        # Start periodic broadcasting of agent status to the UI
+        # We might want to trigger this more intelligently later (e.g., on status change)
+        start_periodic_broadcast_thread = threading.Thread(
+            target=start_periodic_broadcast_loop, args=(5,), daemon=True # Broadcast every 5 seconds
+        )
+        start_periodic_broadcast_thread.start()
+
+
+        print(f"\n🚀 Veda is running!")
+        print(f"   Web UI: http://localhost:{args.port}")
+        print(f"   Agent Manager Status: Running")
+        print(f"   Initial Goal: {initial_prompt[:100]}...")
+        print("\nUse 'veda status' to check agent activity.")
+        print("Press Ctrl+C to stop Veda.")
+
+        try:
+            # Keep the main thread alive to allow background threads (web server, agent manager) to run.
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Ctrl+C received. Shutting down Veda...")
+            print("\n🔌 Shutting down Veda...")
+            if agent_manager:
+                agent_manager.stop()
+            # Web server thread is daemon, will exit automatically
+            logger.info("Veda shutdown complete.")
+            print("Shutdown complete.")
+            # Force exit if threads are stuck (shouldn't be necessary with daemons)
+            os._exit(0)
+
+    elif args.command == "set":
+        # Setting options requires the manager to be running, ideally via API call.
+        # For now, this CLI command is less useful if Veda runs as a background process.
+        # Let's make it print a message suggesting API/Web UI usage.
+        logger.warning("Setting options via CLI is currently informational. Use Web UI or API when available.")
+        print("Setting options via CLI is currently informational.")
+        if args.option == "instances":
+            print(f"To set instances, please interact with a running Veda instance (Web UI/API planned).")
+            # If we had a way to connect to a running instance:
+            # response = call_api_set_instances(args.value)
+            # print(response)
+
+    elif args.command == "chat":
+        chat_interface()
+
+    elif args.command == "web":
+        url = f"http://localhost:9900" # Use default port for now
+        print(f"Attempting to open web interface at {url}...")
+        # Check if server is likely running (basic check)
+        server_seems_running = False
+        try:
+            import requests
+            # Quick HEAD request to see if something responds
+            requests.head(url, timeout=1)
+            print("Server seems to be running.")
+            server_seems_running = True
+        except requests.exceptions.ConnectionError:
+            print("Veda server doesn't seem to be running.")
+            print("You can start it with: veda start")
+        except requests.exceptions.Timeout:
+             print("Web server is running but not responding quickly.")
+             server_seems_running = True # Still try to open
+        except ImportError:
+            print("Cannot check server status: 'requests' library not installed.")
+            # Assume it might be running and try opening anyway
+            server_seems_running = True
+        except Exception as e:
+            print(f"Error checking server status: {e}")
+            # Assume it might be running
+            server_seems_running = True
+
+        if server_seems_running:
+            webbrowser.open(url)
+
+    elif args.command == "status":
+        url = f"http://localhost:9900/api/threads" # Use default port
+        print(f"Fetching agent status from {url}...")
+        try:
+            import requests
+            resp = requests.get(url, timeout=5)
+            resp.raise_for_status()
+            agents = resp.json()
+            if not agents:
+                print("\nNo active agents reported by the server.")
+            else:
+                print("\n--- Active Veda Agents ---")
+                for agent in agents:
+                    status_color = "\033[92m" if agent['status'] == 'running' else \
+                                   "\033[94m" if 'handoff' in agent['status'] else \
+                                   "\033[93m" if 'waiting' in agent['status'] else \
+                                   "\033[91m" if 'fail' in agent['status'] else \
+                                   "\033[0m" # Default color
+                    end_color = "\033[0m"
+                    print(f"- ID: {agent['id']:<4} Role: {agent['role']:<15} "
+                          f"Status: {status_color}{agent['status']:<20}{end_color} "
+                          f"Model: {agent.get('model', 'N/A')}")
+                    # Optional: Show output preview
+                    # print("  Output Preview:")
+                    # for line in agent.get('output_preview', []):
+                    #     print(f"    {line}")
+                print("--------------------------")
+        except ImportError:
+            print("Cannot fetch status: 'requests' library not installed. Please install it: pip install requests")
+        except requests.exceptions.ConnectionError:
+            print("\nError: Could not connect to the Veda server.")
+            print("Ensure Veda is running ('veda start') and accessible at http://localhost:9900.")
+        except requests.exceptions.Timeout:
+            print("\nError: Timed out connecting to the Veda server.")
+        except requests.exceptions.RequestException as e:
+            print(f"\nError fetching status: {e}")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during status check: {e}", exc_info=True)
+            print(f"\nAn unexpected error occurred: {e}")
+
+    else:
+        # No command provided or invalid command
+        parser.print_help()
+        # Print examples directly, as shown in README.md
+        print("\nExamples:")
+        print("  veda start --prompt \"Create a flask app with a single route\"")
+        print("  veda start                 # Start Veda and chat to define the goal")
+        # print("  veda set instances 5")   # Deferring detailed 'set' examples
+        # print("  veda set instances auto")
+        print("  veda chat                  # Chat with the running Veda instance")
+        print("  veda web                   # Open the web UI in a browser")
+        print("  veda status                # Show the status of active agents")
+
+
+# Helper function for periodic broadcast loop
+def start_periodic_broadcast_loop(interval_seconds):
+    """Target function for the broadcast thread."""
     while True:
-        msg = input("You: ")
-        if msg.strip().lower() == "exit":
-            print("Exiting chat.")
-            break
-        messages.append({"role": "user", "content": msg})
-        print("Veda (thinking)...")
-        response = ollama_chat(messages)
-        print(f"Veda: {response}")
-        messages.append({"role": "assistant", "content": response})
+        broadcast_agent_update()
+        time.sleep(interval_seconds)
+
+if __name__ == "__main__":
+    main()
 
 def main():
     parser = argparse.ArgumentParser(description="Veda - Software development that doesn't sleep.")
