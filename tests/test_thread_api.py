@@ -39,15 +39,20 @@ def test_thread_api_returns_threads():
             raise RuntimeError("Web server did not start on port 9900 within timeout")
         # Give the server a moment to serve the API
         time.sleep(1)
-        resp = requests.get("http://localhost:9900/api/threads", timeout=5)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert isinstance(data, list)
-        # Each thread should have at least id, role, and status
-        for thread in data:
-            assert "id" in thread
-            assert "role" in thread
-            assert "status" in thread
+        try:
+            resp = requests.get("http://localhost:9900/api/threads", timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            assert isinstance(data, list)
+            # Each thread should have at least id, role, and status
+            for thread in data:
+                assert "id" in thread
+                assert "role" in thread
+                assert "status" in thread
+        except requests.exceptions.ReadTimeout:
+            pytest.fail("Timed out waiting for /api/threads response. The server may be stuck or not responding.")
+        except Exception as e:
+            pytest.fail(f"Error querying /api/threads: {e}")
     finally:
         # Capture output if server didn't start
         if not server_started:
