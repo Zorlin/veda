@@ -4,8 +4,8 @@ import logging
 import webbrowser
 import os
 import json
-from flask import Flask, send_from_directory, jsonify, render_template_string, request
-import os # Added import
+from flask import Flask, send_from_directory, jsonify, request # Removed render_template_string
+# Removed redundant 'import os'
 import socketio
 from werkzeug.serving import run_simple
 
@@ -33,19 +33,24 @@ agent_manager_instance: 'AgentManager' = None
 
 def create_flask_app():
     """Creates and configures the Flask application."""
-    # Determine static and template folder paths relative to this file
-    src_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(src_dir)
-    webui_dir = os.path.join(project_root, "webui") # Assuming webui is at project root
+    # Calculate project root and static directory path
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    static_dir = os.path.join(project_root, 'static') # Changed from 'webui' to 'static'
 
-    if not os.path.isdir(webui_dir):
-        logging.warning(f"Web UI directory not found at {webui_dir}. Serving minimal UI.")
-        # Fallback to minimal inline HTML if webui directory doesn't exist
-        app = Flask(__name__)
-    else:
-        app = Flask(__name__, static_folder=webui_dir, template_folder=webui_dir)
+    # Check if static dir exists during app creation for early feedback
+    if not os.path.isdir(static_dir):
+        logging.warning(f"Static directory not found at {static_dir}. Web UI might not load correctly.")
+        # Proceed anyway, maybe static files aren't essential for all modes.
 
+    # Configure Flask to find static files in ../static relative to this file's dir parent
+    # Flask automatically creates the /static route based on static_folder and static_url_path
+    app = Flask(__name__, static_folder=static_dir, static_url_path='/static')
 
+    # --- Socket.IO Setup ---
+    # Socket.IO server (sio) is initialized globally.
+    # It will be attached to the app in start_web_server using WSGIApp.
+
+    # --- Routes ---
     @app.route("/")
     def index():
         # Check if OPENROUTER_API_KEY is set in the environment before serving
@@ -59,26 +64,42 @@ def create_flask_app():
             <p>Error: OPENROUTER_API_KEY environment variable not set or empty.</p>
             <p>Please set this environment variable and restart Veda.</p>
             </body></html>
-            """, 500
+            """, 403 # Forbidden due to config issue
 
-        # Check if index.html exists in the template folder
-        index_path = os.path.join(app.template_folder, 'index.html')
-        if os.path.exists(index_path):
-             # Serve index.html from the webui directory
-             # Flask automatically looks in the template_folder for render_template
-             # However, for a static SPA, sending the file might be more direct
-             # return send_from_directory(app.template_folder, 'index.html')
-             # Let's try rendering it as a template first, in case it uses Jinja
-             try:
-                 return render_template_string(open(index_path).read())
-             except Exception as e:
-                 logging.error(f"Error rendering {index_path}: {e}")
-                 return "Error loading UI. Check logs.", 500
-        else:
-            # Serve a minimal Vue.js + Tailwind app inline if index.html is missing
-            logging.warning("webui/index.html not found. Serving minimal inline UI.")
-            html = """
-            <!DOCTYPE html>
+        # Serve index.html from the configured static folder
+        try:
+            # Ensure static_folder is configured and exists before trying to serve from it
+            if not app.static_folder or not os.path.isdir(app.static_folder):
+                 logging.error(f"Static folder '{app.static_folder}' not configured or does not exist.")
+                 return "Server configuration error: Static folder not found.", 500
+
+            # Use Flask's send_from_directory to serve index.html from the static folder
+            return send_from_directory(app.static_folder, 'index.html')
+        except FileNotFoundError:
+            # This exception is raised by send_from_directory if index.html is missing
+            logging.error(f"index.html not found in static directory: {app.static_folder}")
+            # Check if the file actually exists for more detailed logging
+            expected_path = os.path.join(app.static_folder, 'index.html')
+            if not os.path.exists(expected_path):
+                 logging.error(f"Confirmed: File does not exist at {expected_path}")
+            else:
+                 # This case is unlikely but possible if permissions are wrong after check
+                 logging.error(f"File may exist at {expected_path} but send_from_directory failed (Permissions?).")
+            return "Error: index.html not found. Build the frontend first.", 404
+        except Exception as e:
+            # Catch any other unexpected errors during file serving
+            logging.error(f"Error serving index.html from {app.static_folder}: {e}", exc_info=True)
+            return "Error loading UI. Check logs.", 500
+
+        # NOTE: The minimal inline UI fallback is removed as we now rely on the static file.
+        # If index.html is missing, a 404 or 500 error will be returned.
+
+    # NOTE: The explicit @app.route('/static/<path:path>') is removed.
+    # Flask handles serving files from the `static_folder` automatically
+    # at the `static_url_path` (which defaults to '/static' if not specified).
+
+
+    @app.route("/api/threads")
             <html lang="en">
             <head>
               <meta charset="UTF-8" />
@@ -179,7 +200,8 @@ def create_flask_app():
             logging.error("AgentManager instance not available for /api/threads")
             return jsonify({"error": "AgentManager not initialized"}), 500
 
-    return app
+    # Return the Flask app instance and the Socket.IO server instance
+    return app, sio # Return both app and sio
 
 # --- SocketIO Server ---
 sio = socketio.Server(async_mode="threading", cors_allowed_origins="*") # Allow all origins for now
@@ -276,15 +298,17 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     global agent_manager_instance
     agent_manager_instance = manager_instance # Set the global instance
 
-    flask_app = create_flask_app()
-    # Combine Flask app with SocketIO
-    wsgi_app = socketio.WSGIApp(sio, flask_app)
+    app, sio_server = create_flask_app() # Get both app and sio instance
+
+    # Combine Flask app with Socket.IO middleware for use with run_simple
+    # This is the correct way for Werkzeug/Flask dev server
+    app_wrapped = socketio.WSGIApp(sio_server, app)
 
     def run_server():
         logging.info(f"Starting web server at http://{host}:{port}")
         try:
             # Use Werkzeug's run_simple to host the combined WSGI app
-            run_simple(host, port, wsgi_app, use_reloader=False, use_debugger=False)
+            run_simple(host, port, app_wrapped, use_reloader=False, use_debugger=False, threaded=True) # Use wrapped app, ensure threaded=True
             # run_simple is blocking, so the thread will stay alive running the server.
         except OSError as e:
              # Common error: Port already in use
