@@ -160,8 +160,9 @@ def run_readiness_chat() -> str | None:
             if user_input.lower().startswith(trigger):
                 # Find the potential filename after the trigger
                 potential_filename = user_input[len(trigger):].strip().split()[0]
-                # Basic validation: avoid absolute paths or directory traversal
-                if not os.path.isabs(potential_filename) and ".." not in potential_filename:
+                # Basic validation: avoid absolute paths
+                if not os.path.isabs(potential_filename):
+                    # Let the later abspath/startswith check handle potential ".." traversal
                     file_to_read = potential_filename
                     break
             # Check for patterns like "read file <filename>"
@@ -170,7 +171,9 @@ def run_readiness_chat() -> str | None:
                      idx = words.index(trigger.strip())
                      if idx + 1 < len(words):
                          potential_filename = words[idx+1]
-                         if not os.path.isabs(potential_filename) and ".." not in potential_filename:
+                         # Basic validation: avoid absolute paths
+                         if not os.path.isabs(potential_filename):
+                             # Let the later abspath/startswith check handle potential ".." traversal
                              file_to_read = potential_filename
                              break
                  except ValueError:
