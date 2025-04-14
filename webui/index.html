@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veda - Software Development That Doesn't Sleep</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2980b9;
+        }
+        pre {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            overflow-x: auto;
+        }
+        .agent {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #f9f9f9;
+        }
+        .agent-header {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+        .status-running {
+            color: green;
+        }
+        .status-waiting {
+            color: orange;
+        }
+        .status-error {
+            color: red;
+        }
+        #agent-container {
+            margin-top: 20px;
+        }
+        #status-message {
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>Veda - Software Development That Doesn't Sleep</h1>
+    
+    <div id="status-container">
+        <h2>System Status</h2>
+        <p id="status-message">Connecting to Veda server...</p>
+    </div>
+    
+    <div id="agent-container">
+        <h2>Active Agents</h2>
+        <div id="agents-list">
+            <p>No agents currently active.</p>
+        </div>
+    </div>
+
+    <script>
+        // Connect to the WebSocket server
+        const socket = new WebSocket('ws://' + window.location.hostname + ':9900/ws');
+        
+        socket.onopen = function(e) {
+            document.getElementById('status-message').textContent = 'Connected to Veda server';
+        };
+        
+        socket.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'agent_update') {
+                    updateAgents(data.agents);
+                }
+                
+            } catch (error) {
+                console.error('Error processing message:', error);
+            }
+        };
+        
+        socket.onclose = function(event) {
+            if (event.wasClean) {
+                document.getElementById('status-message').textContent = 
+                    `Connection closed cleanly, code=${event.code} reason=${event.reason}`;
+            } else {
+                document.getElementById('status-message').textContent = 
+                    'Connection died unexpectedly. Trying to reconnect...';
+                // Attempt to reconnect after a delay
+                setTimeout(() => {
+                    window.location.reload();
+                }, 5000);
+            }
+        };
+        
+        socket.onerror = function(error) {
+            document.getElementById('status-message').textContent = 
+                `WebSocket Error: ${error.message}`;
+        };
+        
+        function updateAgents(agents) {
+            const agentsList = document.getElementById('agents-list');
+            
+            if (!agents || agents.length === 0) {
+                agentsList.innerHTML = '<p>No agents currently active.</p>';
+                return;
+            }
+            
+            let html = '';
+            
+            agents.forEach(agent => {
+                let statusClass = 'status-waiting';
+                if (agent.status === 'running') {
+                    statusClass = 'status-running';
+                } else if (agent.status.includes('error') || agent.status.includes('fail')) {
+                    statusClass = 'status-error';
+                }
+                
+                html += `
+                <div class="agent">
+                    <div class="agent-header">
+                        <strong>${agent.role || 'Unknown'}</strong>
+                        <span class="${statusClass}">${agent.status || 'Unknown'}</span>
+                    </div>
+                    <div>Model: ${agent.model || 'N/A'}</div>
+                    <div>ID: ${agent.id || 'N/A'}</div>
+                    <pre>${(agent.output_preview || []).join('\n')}</pre>
+                </div>
+                `;
+            });
+            
+            agentsList.innerHTML = html;
+        }
+        
+        // Poll for agent status in case WebSocket fails
+        function pollAgentStatus() {
+            fetch('/api/threads')
+                .then(response => response.json())
+                .then(agents => {
+                    updateAgents(agents);
+                })
+                .catch(error => {
+                    console.error('Error fetching agent status:', error);
+                });
+        }
+        
+        // Poll every 5 seconds as a fallback
+        setInterval(pollAgentStatus, 5000);
+        
+        // Initial poll
+        pollAgentStatus();
+    </script>
+</body>
+</html>

@@ -103,8 +103,19 @@ def main():
         try:
             web_server_thread = start_web_server(agent_manager, host=args.host, port=args.port)
             # Give the server a moment to start up
-            time.sleep(2.5)  # Increased wait time for tests
-            logger.info(f"Web server started on {args.host}:{args.port}")
+            time.sleep(5)  # Increased wait time for server startup
+            
+            # Verify the server is actually running by checking the port
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.connect(("localhost", args.port))
+                s.close()
+                logger.info(f"Web server successfully started and verified on {args.host}:{args.port}")
+                print(f"Web server successfully started on {args.host}:{args.port}", file=sys.stdout)
+            except Exception as socket_err:
+                logger.error(f"Web server port check failed: {socket_err}")
+                print(f"Warning: Web server may not be properly listening on port {args.port}", file=sys.stderr)
         except Exception as e:
             logger.error(f"Failed to start web server: {e}", exc_info=True)
             print(f"Error starting web server: {e}", file=sys.stderr)
@@ -138,8 +149,13 @@ def main():
         # Start the Agent Manager's main loop and initial agents
         logger.info(f"Starting Agent Manager with initial prompt: {initial_prompt[:100]}...")
         print(f"\n[INFO] Starting AgentManager...")
-        agent_manager.start(initial_prompt=initial_prompt)
-        print(f"[INFO] AgentManager started. Monitoring agent activity...")
+        try:
+            agent_manager.start(initial_prompt=initial_prompt)
+            print(f"[INFO] AgentManager started. Monitoring agent activity...")
+        except Exception as e:
+            logger.error(f"Failed to start Agent Manager: {e}", exc_info=True)
+            print(f"Error starting Agent Manager: {e}", file=sys.stderr)
+            # Continue execution - the web server might still be useful for debugging
 
         # Start periodic broadcasting of agent status to the UI
         # We might want to trigger this more intelligently later (e.g., on status change)
@@ -246,7 +262,8 @@ def main():
         print(f"Fetching agent status from {url}...")
         try:
             import requests
-            resp = requests.get(url, timeout=5)
+            # Increase timeout for slower systems
+            resp = requests.get(url, timeout=10)
             resp.raise_for_status()
             agents = resp.json()
             if not agents:
