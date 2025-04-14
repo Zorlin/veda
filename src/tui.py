@@ -89,11 +89,11 @@ class VedaApp(App[None]):
     def ask_initial_prompt(self) -> None:
         """Worker method to ask the initial user prompt using Ollama."""
         if not self.ollama_client:
-            self.call_from_thread(self.log_widget.write, "[bold red]Cannot generate initial prompt: Ollama client not available.[/]")
+            self.app.call_soon(self.log_widget.write, "[bold red]Cannot generate initial prompt: Ollama client not available.[/]")
             return
 
         initial_question = "What project goal should I work on today?"
-        self.call_from_thread(self.log_widget.write, "[italic grey50]Veda is thinking about the first question...[/]")
+        self.app.call_soon(self.log_widget.write, "[italic grey50]Veda is thinking about the first question...[/]")
         try:
             # Optional: Could ask Ollama to phrase the initial question, but let's keep it simple for now.
             # response = self.ollama_client.generate("Ask the user what project goal they want to work on.")
@@ -102,42 +102,42 @@ class VedaApp(App[None]):
             # Escape the entire string for now to diagnose MarkupError
             formatted_question = f"Veda: {initial_question}"
             escaped_question = rich.markup.escape(formatted_question)
-            self.call_from_thread(self.log_widget.write, escaped_question)
+            self.app.call_soon(self.log_widget.write, escaped_question)
             # Original line causing issues (potentially):
-            # self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {initial_question}")
+            # self.app.call_soon(self.log_widget.write, f"[bold magenta]Veda:[/bold] {initial_question}")
         except Exception as e:
             logger.exception("Error generating initial prompt:")
             escaped_error = rich.markup.escape(str(e))
-            self.call_from_thread(self.log_widget.write, f"[bold red]Error generating initial prompt: {escaped_error}[/]")
+            self.app.call_soon(self.log_widget.write, f"[bold red]Error generating initial prompt: {escaped_error}[/]")
         finally:
              # Ensure input is focused after the prompt is displayed
-             self.call_from_thread(self.input_widget.focus)
+             self.app.call_soon(self.input_widget.focus)
 
 
     @work(exclusive=True, thread=True) # Run Ollama call in a worker thread
     def call_ollama(self, prompt: str) -> None:
         """Worker method to call Ollama (synchronously) for user prompts and update the log."""
         if not self.ollama_client:
-            # Use call_from_thread for UI updates from worker
-            self.call_from_thread(self.log_widget.write, "[bold red]Cannot process: Ollama client not available.[/]")
+            # Use call_soon for UI updates from worker
+            self.app.call_soon(self.log_widget.write, "[bold red]Cannot process: Ollama client not available.[/]")
             return
 
-        # Use call_from_thread for UI updates from worker
-        self.call_from_thread(self.log_widget.write, "[italic grey50]Thinking...[/]")
+        # Use call_soon for UI updates from worker
+        self.app.call_soon(self.log_widget.write, "[italic grey50]Thinking...[/]")
         try:
             # Synchronous call within the worker thread
             response = self.ollama_client.generate(prompt)
             # Update UI from the worker thread safely
-            self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}")
+            self.app.call_soon(self.log_widget.write, f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}")
         except Exception as e:
             # Log the exception and display an error in the TUI
             logger.exception("Error during Ollama call in worker thread:")
             escaped_error = rich.markup.escape(str(e))
-            self.call_from_thread(self.log_widget.write, f"[bold red]Error during Ollama call: {escaped_error}[/]")
+            self.app.call_soon(self.log_widget.write, f"[bold red]Error during Ollama call: {escaped_error}[/]")
         finally:
             # Ensure input is cleared and focused even if there was an error
-            self.call_from_thread(self.input_widget.clear)
-            self.call_from_thread(self.input_widget.focus)
+            self.app.call_soon(self.input_widget.clear)
+            self.app.call_soon(self.input_widget.focus)
 
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
