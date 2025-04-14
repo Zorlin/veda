@@ -309,55 +309,17 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     # Routes like /api/health, /, /index.html etc. are now defined within create_flask_app
     # The catch-all route is also removed as Flask's static file handling
     # with static_url_path='' should handle serving index.html for SPA routes.
-<html>
-<head>
-    <title>Veda Test</title>
-    <script src="https://unpkg.com/vue@3"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body>
-    <div id="app">Test UI</div>
-</body>
-<html>
-<head>
-    <title>Veda Test</title>
-    <script src="https://unpkg.com/vue@3"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body>
-    <div id="app">Test UI</div>
-</body>
-</html>"""
-        
-        # Otherwise, try to serve the real index.html
-        try:
-            return app.send_static_file('index.html')
-        except Exception as e:
-            logging.error(f"Error serving index.html from root route: {e}")
-            # Fallback to direct file serving
-            webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
-            if os.path.exists(os.path.join(webui_dir, 'index.html')):
-                return send_from_directory(webui_dir, 'index.html')
-            # Try project root as last resort
-            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-            if os.path.exists(os.path.join(project_root, 'index.html')):
-                return send_from_directory(project_root, 'index.html')
-            # If all else fails, return a simple HTML page
-            return """<!DOCTYPE html>
-<html>
-<head>
-    <title>Veda Test</title>
-    <script src="https://unpkg.com/vue@3"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body>
-    <div id="app">Test UI</div>
-</body>
+
+# --- REMOVED MISPLACED HTML BLOCKS ---
+
     # Combine Flask app with Socket.IO middleware using the global sio instance
-    app_wrapped = socketio.WSGIApp(sio, app)
+    # This line was also misplaced after the HTML block. It belongs inside run_server.
+    # app_wrapped = socketio.WSGIApp(sio, app) # Moved inside run_server
 
     def run_server():
         logging.info(f"Starting web server at http://{host}:{port}")
+        # Create the WSGIApp wrapper just before starting the server
+        app_wrapped = socketio.WSGIApp(sio, app)
         try:
             # Use Werkzeug's run_simple to host the combined WSGI app
             # Disable debug mode for tests to avoid issues with reloader
