@@ -22,9 +22,13 @@ def test_thread_api_returns_threads():
     # Pass a dummy API key for the test environment
     test_env = os.environ.copy()
     test_env["OPENROUTER_API_KEY"] = "test-key-for-pytest"
-    proc = subprocess.Popen([sys.executable, "src/main.py", "start", "--prompt", "test thread api"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=test_env)
+    # Ensure text=True for Popen
+    proc = subprocess.Popen([sys.executable, "src/main.py", "start", "--prompt", "test thread api"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=test_env, text=True)
+    server_started = False # Initialize before try block
+    stdout_data, stderr_data = "", "" # Initialize before try block
     try:
-        assert wait_for_port(9900), "Web server did not start on port 9900"
+        server_started = wait_for_port(9900) # Assign result
+        assert server_started, "Web server did not start on port 9900"
         # Give the server a moment to serve the API
         time.sleep(1)
         resp = requests.get("http://localhost:9900/api/threads")

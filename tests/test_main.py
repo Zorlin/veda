@@ -44,15 +44,18 @@ def test_web_server_starts():
     # Pass a dummy API key for the test environment
     test_env = os.environ.copy()
     test_env["OPENROUTER_API_KEY"] = "test-key-for-pytest"
-    proc = subprocess.Popen([sys.executable, "src/main.py", "start"], env=test_env)
+    # Explicitly capture stdout/stderr and use text=True
+    proc = subprocess.Popen([sys.executable, "src/main.py", "start"], env=test_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     time.sleep(5) # Increased wait time for server startup
     s = socket.socket()
+    connected = False # Initialize before try
+    stdout, stderr = "", "" # Initialize before try
     try:
         s.connect(("localhost", 9900))
         connected = True
     except Exception:
         connected = False
-        stdout, stderr = None, None # Initialize for capturing output
+        # No need to initialize stdout/stderr here anymore
     finally:
         s.close()
         # Capture output before terminating if connection failed
