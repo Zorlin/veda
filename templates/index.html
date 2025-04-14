@@ -135,35 +135,6 @@
     </div> {# End Right Column #}
 
 </div> {# End Grid #}
-            WebSocket Status: <span x-text="wsStatus"></span>
-        </p>
-
-        {# Chat message display area #}
-        <div class="h-64 overflow-y-auto border rounded p-2 mb-3 bg-gray-50">
-             <template x-for="(msg, index) in messages" :key="index">
-                <div class="mb-2 p-2 rounded text-sm"
-                     :class="msg.type === 'user' ? 'bg-blue-100 text-right ml-auto max-w-[80%]' : 'bg-gray-200 text-left mr-auto max-w-[80%]'">
-                    <strong x-text="msg.sender + ':'"></strong>
-                    <span x-html="msg.text"></span> {# Basic rendering, sanitize if needed #}
-                 </div>
-             </template>
-             <p x-show="messages.length === 0" class="text-gray-500 italic">Chat history will appear here.</p>
-        </div>
-
-        {# Input area #}
-        <div class="flex">
-            <textarea x-model="inputText" @keydown.enter.prevent="sendMessage()"
-                      class="flex-grow p-2 border rounded-l" rows="3"
-                      placeholder="Enter your project goal or chat message..."
-                      :disabled="wsStatus !== 'Connected'"></textarea>
-            <button @click="sendMessage()"
-                    class="px-4 py-2 bg-green-500 text-white rounded-r hover:bg-green-600 disabled:opacity-50"
-                    :disabled="wsStatus !== 'Connected' || !inputText.trim()">
-                Send
-            </button>
-        </div>
-    </div>
-</div>
 
 <script>
     function chatApp() {
