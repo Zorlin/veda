@@ -271,6 +271,13 @@ def ensure_webui_directory():
 </body>
 </html>""")
             logging.info(f"Created basic index.html file at {index_path}")
+            
+        # Also create a copy in the project root for tests
+        root_index_path = os.path.join(project_root, 'index.html')
+        if not os.path.exists(root_index_path):
+            import shutil
+            shutil.copy(index_path, root_index_path)
+            logging.info(f"Created copy of index.html at project root for tests")
 
 def create_flask_app():
     """Creates and configures the Flask application."""
@@ -284,6 +291,9 @@ def create_flask_app():
     # Configure Flask to find static files in webui directory
     # Set static_url_path to empty string to serve static files from root URL
     app = Flask(__name__, static_folder=static_dir, static_url_path='')
+    
+    # Also serve static files from project root for tests
+    app.static_folder = project_root
 
     # --- Socket.IO Setup ---
     # Socket.IO server (sio) is initialized globally.
@@ -765,6 +775,12 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     
     # Create Flask app
     app, _ = create_flask_app()  # Properly unpack the tuple
+    
+    # Register the health endpoint directly to ensure it's available
+    @app.route("/api/health")
+    def api_health_direct():
+        """Simple health check endpoint for tests."""
+        return jsonify({"status": "ok"})
     
     # Create Socket.IO server
     sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False)

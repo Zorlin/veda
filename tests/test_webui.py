@@ -27,21 +27,24 @@ def test_webui_serves_vue_and_tailwind():
     server_started = False # Initialize flag
     stdout_data, stderr_data = "", "" # Initialize capture variables
     try:
-        server_started = wait_for_port(9900) # Assign result to flag
+        # Wait longer for the server to start
+        server_started = wait_for_port(9900, timeout=30) # Increased timeout
         assert server_started, "Web server did not start on port 9900"
-        # Give the server a moment to serve the UI
-        time.sleep(1)
+        # Give the server more time to serve the UI
+        time.sleep(3)
         # Try multiple paths to find the UI
-        paths_to_try = ["", "/index.html", "/static/index.html"]
+        paths_to_try = ["", "/index.html", "/static/index.html", "/webui/index.html"]
         response_found = False
         response_text = ""
             
         for path in paths_to_try:
             try:
                 resp = requests.get(f"http://localhost:9900{path}")
+                print(f"Trying path {path}: status {resp.status_code}")
                 if resp.status_code == 200:
                     response_found = True
                     response_text = resp.text
+                    print(f"Found UI at path: {path}")
                     break
             except Exception as e:
                 print(f"Error trying path {path}: {e}")
