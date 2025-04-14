@@ -93,7 +93,8 @@ pub async fn synthesize_goal_with_ollama(tags: Vec<String>, ollama_api_base_url:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path, body_json};
+    // Remove unused body_json import
+    use wiremock::matchers::{method, path};
     use wiremock::{MockServer, Mock, ResponseTemplate};
     use serde_json::json;
     // Remove unused test_log::test
@@ -110,22 +111,13 @@ mod tests {
         let expected_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- tag1\n- tag2\n\nSynthesized Goal:";
         let expected_model = constants::VEDA_CHAT_MODEL.clone();
 
-        // Define expected body *without* options for the custom matcher
-        let expected_body_partial = json!({
+        // Define expected body *with* options explicitly set to null
+        let mock_request_body = json!({
             "model": expected_model,
             "prompt": expected_prompt,
             "stream": false,
+            "options": serde_json::Value::Null,
         });
-
-        // Custom matcher function
-        let body_matcher = move |req_body: &serde_json::Value| {
-            // Check if required fields exist and match
-            req_body.get("model") == expected_body_partial.get("model") &&
-            req_body.get("prompt") == expected_body_partial.get("prompt") &&
-            req_body.get("stream") == expected_body_partial.get("stream")
-            // We explicitly DO NOT check the 'options' field here
-        };
-
 
         let mock_response_body = json!({
             "model": expected_model,
@@ -143,8 +135,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/api/generate"))
-            // Use the custom function matcher for the body
-            .and(wiremock::matchers::body_json_fn(body_matcher))
+            // Use body_json to match the exact expected body
+            .and(body_json(&mock_request_body))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body))
             .mount(&mock_server)
             .await;
