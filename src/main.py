@@ -574,11 +574,17 @@ def main():
                 messages = [
                     {"role": "system", "content": system_prompt},
                 ]
+                readiness_signals = [
+                    "i'm ready", "im ready", "ready", "let's start", "lets start", "start building",
+                    "go ahead", "proceed", "yes", "i am ready"
+                ]
+                last_user_msg = None
                 while True:
                     msg = input("You: ")
                     if msg.strip().lower() == "exit":
                         print("Exiting.")
                         sys.exit(0)
+                    last_user_msg = msg
                     messages.append({"role": "user", "content": msg})
                     print("Veda (thinking)...")
                     url = f"{OLLAMA_URL}/api/chat"
@@ -596,9 +602,12 @@ def main():
                         response = f"[Error communicating with Ollama: {e}]"
                     print(f"Veda: {response}")
                     messages.append({"role": "assistant", "content": response})
-                    # Accept the first user message as the project prompt
-                    if len(messages) > 2:
-                        initial_prompt = msg # Use the first user message as the prompt
+
+                    # Check if the user or the AI gave a readiness signal
+                    user_ready = any(signal in msg.lower() for signal in readiness_signals)
+                    ai_ready = any(signal in response.lower() for signal in readiness_signals)
+                    if user_ready or ai_ready:
+                        initial_prompt = last_user_msg
                         print(f"Veda: Okay, using '{initial_prompt}' as the initial goal. Starting agents...")
                         break
         # Try to start AgentManager, but do not exit if API key is missing
