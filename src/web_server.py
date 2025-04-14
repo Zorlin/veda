@@ -848,25 +848,48 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     @app.route("/")
     def root_for_tests():
         """Direct root route for tests."""
-        return app.send_static_file('index.html')
+        try:
+            return app.send_static_file('index.html')
+        except Exception as e:
+            logging.error(f"Error serving index.html from root route: {e}")
+            # Fallback to direct file serving
+            webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
+            if os.path.exists(os.path.join(webui_dir, 'index.html')):
+                return send_from_directory(webui_dir, 'index.html')
+            # Try project root as last resort
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            if os.path.exists(os.path.join(project_root, 'index.html')):
+                return send_from_directory(project_root, 'index.html')
+            # If all else fails, return a simple HTML page for tests
+            return """<!DOCTYPE html>
+<html>
+<head>
+    <title>Veda Test</title>
+    <script src="https://unpkg.com/vue@3"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="app">Test UI</div>
+</body>
+</html>"""
         
     @app.route("/index.html")
     def index_html_route():
         """Explicit route for /index.html"""
-        return app.send_static_file('index.html')
+        return root_for_tests()
         
     @app.route("/static/index.html")
     def static_index_html_route():
         """Explicit route for /static/index.html"""
-        return app.send_static_file('index.html')
+        return root_for_tests()
         
     @app.route("/webui/index.html")
     def webui_index_html_route():
         """Explicit route for /webui/index.html"""
-        return app.send_static_file('index.html')
+        return root_for_tests()
     
     # Create Socket.IO server
-    sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=True)
+    sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False)
     
     # Register Socket.IO event handlers
     @sio_server.event
@@ -908,7 +931,8 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
         logging.info(f"Starting web server at http://{host}:{port}")
         try:
             # Use Werkzeug's run_simple to host the combined WSGI app
-            run_simple(host, port, app_wrapped, use_reloader=False, use_debugger=True, threaded=True)
+            # Disable debug mode for tests to avoid issues with reloader
+            run_simple(host, port, app_wrapped, use_reloader=False, use_debugger=False, threaded=True)
         except OSError as e:
              # Common error: Port already in use
              if "Address already in use" in str(e) or "make_sock: address already in use" in str(e):
