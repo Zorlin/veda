@@ -1,5 +1,8 @@
 import asyncio
 import logging
+import os
+import pty
+import fcntl
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,7 +37,6 @@ class AgentOutputMessage(Message):
     """Message containing output from an agent process."""
     role: str
     line: str
-    is_stderr: bool = False
 
 @dataclass
 class AgentExitedMessage(Message):
@@ -49,8 +51,8 @@ class AgentInstance:
     """Holds information about a running agent process."""
     role: str
     process: asyncio.subprocess.Process
-    stdout_task: Optional[asyncio.Task] = None
-    stderr_task: Optional[asyncio.Task] = None
+    master_fd: Optional[int] = None # Master side of the pty
+    read_task: Optional[asyncio.Task] = None
     # TODO: Add state, current task file, etc.
 
 
@@ -81,18 +83,55 @@ class AgentManager:
 
         logger.info(f"AgentManager initialized. Work directory: {self.work_dir}")
 
-    async def _read_stream(self, stream: Optional[asyncio.StreamReader], role: str, is_stderr: bool):
-        """Reads lines from a stream and posts them as messages."""
-        if stream is None:
-            return
+    async def _read_pty_output(self, master_fd: int, role: str):
+        """Reads output from the agent's pty and posts messages."""
+        logger.info(f"Starting pty reader for agent '{role}' on fd {master_fd}")
+        buffer = b""
         while True:
-            line_bytes = await stream.readline()
-            if not line_bytes:
-                break
-            line = line_bytes.decode('utf-8', errors='replace').rstrip()
-            self.app.post_message(AgentOutputMessage(role=role, line=line, is_stderr=is_stderr))
-        logger.info(f"{'Stderr' if is_stderr else 'Stdout'} stream closed for agent '{role}'")
+            try:
+                # Use asyncio's event loop to wait for the fd to be readable
+                # This avoids blocking the main thread with os.read
+                loop = asyncio.get_running_loop()
+                # Wait for the fd to be readable without blocking indefinitely
+                # We might need a small timeout or check process status
+                # Let's try reading directly first, handling BlockingIOError
+                await asyncio.sleep(0.01) # Small sleep to prevent tight loop if no data
+                chunk = os.read(master_fd, 1024) # Read up to 1KB
+                if not chunk:
+                    logger.info(f"EOF received from pty for agent '{role}'")
+                    break # EOF
 
+                buffer += chunk
+                # Process lines
+                while b'\n' in buffer:
+                    line_bytes, buffer = buffer.split(b'\n', 1)
+                    line = line_bytes.decode('utf-8', errors='replace').rstrip('\r') # rstrip for \r\n
+                    if line: # Avoid posting empty lines
+                        self.app.post_message(AgentOutputMessage(role=role, line=line))
+
+            except BlockingIOError:
+                # No data available right now, wait a bit
+                await asyncio.sleep(0.05)
+                continue
+            except OSError as e:
+                # This might happen if the fd is closed unexpectedly
+                logger.error(f"OSError reading from pty for agent '{role}': {e}")
+                break
+            except asyncio.CancelledError:
+                 logger.info(f"PTY reader task for agent '{role}' cancelled.")
+                 break
+            except Exception as e:
+                logger.exception(f"Unexpected error reading pty for agent '{role}': {e}")
+                break
+
+        # Process any remaining buffer content after EOF
+        if buffer:
+            line = buffer.decode('utf-8', errors='replace').rstrip('\r')
+            if line:
+                self.app.post_message(AgentOutputMessage(role=role, line=line))
+
+        logger.info(f"PTY reader task finished for agent '{role}'")
+        # Note: Closing the master_fd is handled by _monitor_agent_exit or stop_all_agents
 
     async def spawn_agent(self, role: str, model: Optional[str] = None, initial_prompt: Optional[str] = None):
         """Spawns a new Aider agent process."""
@@ -122,53 +161,83 @@ class AgentManager:
 
         log_line = f"Spawning agent '{role}' with model '{agent_model}'..."
         logger.info(log_line)
-        self.app.post_message(LogMessage(f"[yellow]{log_line}[/]")) # Use LogMessage for general status
+        self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
+
+        master_fd, slave_fd = pty.openpty()
+
+        # Make master_fd non-blocking
+        fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
 
         try:
             process = await asyncio.create_subprocess_exec(
                 *command_parts,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                stdin=asyncio.subprocess.PIPE, # Keep stdin open if needed later
-                cwd=self.config.get("project_dir", ".") # Run aider in the project dir
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                cwd=self.config.get("project_dir", "."), # Run aider in the project dir
+                start_new_session=True # Important for pty
             )
-            logger.info(f"Agent '{role}' spawned with PID {process.pid}")
+            logger.info(f"Agent '{role}' spawned with PID {process.pid} using pty")
 
-            # Create tasks to read stdout and stderr
-            stdout_task = asyncio.create_task(self._read_stream(process.stdout, role, is_stderr=False))
-            stderr_task = asyncio.create_task(self._read_stream(process.stderr, role, is_stderr=True))
+            # Close slave fd in parent process, it's not needed anymore
+            os.close(slave_fd)
+
+            # Create task to read combined output from the pty
+            read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
 
             # Store agent info
             self.agents[role] = AgentInstance(
-                role=role, process=process, stdout_task=stdout_task, stderr_task=stderr_task
+                role=role, process=process, master_fd=master_fd, read_task=read_task
             )
 
             # Create a task to wait for the process to exit and post a message
             asyncio.create_task(self._monitor_agent_exit(role, process))
 
         except FileNotFoundError:
+            os.close(master_fd) # Clean up master fd on error
+            # os.close(slave_fd) # Already closed or handled by subprocess exec
             err_msg = f"Error: Command '{self.aider_command_base}' not found. Is Aider installed and in PATH?"
             logger.error(err_msg)
             self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
         except Exception as e:
             err_msg = f"Failed to spawn agent '{role}': {e}"
             logger.exception(err_msg)
-            escaped_error = rich.markup.escape(str(e)) # Use imported rich.markup
+            escaped_error = rich.markup.escape(str(e))
             self.app.post_message(LogMessage(f"[bold red]Failed to spawn agent '{role}': {escaped_error}[/]"))
+            # Ensure master_fd is closed if already created before exception
+            if 'master_fd' in locals() and master_fd is not None:
+                 try:
+                     os.close(master_fd)
+                 except OSError:
+                     pass # Ignore if already closed
+            # Slave might be open if error occurred after pty.openpty but before exec
+            if 'slave_fd' in locals() and slave_fd is not None:
+                 try:
+                     os.close(slave_fd)
+                 except OSError:
+                     pass # Ignore if already closed
 
     async def _monitor_agent_exit(self, role: str, process: asyncio.subprocess.Process):
         """Waits for an agent process to exit and posts a message."""
         return_code = await process.wait()
         logger.info(f"Agent '{role}' (PID {process.pid}) exited with code {return_code}")
+        agent_instance = self.agents.get(role)
         self.app.post_message(AgentExitedMessage(role=role, return_code=return_code))
         # Clean up agent entry
-        if role in self.agents:
-            # Cancel reader tasks if they are still running (though they should end on EOF)
-            if self.agents[role].stdout_task:
-                self.agents[role].stdout_task.cancel()
-            if self.agents[role].stderr_task:
-                self.agents[role].stderr_task.cancel()
-            del self.agents[role]
+        if agent_instance:
+            # Cancel the reader task
+            if agent_instance.read_task:
+                agent_instance.read_task.cancel()
+            # Close the master pty descriptor
+            if agent_instance.master_fd is not None:
+                try:
+                    logger.info(f"Closing master_fd {agent_instance.master_fd} for agent '{role}'")
+                    os.close(agent_instance.master_fd)
+                except OSError as e:
+                    logger.error(f"Error closing master_fd for agent '{role}': {e}")
+            # Remove from tracking dict
+            if role in self.agents:
+                 del self.agents[role]
 
 
     async def initialize_project(self, project_goal: str):
@@ -214,6 +283,29 @@ class AgentManager:
             self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
         # -----------------------------
 
+    async def send_to_agent(self, role: str, data: str):
+        """Sends data (e.g., user input) to the specified agent's pty."""
+        agent_instance = self.agents.get(role)
+        if not agent_instance or agent_instance.master_fd is None:
+            logger.warning(f"Attempted to send data to non-existent or invalid agent '{role}'")
+            return
+
+        if not data.endswith('\n'):
+            data += '\n' # Ensure input is terminated with newline for most CLIs
+
+        try:
+            logger.debug(f"Sending to agent '{role}' (fd {agent_instance.master_fd}): {data.strip()}")
+            encoded_data = data.encode('utf-8')
+            # Use os.write directly - consider loop.call_soon_threadsafe if called from worker
+            bytes_written = os.write(agent_instance.master_fd, encoded_data)
+            if bytes_written != len(encoded_data):
+                 logger.warning(f"Short write to agent '{role}': wrote {bytes_written}/{len(encoded_data)} bytes")
+        except OSError as e:
+            logger.error(f"Error writing to pty for agent '{role}': {e}")
+        except Exception as e:
+            logger.exception(f"Unexpected error sending data to agent '{role}': {e}")
+
+
     async def manage_agents(self):
         """
         The main loop or method to monitor and manage running agents.
@@ -244,12 +336,17 @@ class AgentManager:
             except Exception as e:
                 logger.exception(f"Error stopping agent '{role}': {e}")
             finally:
-                # Cancel reader tasks
-                if agent.stdout_task:
-                    agent.stdout_task.cancel()
-                if agent.stderr_task:
-                    agent.stderr_task.cancel()
-                # Remove from tracking - _monitor_agent_exit might also do this
+                # Cancel the reader task
+                if agent.read_task:
+                    agent.read_task.cancel()
+                # Close the master pty descriptor
+                if agent.master_fd is not None:
+                    try:
+                        logger.info(f"Closing master_fd {agent.master_fd} for agent '{role}' during stop_all")
+                        os.close(agent.master_fd)
+                    except OSError as e:
+                        logger.error(f"Error closing master_fd for agent '{role}' during stop_all: {e}")
+                # Remove from tracking - _monitor_agent_exit might also do this, but ensure removal
                 if role in self.agents:
                     del self.agents[role]
         logger.info("Finished stopping agents.")
