@@ -21,3 +21,19 @@ MCP_URL = os.environ.get("MCP_URL", "http://localhost:8001")
 # Knowledge base config
 POSTGRES_DSN = os.environ.get("VEDA_PG_DSN", "postgresql://veda:veda@localhost:5432/veda")
 HANDOFF_DIR = os.environ.get("VEDA_HANDOFF_DIR", "handoffs")
+
+# Aider configuration
+AIDER_PRIMARY_MODEL = "openrouter/google/gemini-2.5-pro-exp-03-25:free" # Primary model
+AIDER_SECONDARY_MODEL = "openrouter/optimus-alpha" # Fallback model
+AIDER_TERTIARY_MODEL = "openrouter/quasar-alpha" # Weakest model
+
+# Default flags for Aider
+AIDER_DEFAULT_FLAGS = [
+    "--cache-prompts",
+    "--no-attribute-author",
+    "--no-attribute-committer",
+    # Add other default flags if needed
+]
+
+# Environment variable for API key
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")

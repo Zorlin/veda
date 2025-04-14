@@ -16,13 +16,23 @@ and then merging and managing the results.
 
 Veda is not affiliated with Aider, but full credit to them for an excellent project.
 
-## how to install
+## Prerequisites
 
-Install Aider, Veda's thinking engine.
-```bash
-python -m pip install aider-install
-aider-install
-```
+*   **Python 3.9+**
+*   **Git**
+*   **Ollama:** Ensure Ollama is installed and running. Veda uses it for internal chat and coordination. See [ollama.com](https://ollama.com/).
+*   **Aider:** Veda uses Aider as its primary coding engine. Install it using:
+    ```bash
+    python -m pip install aider-install
+    aider-install
+    ```
+*   **OpenRouter API Key:** Aider will use models via OpenRouter. Set your API key as an environment variable:
+    ```bash
+    export OPENROUTER_API_KEY="your-api-key-here"
+    ```
+    You can add this to your `.bashrc`, `.zshrc`, or other shell configuration file. Veda will not start without this key.
+
+## How to Install
 
 Install Veda.
 ```

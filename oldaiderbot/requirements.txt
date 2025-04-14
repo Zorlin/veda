@@ -1,5 +1,5 @@
 # Core dependencies
-aider-chat
+aider-chat # Veda's primary coding engine (uses OpenRouter)
 pytest
 PyYAML
 ollama # Official Ollama client library
