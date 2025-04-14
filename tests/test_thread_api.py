@@ -19,9 +19,10 @@ def wait_for_port(port, timeout=15): # Increased timeout
     return False
 
 def test_thread_api_returns_threads():
-    # Pass a dummy API key for the test environment
+    # Use the user's OPENROUTER_API_KEY if set, otherwise use a dummy key for the test environment
     test_env = os.environ.copy()
-    test_env["OPENROUTER_API_KEY"] = "test-key-for-pytest"
+    if "OPENROUTER_API_KEY" not in test_env or not test_env["OPENROUTER_API_KEY"]:
+        test_env["OPENROUTER_API_KEY"] = "test-key-for-pytest"
     # Ensure text=True for Popen
     proc = subprocess.Popen([sys.executable, "src/main.py", "start", "--prompt", "test thread api"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=test_env, text=True)
     server_started = False # Initialize before try block
