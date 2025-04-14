@@ -61,8 +61,21 @@ class VedaApp(App[None]):
         self.config = config
         self.log_widget = None # Initialize log widget reference
         self.input_widget = None # Initialize input widget reference
+        self.project_goal_set = False # Track if the initial goal is set
 
-        # Initialize Ollama Client
+        # Define work directory path
+        self.work_dir = Path(config.get("project_dir", ".")).resolve() / "workdir"
+
+        # Initialize Agent Manager
+        try:
+            self.agent_manager = AgentManager(config=self.config, work_dir=self.work_dir)
+        except Exception as e:
+            logger.exception("Failed to initialize AgentManager")
+            # Log this properly or display in TUI later
+            print(f"Error initializing AgentManager: {e}") # Simple print for now
+            self.agent_manager = None
+
+        # Initialize Ollama Client (for Veda's own chat/prompts)
         try:
             self.ollama_client = OllamaClient(
                 api_url=self.config.get("ollama_api_url"),
