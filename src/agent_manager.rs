@@ -435,10 +435,10 @@ mod tests {
      #[tokio::test]
     async fn test_stop_terminates_monitor_and_agents() {
         // Arrange
-        let temp_dir = tempdir().unwrap();
-        let handoff_path = temp_dir.path().join("handoffs");
-        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
-        let manager = Arc::new(AgentManager::new().await.unwrap());
+        // let temp_dir = tempdir().unwrap(); // Using tempdir might be good practice, but requires adjusting HANDOFF_DIR constant handling
+        // let handoff_path = temp_dir.path().join("handoffs");
+        // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
+        let manager = Arc::new(AgentManager::new().await.unwrap()); // Assumes default dir creation works
 
         // Start the monitor loop
         let manager_clone = manager.clone();
