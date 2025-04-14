@@ -139,7 +139,7 @@ mod tests {
             .and(wiremock::matchers::body_partial_json(&expected_partial_body))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body));
 
-        // Assign the mock definition to a variable named 'mock'
+        // Assign the mock definition to the 'mock' variable
         let mock = mock_definition;
         // Mount the mock *before* making the request
         mock_server.register(mock).await;
