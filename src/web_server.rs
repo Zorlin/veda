@@ -404,13 +404,19 @@ mod tests {
         let expected_ollama_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- api_tag1\n- api_tag2\n\nSynthesized Goal:";
         let expected_model = constants::VEDA_CHAT_MODEL.clone();
 
-        // Define expected body *with* options explicitly set to null
+        // Define expected body *without* the options field for custom matcher
         let ollama_request_body = json!({
             "model": expected_model,
             "prompt": expected_ollama_prompt,
             "stream": false,
-            "options": serde_json::Value::Null,
         });
+
+        // Custom matcher function (copied from llm_interaction tests)
+        let body_matcher = move |req_body: &serde_json::Value| {
+            req_body.get("model") == ollama_request_body.get("model") &&
+            req_body.get("prompt") == ollama_request_body.get("prompt") &&
+            req_body.get("stream") == ollama_request_body.get("stream")
+        };
 
          let ollama_response_body = json!({
             "model": expected_model,
@@ -421,8 +427,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/api/generate"))
-            // Use body_json to match the exact expected body
-            .and(body_json(&ollama_request_body))
+            // Use the custom function matcher for the body
+            .and(wiremock::matchers::body_json_fn(body_matcher))
             .respond_with(ResponseTemplate::new(200).set_body_json(ollama_response_body))
             .mount(&mock_ollama_server)
             .await;

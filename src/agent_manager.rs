@@ -234,6 +234,9 @@ impl AgentManager {
         // Signal the main manager task to exit *first*
         self.shutdown_notify.notify_waiters();
         info!("Shutdown notification sent.");
+        // Add a small delay to allow the waiting task to potentially react
+        sleep(Duration::from_millis(50)).await;
+
 
         // Stop the monitoring loop
         if let Some(handle) = self.monitor_task_handle.lock().await.take() {
