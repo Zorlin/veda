@@ -137,8 +137,12 @@ class VedaApp(App[None]):
             # response = self.ollama_client.generate("Ask the user what project goal they want to work on.")
             # self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {response}")
 
-            # Restore original markup
-            self.post_message(LogMessage(f"[bold magenta]Veda:[/bold] {initial_question}"))
+            # Escape the entire string again for diagnostics
+            formatted_question = f"Veda: {initial_question}"
+            escaped_question = rich.markup.escape(formatted_question)
+            self.post_message(LogMessage(escaped_question))
+            # Original line causing issues:
+            # self.post_message(LogMessage(f"[bold magenta]Veda:[/bold] {initial_question}"))
         except Exception as e:
             logger.exception("Error generating initial prompt:")
             escaped_error = rich.markup.escape(str(e))
