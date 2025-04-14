@@ -93,8 +93,8 @@ pub async fn synthesize_goal_with_ollama(tags: Vec<String>, ollama_api_base_url:
 #[cfg(test)]
 mod tests {
     use super::*;
-    // Remove unused body_json import
-    use wiremock::matchers::{method, path};
+    // Re-add body_json import
+    use wiremock::matchers::{method, path, body_json};
     use wiremock::{MockServer, Mock, ResponseTemplate};
     use serde_json::json;
     // Remove unused test_log::test
