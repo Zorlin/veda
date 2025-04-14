@@ -63,7 +63,8 @@ class DummyProcess:
 @pytest.fixture
 def agent_manager(monkeypatch):
     # Patch subprocess.Popen to simulate Aider
-    def fake_popen(cmd, stdout, stderr, text, bufsize, universal_newlines, env):
+    # Add stdin parameter to match the actual call signature
+    def fake_popen(cmd, stdout, stderr, stdin, text, bufsize, universal_newlines, env):
         # Simulate Aider's prompt/response cycle
         output_lines = [
             "Apply changes? [y/n/q/a/v]",
