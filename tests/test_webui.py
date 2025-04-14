@@ -20,7 +20,8 @@ def wait_for_port(port, timeout=15): # Increased timeout
 def test_webui_serves_vue_and_tailwind():
     # Start the web server in a subprocess
     # Pass a dummy API key for the test environment
-    test_env = os.environ.copy()
+    import os as os_module  # Import os locally to ensure it's available
+    test_env = os_module.environ.copy()
     test_env["OPENROUTER_API_KEY"] = "test-key-for-pytest"
     # Capture stdout/stderr for debugging if wait_for_port fails, ensure text=True
     proc = subprocess.Popen([sys.executable, "src/main.py", "start", "--prompt", "test webui"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=test_env, text=True)
