@@ -41,9 +41,9 @@ def create_flask_app():
         logging.warning(f"Static directory not found at {static_dir}. Creating it now.")
         os.makedirs(static_dir, exist_ok=True)
 
-    # Configure Flask to find static files in ../static relative to this file's dir parent
-    # Flask automatically creates the /static route based on static_folder and static_url_path
-    app = Flask(__name__, static_folder=static_dir, static_url_path='/static')
+    # Configure Flask to find static files in webui directory
+    # Set static_url_path to empty string to serve static files from root URL
+    app = Flask(__name__, static_folder=static_dir, static_url_path='')
 
     # --- Socket.IO Setup ---
     # Socket.IO server (sio) is initialized globally.
