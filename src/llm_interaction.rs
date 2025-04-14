@@ -62,6 +62,9 @@ pub async fn synthesize_goal_with_ollama(tags: Vec<String>, ollama_api_base_url:
         options: None,
     };
 
+    // Log the request payload just before sending
+    debug!(payload = ?serde_json::to_string(&request_payload).unwrap_or_else(|e| format!("Serialization error: {}", e)), "Sending request to Ollama");
+
     let response = client
         .post(&ollama_api_url)
         .json(&request_payload)
@@ -95,7 +98,7 @@ pub async fn synthesize_goal_with_ollama(tags: Vec<String>, ollama_api_base_url:
 mod tests {
     use super::*;
     // Remove unused body_json import
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{method, path}; // body_json removed
     use wiremock::{MockServer, Mock, ResponseTemplate};
     use serde_json::json;
     // Remove unused tracing imports

@@ -283,7 +283,7 @@ mod tests {
     #[cfg(test)]
     use wiremock::{
         // Remove unused body_json import
-        matchers::{method, path},
+        matchers::{method, path}, // body_json removed
         Mock, MockServer, ResponseTemplate,
     };
 
