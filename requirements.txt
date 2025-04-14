@@ -7,3 +7,9 @@ requests
 
 # Aider dependency (ensure it's installed separately if needed, but list it)
 aider-chat
+
+# Textual TUI
+textual
+
+# Configuration loading
+pyyaml
