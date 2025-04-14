@@ -16,6 +16,10 @@ from constants import OLLAMA_URL, VEDA_CHAT_MODEL, OPENROUTER_API_KEY
 # Configure logging for this module
 logger = logging.getLogger(__name__)
 
+# Custom exception for security checks
+class SecurityException(Exception):
+    pass
+
 def ollama_chat(messages, model=VEDA_CHAT_MODEL, api_url=OLLAMA_URL):
     """Sends messages to the Ollama chat API and returns the response."""
     url = f"{api_url}/api/chat"
@@ -119,6 +123,7 @@ def run_readiness_chat() -> str | None:
     system_prompt = (
         "You are Veda, an AI orchestrator. Your current task is to help the user define their initial project goal. "
         "Ask clarifying questions to understand what they want to build or change. Discuss the requirements briefly. "
+        "If the user asks you to read a file (e.g., 'read README.md', 'look at src/utils.py'), the file content will be provided in the next message as context. Use that context to inform your response. "
         "Once the goal seems clear, confirm it with the user. Ask something like: "
         "'Okay, so the goal is to [summarized goal]. Shall I start working on that?' or "
         "'Based on our discussion, the initial prompt would be: [prompt]. Is that correct and are you ready to proceed?'"
@@ -146,12 +151,79 @@ def run_readiness_chat() -> str | None:
             continue
 
         last_user_msg = user_input # Store the last thing the user said
-        messages.append({"role": "user", "content": user_input})
+
+        # --- File Reading Logic ---
+        file_to_read = None
+        read_request_triggers = ["read ", "look at ", "open ", "cat ", "show me "]
+        words = user_input.lower().split()
+        for trigger in read_request_triggers:
+            if user_input.lower().startswith(trigger):
+                # Find the potential filename after the trigger
+                potential_filename = user_input[len(trigger):].strip().split()[0]
+                # Basic validation: avoid absolute paths or directory traversal
+                if not os.path.isabs(potential_filename) and ".." not in potential_filename:
+                    file_to_read = potential_filename
+                    break
+            # Check for patterns like "read file <filename>"
+            elif trigger.strip() in words:
+                 try:
+                     idx = words.index(trigger.strip())
+                     if idx + 1 < len(words):
+                         potential_filename = words[idx+1]
+                         if not os.path.isabs(potential_filename) and ".." not in potential_filename:
+                             file_to_read = potential_filename
+                             break
+                 except ValueError:
+                     pass # Trigger not found
+
+        current_messages = messages + [{"role": "user", "content": user_input}]
+        file_read_success = False
+        if file_to_read:
+            try:
+                # Construct full path relative to current working directory (project root)
+                full_path = os.path.abspath(os.path.join(os.getcwd(), file_to_read))
+                # Security check: Ensure the resolved path is still within the project directory
+                if not full_path.startswith(os.getcwd()):
+                    raise SecurityException(f"Access denied: Path '{file_to_read}' is outside the project directory.")
+
+                if os.path.isfile(full_path):
+                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        # Limit file size to avoid overwhelming the context window (e.g., 50KB)
+                        max_size = 50 * 1024
+                        file_content = f.read(max_size)
+                        if len(file_content) == max_size:
+                            file_content += "\n[... file truncated due to size limit ...]"
+                        logger.info(f"Read content of '{file_to_read}' for chat context.")
+                        # Add file content as context for the LLM
+                        context_msg = f"Context: User asked to read '{file_to_read}'. Here is its content:\n\n```\n{file_content}\n```\n\nNow, please respond to the user's request: '{user_input}'"
+                        current_messages.append({"role": "user", "content": context_msg})
+                        # Remove the original user message if context is added, to avoid duplication?
+                        # Let's keep it for now, the LLM should handle it with the context prompt.
+                        file_read_success = True
+                else:
+                    logger.warning(f"User asked to read non-existent file: {file_to_read}")
+                    # Inform the LLM the file wasn't found
+                    current_messages.append({"role": "user", "content": f"[System note: User asked to read '{file_to_read}', but it was not found or is not a file. Please inform the user.]"})
+
+            except SecurityException as se:
+                 logger.error(f"SecurityException reading file '{file_to_read}': {se}")
+                 current_messages.append({"role": "user", "content": f"[System note: Access denied trying to read '{file_to_read}'. Inform the user.]"})
+            except Exception as e:
+                logger.error(f"Error reading file '{file_to_read}': {e}")
+                # Inform the LLM about the error
+                current_messages.append({"role": "user", "content": f"[System note: An error occurred while trying to read '{file_to_read}'. Inform the user.]"})
+        # --- End File Reading Logic ---
+
 
         print("Veda (thinking)...")
-        response = ollama_chat(messages)
+        # Use the potentially modified message list
+        response = ollama_chat(current_messages)
         print(f"Veda: {response}")
-        messages.append({"role": "assistant", "content": response})
+        # Add the assistant's response to the original message history
+        messages.append({"role": "user", "content": user_input}) # Add original user message
+        if file_read_success: # If we added context, add that too for history consistency
+             messages.append({"role": "user", "content": context_msg})
+        messages.append({"role": "assistant", "content": response}) # Add Veda's response
 
         # Check if the *user's* last message was a confirmation signal *after* Veda asked for confirmation.
         # This is tricky without full state understanding in the LLM.
