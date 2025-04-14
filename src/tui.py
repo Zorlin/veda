@@ -3,7 +3,7 @@ import rich.markup # Import for escaping
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import Header, Footer, Input, RichLog
-from textual import work
+from textual import work, message # Import message base class
 
 from ollama_client import OllamaClient # Import the new client
 
@@ -11,6 +11,23 @@ from ollama_client import OllamaClient # Import the new client
 # Use a file for more persistent logs during development
 logging.basicConfig(filename='veda_tui.log', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+# --- Custom Messages for Worker -> UI Communication ---
+class LogMessage(message.Message):
+    """Custom message to log text to the RichLog."""
+    def __init__(self, text: str) -> None:
+        self.text = text
+        super().__init__()
+
+class ClearInput(message.Message):
+    """Custom message to clear the Input widget."""
+    pass
+
+class FocusInput(message.Message):
+    """Custom message to focus the Input widget."""
+    pass
+# --- End Custom Messages ---
 
 
 class VedaApp(App[None]):
@@ -89,11 +106,11 @@ class VedaApp(App[None]):
     def ask_initial_prompt(self) -> None:
         """Worker method to ask the initial user prompt using Ollama."""
         if not self.ollama_client:
-            self.call_later(self.log_widget.write, "[bold red]Cannot generate initial prompt: Ollama client not available.[/]", delay=0)
+            self.post_message(LogMessage("[bold red]Cannot generate initial prompt: Ollama client not available.[/]"))
             return
 
         initial_question = "What project goal should I work on today?"
-        self.call_later(self.log_widget.write, "[italic grey50]Veda is thinking about the first question...[/]", delay=0)
+        self.post_message(LogMessage("[italic grey50]Veda is thinking about the first question...[/]"))
         try:
             # Optional: Could ask Ollama to phrase the initial question, but let's keep it simple for now.
             # response = self.ollama_client.generate("Ask the user what project goal they want to work on.")
@@ -102,42 +119,42 @@ class VedaApp(App[None]):
             # Escape the entire string for now to diagnose MarkupError
             formatted_question = f"Veda: {initial_question}"
             escaped_question = rich.markup.escape(formatted_question)
-            self.call_later(self.log_widget.write, escaped_question, delay=0)
+            self.post_message(LogMessage(escaped_question))
             # Original line causing issues (potentially):
-            # self.call_later(self.log_widget.write, f"[bold magenta]Veda:[/bold] {initial_question}", delay=0)
+            # self.post_message(LogMessage(f"[bold magenta]Veda:[/bold] {initial_question}"))
         except Exception as e:
             logger.exception("Error generating initial prompt:")
             escaped_error = rich.markup.escape(str(e))
-            self.call_later(self.log_widget.write, f"[bold red]Error generating initial prompt: {escaped_error}[/]", delay=0)
+            self.post_message(LogMessage(f"[bold red]Error generating initial prompt: {escaped_error}[/]"))
         finally:
              # Ensure input is focused after the prompt is displayed
-             self.call_later(self.input_widget.focus, delay=0)
+             self.post_message(FocusInput())
 
 
     @work(exclusive=True, thread=True) # Run Ollama call in a worker thread
     def call_ollama(self, prompt: str) -> None:
         """Worker method to call Ollama (synchronously) for user prompts and update the log."""
         if not self.ollama_client:
-            # Use call_later for UI updates from worker
-            self.call_later(self.log_widget.write, "[bold red]Cannot process: Ollama client not available.[/]", delay=0)
+            # Post message for UI updates from worker
+            self.post_message(LogMessage("[bold red]Cannot process: Ollama client not available.[/]"))
             return
 
-        # Use call_later for UI updates from worker
-        self.call_later(self.log_widget.write, "[italic grey50]Thinking...[/]", delay=0)
+        # Post message for UI updates from worker
+        self.post_message(LogMessage("[italic grey50]Thinking...[/]"))
         try:
             # Synchronous call within the worker thread
             response = self.ollama_client.generate(prompt)
             # Update UI from the worker thread safely
-            self.call_later(self.log_widget.write, f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}", delay=0)
+            self.post_message(LogMessage(f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}"))
         except Exception as e:
             # Log the exception and display an error in the TUI
             logger.exception("Error during Ollama call in worker thread:")
             escaped_error = rich.markup.escape(str(e))
-            self.call_later(self.log_widget.write, f"[bold red]Error during Ollama call: {escaped_error}[/]", delay=0)
+            self.post_message(LogMessage(f"[bold red]Error during Ollama call: {escaped_error}[/]"))
         finally:
             # Ensure input is cleared and focused even if there was an error
-            self.call_later(self.input_widget.clear, delay=0)
-            self.call_later(self.input_widget.focus, delay=0)
+            self.post_message(ClearInput())
+            self.post_message(FocusInput())
 
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -156,6 +173,24 @@ class VedaApp(App[None]):
         else:
             # Handle empty input if needed, or just ignore
             self.input_widget.focus()
+
+    # --- Custom Message Handlers ---
+    def on_log_message(self, message: LogMessage) -> None:
+        """Handles logging text to the RichLog."""
+        if self.log_widget:
+            self.log_widget.write(message.text)
+
+    def on_clear_input(self, message: ClearInput) -> None:
+        """Handles clearing the input widget."""
+        if self.input_widget:
+            self.input_widget.clear()
+
+    def on_focus_input(self, message: FocusInput) -> None:
+        """Handles focusing the input widget."""
+        if self.input_widget:
+            self.input_widget.focus()
+    # --- End Custom Message Handlers ---
+
 
     # No longer needed for synchronous client
     # async def on_unmount(self) -> None:
