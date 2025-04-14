@@ -13,7 +13,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 # Import the specific modules needed directly after modifying sys.path
-import agent_manager
+import agent_manager as agent_manager_module # Alias the import
 import constants
 import subprocess # Import subprocess to patch it
 
@@ -75,15 +75,15 @@ def agent_manager(monkeypatch):
         return proc
 
     # Patch subprocess.Popen within the agent_manager module
-    monkeypatch.setattr(agent_manager.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(agent_manager_module.subprocess, "Popen", fake_popen)
     # Patch OPENROUTER_API_KEY within the agent_manager module where it's checked
-    monkeypatch.setattr(agent_manager, "OPENROUTER_API_KEY", "dummy-key")
+    monkeypatch.setattr(agent_manager_module, "OPENROUTER_API_KEY", "dummy-key")
     # Patch the primary model constant within the agent_manager module
-    monkeypatch.setattr(agent_manager, "AIDER_PRIMARY_MODEL", "gemma3:12b")
+    monkeypatch.setattr(agent_manager_module, "AIDER_PRIMARY_MODEL", "gemma3:12b")
     # Return a fresh AgentManager instance from the correct module
-    return agent_manager.AgentManager()
+    return agent_manager_module.AgentManager()
 
-def test_aider_agent_starts_and_handles_prompts(agent_manager: agent_manager.AgentManager): # Add type hint
+def test_aider_agent_starts_and_handles_prompts(agent_manager: agent_manager_module.AgentManager): # Use alias in type hint
     prompt = "Test: improve the codebase"
     # Use the developer role as per the updated AgentManager logic
     role = "developer"
