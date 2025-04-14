@@ -74,24 +74,6 @@ def test_thread_api_returns_threads(monkeypatch):
     except Exception as e:
         pytest.fail(f"Error testing /api/threads: {e}")
     finally:
-        # Capture output if server didn't start
-        if not server_started:
-            try:
-                stdout_data, stderr_data = proc.communicate(timeout=1)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout_data, stderr_data = proc.communicate()
-            print("\n--- Subprocess stdout (test_thread_api) ---")
-            print(stdout_data)
-            print("--- Subprocess stderr (test_thread_api) ---")
-            print(stderr_data)
-            print("------------------------------------------")
-
-        # Ensure termination
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+        # No subprocess to clean up in the mock server approach
+        # The server thread is a daemon thread and will be terminated when the test exits
+        pass
