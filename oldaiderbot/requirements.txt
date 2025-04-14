@@ -13,6 +13,8 @@ websockets # For UI communication
 # Web UI
 flask
 flask-socketio
+gevent # Explicitly add gevent
+gevent-websocket # Explicitly add gevent-websocket
 jinja2
 
 # VESPER.MIND council dependencies

@@ -446,20 +446,21 @@ def start_web_server():
         port = 9900
         logging.info(f"Starting web server at http://{host}:{port}")
         try:
-            # Use socketio's run method which integrates with Flask
-            # Use threading server suitable for development/low load
-            from gevent import pywsgi
-            from geventwebsocket.handler import WebSocketHandler
-            server = pywsgi.WSGIServer((host, port), app, handler_class=WebSocketHandler)
-            server.serve_forever()
-            # Fallback if gevent is not installed (though it should be via flask-socketio)
-            # app.run(host=host, port=port, debug=False, use_reloader=False)
-        except ImportError:
-             logging.warning("Gevent not found, falling back to Flask's development server.")
-             app.run(host=host, port=port, debug=False, use_reloader=False)
+            # Use socketio.run for robust server start, letting it choose async mode
+            logging.info(f"Attempting to start SocketIO server on {host}:{port}")
+            sio.run(app, host=host, port=port, debug=False, use_reloader=False)
+            # sio.run is blocking, so the thread will stay alive running the server.
+            # No need for serve_forever() or fallback app.run() here.
+        except OSError as e:
+             # Common error: Port already in use
+             if "Address already in use" in str(e):
+                 logging.error(f"Port {port} is already in use. Cannot start web server.")
+             else:
+                 logging.error(f"Failed to start web server due to OS Error: {e}")
         except Exception as e:
-            logging.error(f"Failed to start web server: {e}")
+            logging.error(f"Failed to start web server: {e}", exc_info=True) # Log traceback
 
+    # Start the server in a daemon thread so it doesn't block the main Veda process
     threading.Thread(target=run_server, daemon=True).start()
 
 
