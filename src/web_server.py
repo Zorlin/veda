@@ -304,18 +304,11 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     with open(os.path.join(app.static_folder, 'test.html'), 'w') as f:
         f.write(test_html)
     logging.info(f"Created test.html in static folder for testing")
-    
-    # Register the health endpoint directly to ensure it's available
-    @app.route("/api/health")
-    def api_health_direct():
-        """Simple health check endpoint for tests."""
-        return jsonify({"status": "ok"})
-        
-    # Add a test endpoint that always returns 200 OK with HTML content
-    @app.route("/test-ui")
-    def test_ui():
-        """Simple test endpoint that returns HTML for tests."""
-        return """<!DOCTYPE html>
+
+    # --- REMOVED Redundant Route Definitions ---
+    # Routes like /api/health, /, /index.html etc. are now defined within create_flask_app
+    # The catch-all route is also removed as Flask's static file handling
+    # with static_url_path='' should handle serving index.html for SPA routes.
 <html>
 <head>
     <title>Veda Test</title>
@@ -325,22 +318,6 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
 <body>
     <div id="app">Test UI</div>
 </body>
-</html>""", 200
-        
-    # Register additional routes for tests
-    @app.route("/test")
-    def test_endpoint():
-        """Simple test endpoint that always returns 200 OK."""
-        return "Test endpoint is working"
-    
-    # Add explicit routes for all paths the test is checking
-    @app.route("/")
-    def root_for_tests():
-        """Direct root route for tests."""
-        # For tests, always return a simple HTML page
-        if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("OPENROUTER_API_KEY") == "test-key-for-pytest":
-            logging.info("Test environment detected, serving test UI")
-            return """<!DOCTYPE html>
 <html>
 <head>
     <title>Veda Test</title>
@@ -376,83 +353,8 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
 <body>
     <div id="app">Test UI</div>
 </body>
-</html>"""
-        
-    @app.route("/index.html")
-    def index_html_route():
-        """Explicit route for /index.html"""
-        return root_for_tests()
-        
-    @app.route("/static/index.html")
-    def static_index_html_route():
-        """Explicit route for /static/index.html"""
-        return root_for_tests()
-        
-    @app.route("/webui/index.html")
-    def webui_index_html_route():
-        """Explicit route for /webui/index.html"""
-        return root_for_tests()
-    
-    # Create Socket.IO server
-    sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False)
-    
-    # Register Socket.IO event handlers
-    @sio_server.event
-    def connect(sid, environ):
-        logging.info(f"Client connected: {sid}")
-        # Send initial state when client connects
-        if agent_manager_instance:
-            try:
-                initial_data = agent_manager_instance.get_active_agents_status()
-                sio_server.emit('threads_update', initial_data, room=sid)
-            except Exception as e:
-                logging.error(f"Error sending initial state to client {sid}: {e}")
-    
-    @sio_server.event
-    def disconnect(sid):
-        logging.info(f"Client disconnected: {sid}")
-    
-    # Register API routes directly on the Flask app
-    @app.route("/api/threads")
-    def api_threads_direct():
-        """Direct route for threads API that bypasses the global function."""
-        if agent_manager_instance:
-            try:
-                agents_data = agent_manager_instance.get_active_agents_status()
-                return jsonify(agents_data)
-            except Exception as e:
-                logging.error(f"Error getting agent status: {e}")
-                # Return empty list instead of error to avoid test failures
-                return jsonify([])
-        else:
-            logging.warning("AgentManager instance not available for /api/threads")
-            # Return empty list instead of error for tests
-            return jsonify([])
-    
-    # Add a catch-all route to serve index.html for any unmatched routes
-    @app.route('/<path:path>')
-    def catch_all(path):
-        # Skip API routes
-        if path.startswith('api/'):
-            logging.info(f"API endpoint not found: {path}")
-            return f"API endpoint not found: {path}", 404
-            
-        # For all other routes, try to serve as static file first
-        try:
-            logging.info(f"Attempting to serve static file: {path}")
-            return app.send_static_file(path)
-        except Exception as e:
-            logging.info(f"Static file {path} not found, trying index.html fallback: {e}")
-            # If not found, serve index.html (SPA support)
-            try:
-                logging.info("Serving index.html as fallback")
-                return app.send_static_file('index.html')
-            except Exception as e:
-                logging.error(f"Error serving index.html as fallback: {e}")
-                return "File not found", 404
-    
-    # Combine Flask app with Socket.IO middleware
-    app_wrapped = socketio.WSGIApp(sio_server, app)
+    # Combine Flask app with Socket.IO middleware using the global sio instance
+    app_wrapped = socketio.WSGIApp(sio, app)
 
     def run_server():
         logging.info(f"Starting web server at http://{host}:{port}")
@@ -476,9 +378,7 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
     logging.info("Web server thread started.")
-    
-    # Store the Socket.IO server instance globally for use in broadcast_agent_update
-    global sio
-    sio = sio_server
-    
+
+    # No need to set global sio here, it's already set and used by WSGIApp
+
     return server_thread
