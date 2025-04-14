@@ -342,7 +342,7 @@ def chat_interface():
                 # Add file content as context in a separate message
                 context_message = {
                     "role": "user", 
-                    "content": f"Context: File '{filename}' was mentioned. Here is the content:\n\n```\n{file_content}\n```"
+                    "content": f"Context: User asked to read '{filename}'. Here is the content:\n\n```\n{file_content}\n```"
                 }
                 messages.append(context_message)
                 # Print a more informative message for debugging
@@ -351,7 +351,7 @@ def chat_interface():
                 print(f"File not found: {filename}")
                 messages.append({
                     "role": "user", 
-                    "content": f"[System note: File '{filename}' was mentioned but not found. Inform the user.]"
+                    "content": f"[System note: User asked to read '{filename}', but it was not found or is not a file. Inform the user.]"
                 })
             except SecurityException as e:
                 print(f"Security error: {e}")
@@ -484,14 +484,14 @@ def run_readiness_chat() -> str | None:
                 logger.info(f"Read content of '{filename}' for chat context.")
                 print(f"2025-04-14 10:06:34,774 [INFO] Read content of '{filename}' for chat context.")
                 
-                # Prepare context message content
-                context_msg_content = f"Context: File '{filename}' was mentioned. Here is its content:\n\n```\n{file_content}\n```\n\nNow, please respond to the user's request: '{user_input}'"
+                # Prepare context message content - use exact wording expected by tests
+                context_msg_content = f"Context: User asked to read '{filename}'. Here is its content:\n\n```\n{file_content}\n```\n\nNow, please respond to the user's request: '{user_input}'"
                 # Add this context as a new user message for the LLM call
                 current_messages_for_llm.append({"role": "user", "content": context_msg_content})
                 file_read_success = True
             except FileNotFoundError:
                 logger.warning(f"User asked to read non-existent file: {filename}")
-                system_note_for_llm = f"[System note: File '{filename}' was mentioned, but it was not found. Please inform the user.]"
+                system_note_for_llm = f"[System note: User asked to read '{filename}', but it was not found or is not a file. Please inform the user.]"
             except SecurityException as se:
                 logger.error(f"SecurityException reading file '{filename}': {se}")
                 system_note_for_llm = f"[System note: Access denied trying to read '{filename}'. Inform the user.]"
