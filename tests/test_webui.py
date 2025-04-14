@@ -34,15 +34,27 @@ def test_webui_serves_vue_and_tailwind():
         # Try multiple paths to find the UI
         paths_to_try = ["", "/index.html", "/static/index.html"]
         response_found = False
+        response_text = ""
             
         for path in paths_to_try:
             try:
                 resp = requests.get(f"http://localhost:9900{path}")
                 if resp.status_code == 200:
                     response_found = True
+                    response_text = resp.text
                     break
-            except Exception:
+            except Exception as e:
+                print(f"Error trying path {path}: {e}")
                 continue
+            
+        # Print debug info if not found
+        if not response_found:
+            print("\nDebug: Trying to get server status...")
+            try:
+                resp = requests.get("http://localhost:9900/api/health", timeout=2)
+                print(f"Health endpoint response: {resp.status_code}")
+            except Exception as e:
+                print(f"Health endpoint error: {e}")
             
         assert response_found, f"Could not find UI at any of these paths: {paths_to_try}"
         # Check for Vue.js and TailwindCSS in the HTML (we've added both to the page)
