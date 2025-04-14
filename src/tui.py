@@ -189,7 +189,8 @@ class VedaApp(App[None]):
         if not self.project_goal_set:
             # This is the initial project goal
             escaped_user_input = rich.markup.escape(user_input)
-            self.log_widget.write(f"[bold blue]>>> Project Goal:[/bold] {escaped_user_input}") # Log goal to main log
+            # Simplify markup to just bold
+            self.log_widget.write(f"[bold]>>> Project Goal:[/bold] {escaped_user_input}") # Log goal to main log
             if self.agent_manager:
                 self.log_widget.write("[yellow]Initializing project orchestration...[/]")
                 # Run the async agent initialization in a worker
