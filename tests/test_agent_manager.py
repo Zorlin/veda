@@ -238,10 +238,159 @@ async def test_initialize_project(agent_manager, temp_work_dir, mock_app):
     agent_manager.spawn_agent.assert_called_once_with(
         role="planner",
         model=agent_manager.config.get("coordinator_model"), # Uses coordinator model for planner
+        role="planner",
+        # Coordinator model is used for the initial planner/orchestrator role
+        model=agent_manager.config.get("coordinator_model"),
         initial_prompt=project_goal
     )
 
-# TODO: Add tests for send_to_agent (mocking os.write and worker call)
-# TODO: Add tests for stop_all_agents
+@pytest.mark.asyncio
+@patch('agent_manager.os.write')
+async def test_send_to_aider_agent(mock_os_write, agent_manager):
+    """Test sending input to a running Aider agent."""
+    # Spawn a mock Aider agent first
+    test_role = "coder"
+    agent_manager.agents[test_role] = AgentInstance(
+        role=test_role,
+        agent_type="aider",
+        process=AsyncMock(spec=asyncio.subprocess.Process),
+        master_fd=5, # Mock file descriptor
+        read_task=AsyncMock(spec=asyncio.Task)
+    )
+
+    input_data = "Implement this function"
+    await agent_manager.send_to_agent(test_role, input_data)
+
+    # Check that os.write was called on the correct fd with encoded data + newline
+    expected_data = (input_data + '\n').encode('utf-8')
+    mock_os_write.assert_called_once_with(5, expected_data)
+
+@pytest.mark.asyncio
+async def test_send_to_ollama_agent(agent_manager, mock_app):
+    """Test sending input to a running Ollama agent."""
+    test_role = "planner"
+    # Spawn a mock Ollama agent
+    mock_ollama_client = MagicMock(spec=OllamaClient)
+    agent_manager.agents[test_role] = AgentInstance(
+        role=test_role,
+        agent_type="ollama",
+        ollama_client=mock_ollama_client
+    )
+
+    input_data = "What is the next step?"
+    await agent_manager.send_to_agent(test_role, input_data)
+
+    # Check that the worker was called via the app mock
+    # The mock_run_worker executes the worker function directly
+    # We need to assert that the worker function itself was called
+    # Patch the static worker method for this test
+    with patch.object(AgentManager, '_call_ollama_agent_worker', autospec=True) as mock_worker:
+        # Re-trigger the send which calls run_worker -> worker
+        await agent_manager.send_to_agent(test_role, input_data)
+
+        # Assert the static worker method was called (via the mocked run_worker)
+        mock_worker.assert_called_once_with(
+            app=mock_app,
+            client=mock_ollama_client,
+            role=test_role,
+            prompt=input_data
+        )
+    # Check that the "thinking" message was posted
+    mock_app.post_message.assert_any_call(LogMessage(f"[italic grey50]Agent '{test_role}' is thinking...[/]"))
+
+
+@pytest.mark.asyncio
+@patch('agent_manager.os.close')
+@patch('agent_manager.asyncio.wait_for', new_callable=AsyncMock)
+async def test_stop_all_agents(mock_wait_for, mock_os_close, agent_manager):
+    """Test stopping both Aider and Ollama agents."""
+    # Setup mock Aider agent
+    aider_role = "coder"
+    mock_aider_process = AsyncMock(spec=asyncio.subprocess.Process)
+    mock_aider_process.pid = 1111
+    mock_aider_process.returncode = None # Indicate it's running
+    mock_aider_process.terminate = MagicMock()
+    mock_aider_process.kill = MagicMock()
+    mock_aider_read_task = AsyncMock(spec=asyncio.Task)
+    mock_aider_read_task.cancel = MagicMock()
+    agent_manager.agents[aider_role] = AgentInstance(
+        role=aider_role, agent_type="aider", process=mock_aider_process,
+        master_fd=6, read_task=mock_aider_read_task
+    )
+
+    # Setup mock Ollama agent
+    ollama_role = "planner"
+    mock_ollama_client = MagicMock(spec=OllamaClient)
+    agent_manager.agents[ollama_role] = AgentInstance(
+        role=ollama_role, agent_type="ollama", ollama_client=mock_ollama_client
+    )
+
+    assert len(agent_manager.agents) == 2
+
+    await agent_manager.stop_all_agents()
+
+    # Assertions for Aider agent
+    mock_aider_process.terminate.assert_called_once()
+    mock_wait_for.assert_called_once_with(mock_aider_process.wait(), timeout=5.0)
+    mock_aider_process.kill.assert_not_called() # Assuming it terminates gracefully
+    mock_aider_read_task.cancel.assert_called_once()
+    mock_os_close.assert_called_with(6) # Check master_fd close
+
+    # Assertions for Ollama agent (no process actions)
+    # Check logs if needed, but main check is no process calls
+
+    # Check agents dictionary is cleared
+    assert len(agent_manager.agents) == 0
+
+@pytest.mark.asyncio
+async def test_spawn_agent_missing_model_config(agent_manager, mock_app, base_config):
+    """Test spawning agents when model config is missing."""
+    # Test missing aider_model
+    original_aider_model = base_config.pop("aider_model", None)
+    test_role_aider = "coder" # Uses aider
+    await agent_manager.spawn_agent(role=test_role_aider)
+    mock_app.post_message.assert_any_call(
+        LogMessage(f"[bold red]Error: No aider_model configured for agent '{test_role_aider}'.[/]")
+    )
+    assert test_role_aider not in agent_manager.agents
+    if original_aider_model: base_config["aider_model"] = original_aider_model # Restore
+
+    mock_app.post_message.reset_mock()
+
+    # Test missing ollama_model (for a role that falls back)
+    original_ollama_model = base_config.pop("ollama_model", None)
+    test_role_ollama = "skeptic" # Falls back to ollama_model
+    if f"{test_role_ollama}_model" in base_config: del base_config[f"{test_role_ollama}_model"]
+    await agent_manager.spawn_agent(role=test_role_ollama)
+    mock_app.post_message.assert_any_call(
+        LogMessage(f"[bold red]Error: No model configured for Ollama agent '{test_role_ollama}'.[/]")
+    )
+    assert test_role_ollama not in agent_manager.agents
+    if original_ollama_model: base_config["ollama_model"] = original_ollama_model # Restore
+
+@pytest.mark.asyncio
+async def test_code_reviewer_role_config(mock_app, base_config, temp_work_dir):
+    """Test if code_reviewer is added to ollama_roles based on config."""
+    # Case 1: Disabled
+    config1 = base_config.copy()
+    config1["enable_code_review"] = False
+    manager1 = AgentManager(app=mock_app, config=config1, work_dir=temp_work_dir)
+    assert "code_reviewer" not in manager1.ollama_roles
+
+    # Case 2: Enabled but no specific model (should NOT be ollama role)
+    config2 = base_config.copy()
+    config2["enable_code_review"] = True
+    config2["code_review_model"] = None
+    manager2 = AgentManager(app=mock_app, config=config2, work_dir=temp_work_dir)
+    assert "code_reviewer" not in manager2.ollama_roles # Assumes it would use aider if enabled without model
+
+    # Case 3: Enabled WITH specific model (SHOULD be ollama role)
+    config3 = base_config.copy()
+    config3["enable_code_review"] = True
+    config3["code_review_model"] = "test-reviewer-ollama"
+    manager3 = AgentManager(app=mock_app, config=config3, work_dir=temp_work_dir)
+    assert "code_reviewer" in manager3.ollama_roles
+
+
 # TODO: Add tests for _read_pty_output (might require more complex mocking)
 # TODO: Add tests for _monitor_agent_exit

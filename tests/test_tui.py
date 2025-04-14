@@ -148,3 +148,43 @@ async def test_agent_exit_message_handling(test_config):
                 agent_tab_pane = pilot.app.query_one(f"#tab-{agent_role}", TabPane)
                 agent_log = agent_tab_pane.query_one(RichLog)
                 assert f"--- Agent '{agent_role}' exited with code {exit_code} ---" in agent_log.export_text(strip_styles=True)
+
+@pytest.mark.asyncio
+async def test_quit_binding(test_config):
+    """Test the 'q' quit binding."""
+    app = VedaApp(config=test_config)
+    async with app.run_test() as pilot:
+        await pilot.press("q")
+        # Check if the app exit code is set (or if exit event was posted)
+        # run_test() context manager handles exit, so we just check it doesn't hang
+        assert pilot.app._exit_renderables is not None # Internal check, might be brittle
+
+@pytest.mark.asyncio
+async def test_dark_mode_toggle(test_config):
+    """Test the 'd' dark mode toggle binding."""
+    app = VedaApp(config=test_config)
+    async with app.run_test() as pilot:
+        initial_dark = pilot.app.dark
+        await pilot.press("d")
+        assert pilot.app.dark is not initial_dark
+        await pilot.press("d")
+        assert pilot.app.dark is initial_dark
+
+@pytest.mark.asyncio
+async def test_input_disabled_on_ollama_fail():
+    """Test if input is disabled if the main Ollama client fails init."""
+    bad_config = test_config.copy()
+    bad_config["ollama_api_url"] = "invalid-url" # Force OllamaClient init failure
+
+    # Patch OllamaClient.__init__ to raise an error
+    with patch('ollama_client.OllamaClient.__init__', side_effect=ValueError("Mock init failure")):
+        app = VedaApp(config=bad_config)
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1) # Allow mount to complete
+            input_widget = pilot.app.query_one(Input)
+            log_widget = pilot.app.query_one("#main-log", RichLog)
+
+            assert input_widget.disabled is True
+            log_text = log_widget.export_text(strip_styles=True)
+            assert "Error: Veda's Ollama client not initialized" in log_text
+            assert "Interaction disabled." in log_text
