@@ -293,9 +293,9 @@ mod tests {
     #[tokio::test]
     async fn test_agent_manager_new() {
         // Arrange
-        let temp_dir = tempdir().unwrap();
+        let _temp_dir = tempdir().unwrap(); // Prefix unused variable
         // Prefix unused variable
-        let _handoff_path = temp_dir.path().join("handoffs");
+        // let _handoff_path = temp_dir.path().join("handoffs");
         // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
         // Test now uses default or env var for HANDOFF_DIR. Ensure it's writable or mock fs::create_dir_all.
         // For now, we assume the default 'handoffs' dir can be created relative to where tests run.

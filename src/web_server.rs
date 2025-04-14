@@ -390,9 +390,8 @@ mod tests {
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        let mock_uri = mock_ollama_server.uri();
-        // Re-add the constant override for this test's scope
-        let _lock = constants::OLLAMA_URL.set(mock_uri);
+        let _mock_uri = mock_ollama_server.uri(); // Prefix unused variable
+        // let _lock = constants::OLLAMA_URL.set(mock_uri); // Removed override
 
         // NOTE: This test now relies on the handler using the actual OLLAMA_URL constant.
         // To make it work reliably with wiremock, the handler would need to accept the URL,
