@@ -131,12 +131,8 @@ class VedaApp(App[None]):
             # response = self.ollama_client.generate("Ask the user what project goal they want to work on.")
             # self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {response}")
 
-            # Escape the entire string for now to diagnose MarkupError
-            formatted_question = f"Veda: {initial_question}"
-            escaped_question = rich.markup.escape(formatted_question)
-            self.post_message(LogMessage(escaped_question))
-            # Original line causing issues (potentially):
-            # self.post_message(LogMessage(f"[bold magenta]Veda:[/bold] {initial_question}"))
+            # Restore original markup, assuming escaping user input/LLM output fixes issues
+            self.post_message(LogMessage(f"[bold magenta]Veda:[/bold] {initial_question}"))
         except Exception as e:
             logger.exception("Error generating initial prompt:")
             escaped_error = rich.markup.escape(str(e))
@@ -182,7 +178,8 @@ class VedaApp(App[None]):
 
         if not self.project_goal_set:
             # This is the initial project goal
-            self.log_widget.write(f"[bold blue]>>> Project Goal:[/bold] {user_input}")
+            escaped_user_input = rich.markup.escape(user_input)
+            self.log_widget.write(f"[bold blue]>>> Project Goal:[/bold] {escaped_user_input}")
             if self.agent_manager:
                 self.log_widget.write("[yellow]Initializing project orchestration...[/]")
                 # Pass goal to AgentManager (runs in background, no worker needed here for now)
@@ -204,7 +201,8 @@ class VedaApp(App[None]):
 
         elif self.ollama_client and not self.input_widget.disabled:
             # Subsequent input: Treat as chat/command for Veda's Ollama client
-            self.log_widget.write(f"[bold blue]>>>[/] {user_input}")
+            escaped_user_input = rich.markup.escape(user_input)
+            self.log_widget.write(f"[bold blue]>>>[/] {escaped_user_input}")
             # Call the worker for Veda's response/action
             self.call_ollama(user_input)
             # Don't clear input here, worker will do it after response
