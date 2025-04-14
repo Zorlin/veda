@@ -1,0 +1,9 @@
+# Core Veda dependencies
+flask
+flask-socketio
+gevent
+gevent-websocket
+requests
+
+# Aider dependency (ensure it's installed separately if needed, but list it)
+aider-chat
