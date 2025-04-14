@@ -6,7 +6,13 @@ import types
 from collections import deque
 import pytest
 
-import src.main as veda_main
+import sys
+import os
+
+# Ensure src/ is on sys.path for import
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
+import main as veda_main
 
 class DummyProcess:
     def __init__(self, output_lines):
