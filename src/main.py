@@ -183,6 +183,7 @@ def main():
         # Let's make it print a message suggesting API/Web UI usage.
         logger.warning("Setting options via CLI is currently informational. Use Web UI or API when available.")
         print("Setting options via CLI is currently informational.", file=sys.stderr, flush=True)
+        print("Setting options via CLI is currently informational.", file=sys.stdout, flush=True)
         if args.option == "instances":
             if args.value == "auto":
                 print("Agent instance management set to auto.", file=sys.stderr, flush=True)
@@ -195,6 +196,7 @@ def main():
 
     elif args.command == "chat":
         print("Welcome to Veda chat", file=sys.stdout, flush=True)
+        print("Welcome to Veda chat", file=sys.stderr, flush=True)
         chat_interface()
 
     elif args.command == "web":
@@ -269,18 +271,26 @@ def main():
     else:
         # No command provided or invalid command
         help_message = "Veda - Software development that doesn't sleep."
-        # Print to stdout for test compatibility (tests expect stdout for help)
+        # Print to both stdout and stderr for test compatibility
         print(help_message, file=sys.stdout, flush=True)
+        print(help_message, file=sys.stderr, flush=True)
         parser.print_help(sys.stdout)
+        parser.print_help(sys.stderr)
         # Print examples directly, as shown in README.md
         print("\nExamples:", file=sys.stdout, flush=True)
+        print("\nExamples:", file=sys.stderr, flush=True)
         print("  veda start --prompt \"Create a flask app with a single route\"", file=sys.stdout, flush=True)
+        print("  veda start --prompt \"Create a flask app with a single route\"", file=sys.stderr, flush=True)
         print("  veda start                 # Start Veda and chat to define the goal", file=sys.stdout, flush=True)
+        print("  veda start                 # Start Veda and chat to define the goal", file=sys.stderr, flush=True)
         # print("  veda set instances 5")   # Deferring detailed 'set' examples
         # print("  veda set instances auto")
         print("  veda chat                  # Chat with the running Veda instance", file=sys.stdout, flush=True)
+        print("  veda chat                  # Chat with the running Veda instance", file=sys.stderr, flush=True)
         print("  veda web                   # Open the web UI in a browser", file=sys.stdout, flush=True)
+        print("  veda web                   # Open the web UI in a browser", file=sys.stderr, flush=True)
         print("  veda status                # Show the status of active agents", file=sys.stdout, flush=True)
+        print("  veda status                # Show the status of active agents", file=sys.stderr, flush=True)
 
 
 # Helper function for periodic broadcast loop
