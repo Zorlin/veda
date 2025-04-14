@@ -8,7 +8,8 @@ use axum::{
     routing::get,
     Router, serve, // Use axum::serve instead of axum::Server
 };
-use futures::{sink::SinkExt, stream::StreamExt};
+// Remove unused futures imports
+// use futures::{sink::SinkExt, stream::StreamExt};
 use minijinja::{path_loader, Environment};
 use minijinja_autoreload::AutoReloader;
 use std::{net::SocketAddr, sync::Arc};
@@ -270,7 +271,8 @@ mod tests {
     // Remove unused imports: Request, Body
     use axum::http::StatusCode;
     use axum_test::TestServer;
-    use serde::Deserialize; // Needed for response.json()
+    // Remove unused Deserialize import from here (it's used on the struct derives)
+    // use serde::Deserialize;
     use serde_json::json;
     use std::{
         collections::HashMap,
@@ -390,7 +392,7 @@ mod tests {
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        let mock_uri = mock_ollama_server.uri();
+        let _mock_uri = mock_ollama_server.uri(); // Prefix unused variable
         // Remove the problematic constant override for now. Test will use default OLLAMA_URL unless mocked.
         // let _lock = constants::OLLAMA_URL.set(mock_uri);
 
@@ -458,7 +460,7 @@ mod tests {
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        let mock_uri = mock_ollama_server.uri();
+        let _mock_uri = mock_ollama_server.uri(); // Prefix unused variable
         // Remove the problematic constant override
         // let _lock = constants::OLLAMA_URL.set(mock_uri);
 

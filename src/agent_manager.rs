@@ -53,7 +53,8 @@ pub struct AgentStatusReport {
 const AGENT_OUTPUT_BUFFER_SIZE: usize = 100; // Max lines to keep in buffer
 
 pub struct AgentManager {
-    active_agents: Arc<Mutex<HashMap<u32, AgentInfo>>>,
+    // Make public for test access (consider better test setup methods later)
+    pub active_agents: Arc<Mutex<HashMap<u32, AgentInfo>>>,
     next_agent_id: AtomicU32, // Simple atomic counter for unique IDs
     handoff_dir: PathBuf,
     // Handle for the main monitoring task

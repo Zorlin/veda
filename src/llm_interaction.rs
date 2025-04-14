@@ -98,7 +98,7 @@ mod tests {
     async fn test_synthesize_goal_success() {
         // Arrange
         let mock_server = MockServer::start().await;
-        let mock_uri = mock_server.uri();
+        let _mock_uri = mock_server.uri(); // Prefix unused variable
         // Override the OLLAMA_URL for this test scope using wiremock's URI
         // NOTE: The `set` helper was removed due to unsafety. This test now relies
         // on the default OLLAMA_URL *or* requires running with an env var override.
@@ -163,7 +163,7 @@ mod tests {
     async fn test_synthesize_goal_ollama_error() {
         // Arrange
         let mock_server = MockServer::start().await;
-        let mock_uri = mock_server.uri();
+        let _mock_uri = mock_server.uri(); // Prefix unused variable
         // let _lock = constants::OLLAMA_URL.set(mock_uri); // Removed this line
 
         let tags = vec!["tag1".to_string()];
@@ -188,7 +188,7 @@ mod tests {
      #[tokio::test]
     async fn test_synthesize_goal_network_error() {
          // Arrange - No mock server running at this address
-         let invalid_uri = "http://127.0.0.1:1".to_string(); // Use a port very unlikely to be open
+         let _invalid_uri = "http://127.0.0.1:1".to_string(); // Prefix unused variable
          // let _lock = constants::OLLAMA_URL.set(invalid_uri); // Removed this line
          // This test might fail if the default OLLAMA_URL is reachable.
          // Ideally, inject the URL.
