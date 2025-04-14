@@ -40,6 +40,29 @@ def create_flask_app():
     if not os.path.isdir(static_dir):
         logging.warning(f"Static directory not found at {static_dir}. Creating it now.")
         os.makedirs(static_dir, exist_ok=True)
+        
+        # Create a basic index.html file if it doesn't exist
+        index_path = os.path.join(static_dir, 'index.html')
+        if not os.path.exists(index_path):
+            with open(index_path, 'w') as f:
+                f.write("""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veda - AI Software Development</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <h1>Veda</h1>
+        <p>AI-Powered Software Development</p>
+    </div>
+</body>
+</html>""")
+            logging.info(f"Created basic index.html file at {index_path}")
 
     # Configure Flask to find static files in webui directory
     # Set static_url_path to empty string to serve static files from root URL
@@ -73,6 +96,44 @@ def create_flask_app():
             # If index.html is missing, serve a basic UI directly
             logging.warning(f"index.html not found in {app.static_folder}, serving basic UI")
             return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Veda - AI Software Development</title>
+        <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+        <style>
+            body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            h1 { color: #2c3e50; }
+        </style>
+    </head>
+    <body>
+        <h1>Veda</h1>
+        <p>AI-Powered Software Development</p>
+        <div id="status">
+            <p>System Status: Connecting to server...</p>
+        </div>
+        <div id="chat">
+            <h2>Chat with Veda</h2>
+            <div id="messages" style="height: 300px; border: 1px solid #ccc; overflow-y: auto; padding: 10px; margin-bottom: 10px;">
+                <p>Chat history will appear here.</p>
+            </div>
+            <div style="display: flex;">
+                <input type="text" id="message-input" style="flex-grow: 1; padding: 5px;" placeholder="Type your message...">
+                <button id="send-button" style="margin-left: 10px; padding: 5px 10px; background: #2c3e50; color: white; border: none;">Send</button>
+            </div>
+        </div>
+        <script>
+            // Basic Vue setup would go here in the full version
+            document.getElementById('send-button').addEventListener('click', function() {
+                alert('Chat functionality available in the full UI');
+            });
+        </script>
+    </body>
+    </html>
             <!DOCTYPE html>
             <html lang="en">
             <head>
