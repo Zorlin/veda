@@ -14,11 +14,12 @@ use tokio::{
     time::sleep,
 };
 use tracing::{debug, error, info, warn};
+use serde::Deserialize; // Import Deserialize derive macro
 
 use crate::constants; // Assuming constants like HANDOFF_DIR are defined there
 
 // Represents the possible states of an agent
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, Deserialize)] // Add Deserialize here
 pub enum AgentStatus {
     Starting,
     Running,
