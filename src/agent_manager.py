@@ -42,7 +42,7 @@ class AgentManager:
             if value == "auto":
                 self.instances = "auto"
                 logging.info("Agent instance management set to auto.")
-                print("Agent instance management set to auto.", file=sys.stdout, flush=True)
+                print("Agent instance management set to auto.", file=sys.stderr, flush=True)
             else:
                 try:
                     count = int(value)
@@ -50,10 +50,10 @@ class AgentManager:
                         raise ValueError
                     self.instances = count
                     logging.info(f"Agent instances set to {count}.")
-                    print(f"Agent instances set to {count}.", file=sys.stdout, flush=True)
+                    print(f"Agent instances set to {count}.", file=sys.stderr, flush=True)
                 except ValueError:
                     logging.error("Invalid instance count. Must be a positive integer or 'auto'.")
-                    print("Invalid instance count. Must be a positive integer or 'auto'.", file=sys.stdout, flush=True)
+                    print("Invalid instance count. Must be a positive integer or 'auto'.", file=sys.stderr, flush=True)
 
     def start(self, initial_prompt=None):
         with self.lock:

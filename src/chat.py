@@ -60,9 +60,9 @@ def chat_interface():
         print("Warning: OPENROUTER_API_KEY environment variable not set. Aider agents cannot be started.")
         # Allow chat to proceed, but warn the user.
 
-    print("\nWelcome to Veda chat.")
-    print("Ask about your project, give instructions, or type 'exit' to quit.")
-    print(f"Connecting to Ollama at {OLLAMA_URL} using model {VEDA_CHAT_MODEL}")
+    print("\nWelcome to Veda chat.", file=sys.stderr, flush=True)
+    print("Ask about your project, give instructions, or type 'exit' to quit.", file=sys.stderr, flush=True)
+    print(f"Connecting to Ollama at {OLLAMA_URL} using model {VEDA_CHAT_MODEL}", file=sys.stderr, flush=True)
 
     system_prompt = (
         "You are Veda, an advanced AI orchestrator for software development. "
