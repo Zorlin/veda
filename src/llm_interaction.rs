@@ -11,6 +11,7 @@ struct OllamaRequest {
     model: String,
     prompt: String,
     stream: bool, // We want the full response, not a stream
+    #[serde(skip_serializing_if = "Option::is_none")] // Omit if None
     options: Option<serde_json::Value>, // Optional parameters like temperature
 }
 
@@ -111,12 +112,11 @@ mod tests {
         let expected_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- tag1\n- tag2\n\nSynthesized Goal:";
         let expected_model = constants::VEDA_CHAT_MODEL.clone();
 
-        // Define expected body *with* options explicitly set to null
+        // Define expected body *without* the options field
         let mock_request_body = json!({
             "model": expected_model,
             "prompt": expected_prompt,
             "stream": false,
-            "options": serde_json::Value::Null,
         });
 
         let mock_response_body = json!({

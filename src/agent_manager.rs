@@ -239,7 +239,12 @@ impl AgentManager {
         if let Some(handle) = self.monitor_task_handle.lock().await.take() {
             info!("Aborting monitor task...");
             handle.abort();
-            let _ = handle.await; // Wait for abort to complete (ignore result)
+            // Explicitly await the handle after aborting
+            match handle.await {
+                Ok(_) => info!("Monitor task completed after abort."),
+                Err(e) if e.is_cancelled() => info!("Monitor task cancelled successfully."),
+                Err(e) => error!("Error awaiting aborted monitor task: {:?}", e),
+            }
             info!("Monitor task stopped.");
         } else {
             info!("Monitor task was not running.");
@@ -483,7 +488,7 @@ mod tests {
         assert!(kill_result.is_ok());
         // Increase sleep duration to give the OS more time
         sleep(Duration::from_millis(500)).await; // Give OS more time to reap process
-        // Prefix unused variable
+        // Prefix unused variable again
         let _kill_result = Command::new("kill").arg("-0").arg(process_id.unwrap().to_string()).status().await;
         // assert!(kill_result.is_ok()); // Remove OS process check
         // assert!(!kill_result.unwrap().success(), "Process should no longer exist after stop"); // Remove OS process check
