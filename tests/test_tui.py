@@ -124,11 +124,11 @@ async def test_agent_tab_creation_and_output(test_config):
                 assert agent_line_1 in log_text
                 assert agent_line_2 in log_text
 
-        @pytest.mark.asyncio
-        async def test_agent_exit_message_handling(test_config):
-            """Test that agent exit messages are logged correctly."""
-            app = VedaApp(config=test_config)
-            async with app.run_test() as pilot:
+@pytest.mark.asyncio
+async def test_agent_exit_message_handling(test_config):
+    """Test that agent exit messages are logged correctly."""
+    app = VedaApp(config=test_config)
+    async with app.run_test() as pilot:
                 # First, create an agent tab by sending some output
                 agent_role = "architect"
                 pilot.app.post_message(AgentOutputMessage(role=agent_role, line="Architect planning..."))
