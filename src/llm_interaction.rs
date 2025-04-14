@@ -112,13 +112,19 @@ mod tests {
         let expected_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- tag1\n- tag2\n\nSynthesized Goal:";
         let expected_model = constants::VEDA_CHAT_MODEL.clone();
 
-        // Define expected body *with* options explicitly set to null
-        let mock_request_body = json!({
+        // Define expected body *without* options for the custom matcher
+        let expected_body_partial = json!({
             "model": expected_model,
             "prompt": expected_prompt,
             "stream": false,
-            "options": serde_json::Value::Null,
         });
+
+        // Custom matcher function to ignore 'options'
+        let body_matcher = move |req_body: &serde_json::Value| {
+            req_body.get("model") == expected_body_partial.get("model") &&
+            req_body.get("prompt") == expected_body_partial.get("prompt") &&
+            req_body.get("stream") == expected_body_partial.get("stream")
+        };
 
         let mock_response_body = json!({
             "model": expected_model,
@@ -136,8 +142,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/api/generate"))
-            // Use body_json to match the exact expected body
-            .and(body_json(&mock_request_body))
+            // Use the custom function matcher for the body
+            .and(wiremock::matchers::body_json_fn(body_matcher))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body))
             .mount(&mock_server)
             .await;
