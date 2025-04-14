@@ -112,7 +112,9 @@ async fn synthesize_goal_handler(
         return Ok(axum::response::Json(SynthesizeGoalResponse { goal: "".to_string() }));
     }
 
-    match llm_interaction::synthesize_goal_with_ollama(request.tags).await {
+    // Get the base URL from constants and pass it
+    let base_url = &*constants::OLLAMA_URL;
+    match llm_interaction::synthesize_goal_with_ollama(request.tags, base_url).await {
         Ok(synthesized_goal) => {
             info!(synthesized_goal = ?synthesized_goal, "Goal synthesized successfully");
             Ok(axum::response::Json(SynthesizeGoalResponse { goal: synthesized_goal }))
