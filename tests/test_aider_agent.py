@@ -12,9 +12,9 @@ import os
 # Ensure src/ is on sys.path for import
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-# Import the specific modules needed
-from src import agent_manager
-from src import constants
+# Import the specific modules needed directly after modifying sys.path
+import agent_manager
+import constants
 import subprocess # Import subprocess to patch it
 
 class DummyProcess:
