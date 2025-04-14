@@ -74,8 +74,9 @@ class VedaApp(App[None]):
 
         self.log_widget.write("[bold green]Welcome to Veda TUI![/]")
         if self.ollama_client:
-            self.log_widget.write(f"Connected to Ollama model: [cyan]{self.ollama_client.model}[/]")
-            self.log_widget.write("Enter your message or command.")
+            self.log_widget.write(f"Using Ollama model: [cyan]{self.ollama_client.model}[/]")
+            # Trigger the initial prompt generation
+            self.ask_initial_prompt()
         else:
             self.log_widget.write("[bold red]Error: Ollama client not initialized. Check config and logs.[/]")
             self.log_widget.write("Interaction disabled.")
@@ -83,9 +84,31 @@ class VedaApp(App[None]):
 
         # TODO: Add other initial status information based on config/state
 
+    @work(exclusive=True, thread=True)
+    def ask_initial_prompt(self) -> None:
+        """Worker method to ask the initial user prompt using Ollama."""
+        if not self.ollama_client:
+            self.call_from_thread(self.log_widget.write, "[bold red]Cannot generate initial prompt: Ollama client not available.[/]")
+            return
+
+        initial_question = "What project goal should I work on today?"
+        self.call_from_thread(self.log_widget.write, "[italic grey50]Veda is thinking about the first question...[/]")
+        try:
+            # Optional: Could ask Ollama to phrase the initial question, but let's keep it simple for now.
+            # response = self.ollama_client.generate("Ask the user what project goal they want to work on.")
+            # self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {response}")
+            self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {initial_question}")
+        except Exception as e:
+            logger.exception("Error generating initial prompt:")
+            self.call_from_thread(self.log_widget.write, f"[bold red]Error generating initial prompt: {e}[/]")
+        finally:
+             # Ensure input is focused after the prompt is displayed
+             self.call_from_thread(self.input_widget.focus)
+
+
     @work(exclusive=True, thread=True) # Run Ollama call in a worker thread
     def call_ollama(self, prompt: str) -> None:
-        """Worker method to call Ollama (synchronously) and update the log."""
+        """Worker method to call Ollama (synchronously) for user prompts and update the log."""
         if not self.ollama_client:
             # Use call_from_thread for UI updates from worker
             self.call_from_thread(self.log_widget.write, "[bold red]Cannot process: Ollama client not available.[/]")

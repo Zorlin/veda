@@ -13,3 +13,6 @@ textual
 
 # Configuration loading
 pyyaml
+
+# Testing
+pytest-textual
