@@ -93,12 +93,20 @@ async fn main() -> Result<()> {
 
             // Clone Arc for agent manager task
             let agent_manager_task_clone = agent_manager.clone();
-            // Spawn the agent manager's main loop task
+            // Spawn the agent manager's main loop task and wait for shutdown signal
+            let agent_manager_notify_clone = agent_manager.shutdown_notify.clone(); // Clone Notify Arc
             let mut agent_manager_handle = tokio::spawn(async move {
-                 if let Err(e) = agent_manager_task_clone.start(prompt).await {
-                     error!("Agent manager task failed: {:?}", e);
-                 }
-             });
+                // Start the agent manager (spawns monitor loop, etc.)
+                if let Err(e) = agent_manager_task_clone.start(prompt).await {
+                    error!("Agent manager failed during startup: {:?}", e);
+                    // Optionally notify shutdown immediately if startup fails critically
+                    // agent_manager_notify_clone.notify_waiters();
+                    return; // Exit this task if startup fails
+                }
+                // Wait indefinitely until the shutdown_notify is triggered by agent_manager.stop()
+                agent_manager_notify_clone.notified().await;
+                info!("Agent manager task received shutdown notification.");
+            });
 
             // Keep the main thread alive and wait for shutdown signals or task completion
             let ctrl_c = tokio::signal::ctrl_c();

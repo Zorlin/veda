@@ -6,7 +6,7 @@ description = "AI-Powered Software Development via an Intuitive Web UI"
 license = "MIT" # Or your preferred license
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full", "sync"] } # Add "sync" feature for Notify
 clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

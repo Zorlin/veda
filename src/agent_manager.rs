@@ -9,7 +9,7 @@ use std::{
 use tokio::{
     fs,
     process::{Child, Command},
-    sync::Mutex,
+    sync::{Mutex, Notify}, // Import Notify
     task::JoinHandle,
     time::sleep,
 };
@@ -57,6 +57,8 @@ pub struct AgentManager {
     handoff_dir: PathBuf,
     // Handle for the main monitoring task
     monitor_task_handle: Mutex<Option<JoinHandle<()>>>,
+    // Used to signal the main manager task in main.rs to exit
+    shutdown_notify: Arc<Notify>,
 }
 
 impl AgentManager {
@@ -73,6 +75,7 @@ impl AgentManager {
             next_agent_id: AtomicU32::new(1), // Start IDs from 1
             handoff_dir: handoff_path,
             monitor_task_handle: Mutex::new(None),
+            shutdown_notify: Arc::new(Notify::new()), // Initialize Notify
         })
     }
 
@@ -265,6 +268,11 @@ impl AgentManager {
         // Clear the map after attempting termination
         // agents.clear(); // Or keep terminated agents for final status reporting? Let's keep them for now.
         info!("Agent termination process complete.");
+
+        // Signal the main manager task to exit
+        self.shutdown_notify.notify_waiters();
+        info!("Shutdown notification sent.");
+
         Ok(())
     }
 }
