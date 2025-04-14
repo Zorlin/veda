@@ -157,7 +157,8 @@ class VedaApp(App[None]):
             # Synchronous call within the worker thread
             response = self.ollama_client.generate(prompt)
             # Update UI from the worker thread safely
-            self.post_message(LogMessage(f"[bold magenta]Veda ({self.ollama_client.model}):[/] {response}"))
+            # Simplify markup first to diagnose
+            self.post_message(LogMessage(f"[bold]Veda ({self.ollama_client.model}):[/] {response}"))
         except Exception as e:
             # Log the exception and display an error in the TUI
             logger.exception("Error during Ollama call in worker thread:")
