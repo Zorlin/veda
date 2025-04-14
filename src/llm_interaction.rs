@@ -112,12 +112,12 @@ mod tests {
         let expected_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- tag1\n- tag2\n\nSynthesized Goal:";
         let expected_model = constants::VEDA_CHAT_MODEL.clone();
 
-        // Define expected body *with* options explicitly set to null
+        // Define expected body *without* the options field, matching skip_serializing_if
         let mock_request_body = json!({
             "model": expected_model,
             "prompt": expected_prompt,
             "stream": false,
-            "options": serde_json::Value::Null,
+            // "options" field is omitted entirely
         });
 
         let mock_response_body = json!({

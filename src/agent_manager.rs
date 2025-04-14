@@ -9,7 +9,7 @@ use std::{
 use tokio::{
     fs,
     process::{Child, Command},
-    sync::{Mutex, Notify}, // Import Notify
+    sync::{Mutex, Notify},
     task::JoinHandle,
     time::sleep,
 };
@@ -61,8 +61,9 @@ pub struct AgentManager {
     // Handle for the main monitoring task
     monitor_task_handle: Mutex<Option<JoinHandle<()>>>,
     // Used to signal the main manager task in main.rs to exit
-    // Make this public so main.rs can access it
     pub shutdown_notify: Arc<Notify>,
+    // Used to signal the monitor loop to exit gracefully
+    monitor_shutdown_notify: Arc<Notify>,
 }
 
 impl AgentManager {
@@ -79,7 +80,8 @@ impl AgentManager {
             next_agent_id: AtomicU32::new(1), // Start IDs from 1
             handoff_dir: handoff_path,
             monitor_task_handle: Mutex::new(None),
-            shutdown_notify: Arc::new(Notify::new()), // Initialize Notify
+            shutdown_notify: Arc::new(Notify::new()),
+            monitor_shutdown_notify: Arc::new(Notify::new()), // Initialize monitor shutdown notify
         })
     }
 
@@ -151,11 +153,23 @@ impl AgentManager {
     }
 
     // The main loop for monitoring agent statuses
-    async fn monitor_agents_loop(&self) {
+    async fn monitor_agents_loop(self: Arc<Self>) { // Take Arc<Self> to access monitor_shutdown_notify
         info!("Agent monitoring loop started.");
-        loop {
-            sleep(Duration::from_secs(5)).await; // Check every 5 seconds
+        let shutdown_signal = self.monitor_shutdown_notify.clone();
 
+        loop {
+            tokio::select! {
+                // Wait for either the sleep duration or the shutdown signal
+                _ = sleep(Duration::from_secs(5)) => {
+                    // Timer elapsed, proceed with check
+                }
+                _ = shutdown_signal.notified() => {
+                    info!("Monitor loop received shutdown signal. Exiting.");
+                    break; // Exit the loop
+                }
+            }
+
+            // Lock agents *after* the select! to minimize lock duration
             let mut agents = self.active_agents.lock().await;
             if agents.is_empty() {
                 debug!("No active agents to monitor.");
@@ -209,8 +223,10 @@ impl AgentManager {
             //     agents.remove(&id);
             //     info!("Removed agent {} from active list.", id);
             // }
+            // Drop the lock before the next loop iteration/sleep
+            drop(agents);
         }
-        // info!("Agent monitoring loop stopped."); // This line might not be reached in normal operation
+        info!("Agent monitoring loop stopped.");
     }
 
     // Provides a summary of active agents for UI/API
@@ -231,19 +247,18 @@ impl AgentManager {
     pub async fn stop(&self) -> Result<()> {
         info!("Stopping Agent Manager...");
 
-        // Signal the main manager task to exit *first*
-        self.shutdown_notify.notify_waiters();
-        info!("Shutdown notification sent.");
-        // Add a small delay to allow the waiting task to potentially react
-        sleep(Duration::from_millis(50)).await;
+        // Signal the monitor loop to shut down *first*
+        info!("Signaling monitor loop to shut down...");
+        self.monitor_shutdown_notify.notify_one();
 
-
-        // Stop the monitoring loop
+        // Wait for the monitor loop task to complete
+        info!("Waiting for monitor task to stop...");
         if let Some(handle) = self.monitor_task_handle.lock().await.take() {
-            info!("Aborting monitor task...");
-            handle.abort();
-            // Don't await the aborted handle, just signal it.
-            info!("Monitor task aborted signal sent.");
+            // Await the handle gracefully
+            if let Err(e) = handle.await {
+                 error!("Error awaiting monitor task handle: {:?}", e);
+            }
+            info!("Monitor task stopped.");
         } else {
             info!("Monitor task was not running.");
         }
@@ -276,9 +291,14 @@ impl AgentManager {
                  task.abort();
              }
         }
-        // Clear the map after attempting termination
-        // agents.clear(); // Or keep terminated agents for final status reporting? Let's keep them for now.
+        // Drop the lock before notifying the main shutdown
+        drop(agents);
+
+        // Now signal the main manager task in main.rs to exit
+        info!("Signaling main shutdown...");
+        self.shutdown_notify.notify_waiters();
         info!("Agent termination process complete.");
+
 
         Ok(())
     }
@@ -492,10 +512,9 @@ mod tests {
         // assert!(kill_result.is_ok()); // Remove OS process check
         // assert!(!kill_result.unwrap().success(), "Process should no longer exist after stop"); // Remove OS process check
 
-        // Remove the timeout check for notification, as it seems unreliable/flaky.
-        // The primary check is that the agent status is updated correctly below.
-        // let notified = timeout(Duration::from_secs(1), manager.shutdown_notify.notified()).await;
-        // assert!(notified.is_ok(), "Shutdown should have been notified within 1 second");
+        // Reinstate timeout check for the main shutdown notification
+        let notified = tokio::time::timeout(Duration::from_secs(1), manager.shutdown_notify.notified()).await;
+        assert!(notified.is_ok(), "Main shutdown should have been notified within 1 second");
 
         // Check monitor task was stopped
         assert!(manager.monitor_task_handle.lock().await.is_none()); // Handle should be taken
