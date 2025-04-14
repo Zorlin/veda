@@ -420,8 +420,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/api/generate"))
-            // Use any() matcher for the body to bypass matching issues for now
-            .and(wiremock::matchers::any())
+             // Use body_partial_json matcher
+            .and(wiremock::matchers::body_partial_json(&expected_partial_body))
             .respond_with(ResponseTemplate::new(200).set_body_json(ollama_response_body))
             .mount(&mock_ollama_server)
             .await;
