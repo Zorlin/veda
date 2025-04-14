@@ -512,9 +512,9 @@ mod tests {
         // assert!(kill_result.is_ok()); // Remove OS process check
         // assert!(!kill_result.unwrap().success(), "Process should no longer exist after stop"); // Remove OS process check
 
-        // Remove timeout check for notification - rely on status check below
-        // let notified = tokio::time::timeout(Duration::from_secs(1), manager.shutdown_notify.notified()).await;
-        // assert!(notified.is_ok(), "Main shutdown should have been notified within 1 second");
+        // Reinstate timeout check for notification with longer duration
+        let notified = tokio::time::timeout(Duration::from_secs(5), manager.shutdown_notify.notified()).await;
+        assert!(notified.is_ok(), "Main shutdown should have been notified within 5 seconds");
 
         // Check monitor task was stopped
         assert!(manager.monitor_task_handle.lock().await.is_none()); // Handle should be taken

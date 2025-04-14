@@ -112,12 +112,12 @@ mod tests {
         let expected_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- tag1\n- tag2\n\nSynthesized Goal:";
         let expected_model = constants::VEDA_CHAT_MODEL.clone();
 
-        // Define expected body *without* the options field, matching skip_serializing_if
+        // Define expected body *with* options explicitly set to json!(null)
         let mock_request_body = json!({
             "model": expected_model,
             "prompt": expected_prompt,
             "stream": false,
-            // "options" field is omitted entirely
+            "options": json!(null), // Use json! macro for null
         });
 
         let mock_response_body = json!({
@@ -136,8 +136,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/api/generate"))
-            // Use body_partial_json to only check fields present in our expectation
-            .and(wiremock::matchers::body_partial_json(&expected_partial_body))
+            // Revert to body_json matcher
+            .and(body_json(&mock_request_body))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body))
             .mount(&mock_server)
             .await;

@@ -420,8 +420,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/api/generate"))
-             // Use body_partial_json to only check fields present in our expectation
-            .and(wiremock::matchers::body_partial_json(&expected_partial_body))
+            // Revert to body_json matcher
+            .and(body_json(&ollama_request_body))
             .respond_with(ResponseTemplate::new(200).set_body_json(ollama_response_body))
             .mount(&mock_ollama_server)
             .await;
