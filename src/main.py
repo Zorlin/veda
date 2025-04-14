@@ -446,11 +446,11 @@ def start_web_server():
         port = 9900
         logging.info(f"Starting web server at http://{host}:{port}")
         try:
-            # Use socketio.run for robust server start, letting it choose async mode
+            # Use socketio.WSGIApp with a WSGI server (Werkzeug) for compatibility
+            from werkzeug.serving import run_simple
             logging.info(f"Attempting to start SocketIO server on {host}:{port}")
-            sio.run(app, host=host, port=port, debug=False, use_reloader=False)
-            # sio.run is blocking, so the thread will stay alive running the server.
-            # No need for serve_forever() or fallback app.run() here.
+            run_simple(host, port, app, use_reloader=False, use_debugger=False)
+            # run_simple is blocking, so the thread will stay alive running the server.
         except OSError as e:
              # Common error: Port already in use
              if "Address already in use" in str(e):
