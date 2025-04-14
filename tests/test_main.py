@@ -37,10 +37,15 @@ def test_chat_interface(monkeypatch):
     result = run_veda_cmd(["chat"])
     assert "Welcome to Veda chat" in result.stdout or "Welcome to Veda chat" in result.stderr
 
+import os # Add os import
+
 def test_web_server_starts():
     # Start the web server in a subprocess and check if port 9900 is open
-    proc = subprocess.Popen([sys.executable, "src/main.py", "start"])
-    time.sleep(2)
+    # Pass a dummy API key for the test environment
+    test_env = os.environ.copy()
+    test_env["OPENROUTER_API_KEY"] = "test-key-for-pytest"
+    proc = subprocess.Popen([sys.executable, "src/main.py", "start"], env=test_env)
+    time.sleep(2) # Give server time to start
     s = socket.socket()
     try:
         s.connect(("localhost", 9900))

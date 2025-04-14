@@ -3,6 +3,7 @@ import requests
 import subprocess
 import sys
 import time
+import os # Add os import
 
 def wait_for_port(port, timeout=10):
     start = time.time()
@@ -17,7 +18,10 @@ def wait_for_port(port, timeout=10):
     return False
 
 def test_thread_api_returns_threads():
-    proc = subprocess.Popen([sys.executable, "src/main.py", "start", "--prompt", "test thread api"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Pass a dummy API key for the test environment
+    test_env = os.environ.copy()
+    test_env["OPENROUTER_API_KEY"] = "test-key-for-pytest"
+    proc = subprocess.Popen([sys.executable, "src/main.py", "start", "--prompt", "test thread api"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=test_env)
     try:
         assert wait_for_port(9900), "Web server did not start on port 9900"
         # Give the server a moment to serve the API
