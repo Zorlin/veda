@@ -1,4 +1,5 @@
 import logging
+import rich.markup # Import for escaping
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import Header, Footer, Input, RichLog
