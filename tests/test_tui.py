@@ -75,23 +75,23 @@ async def test_user_input_appears_in_log():
         log = pilot.app.query_one("#main-log", RichLog)
         assert log is not None
 
-            # Check if the input appears in the main log
-            main_log_widget = pilot.app.query_one("#main-log", RichLog)
-            assert ">>> This is a test message" in main_log_widget.export_text(strip_styles=True)
+        # Check if the input appears in the main log
+        main_log_widget = pilot.app.query_one("#main-log", RichLog)
+        assert ">>> This is a test message" in main_log_widget.export_text(strip_styles=True)
 
-            # Check if the "thinking" message appeared (assuming Ollama client is mocked/available)
-            # This might fail if the Ollama client init failed in the fixture
-            if pilot.app.ollama_client:
-                assert "Thinking..." in main_log_widget.export_text(strip_styles=True)
-                # Check if the (mocked) response appeared - Requires mocking OllamaClient in the fixture
-                # assert f"Veda ({test_config['ollama_model']}): Mock Ollama Response" in main_log_widget.export_text(strip_styles=True)
+        # Check if the "thinking" message appeared (assuming Ollama client is mocked/available)
+        # This might fail if the Ollama client init failed in the fixture
+        if pilot.app.ollama_client:
+            assert "Thinking..." in main_log_widget.export_text(strip_styles=True)
+            # Check if the (mocked) response appeared - Requires mocking OllamaClient in the fixture
+            # assert f"Veda ({test_config['ollama_model']}): Mock Ollama Response" in main_log_widget.export_text(strip_styles=True)
 
-            # Check if input was cleared (happens in the worker's finally block)
-            input_widget = pilot.app.query_one(Input)
-            assert input_widget.value == ""
+        # Check if input was cleared (happens in the worker's finally block)
+        input_widget = pilot.app.query_one(Input)
+        assert input_widget.value == ""
 
-        @pytest.mark.asyncio
-        async def test_agent_tab_creation_and_output(test_config):
+@pytest.mark.asyncio
+async def test_agent_tab_creation_and_output(test_config):
             """Test that agent output creates a new tab and logs correctly."""
             app = VedaApp(config=test_config)
             async with app.run_test() as pilot:
