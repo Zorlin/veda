@@ -6,7 +6,7 @@ use axum::{
     },
     response::IntoResponse,
     routing::get,
-    Router, Server,
+    Router, serve, // Use axum::serve instead of axum::Server
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use minijinja::{path_loader, Environment};
@@ -37,11 +37,13 @@ struct AppState {
 
 // Minijinja Environment setup
 fn create_minijinja_env() -> Result<AutoReloader> {
-    let loader = path_loader("templates");
     // Use AutoReloader for development convenience
-    let reloader = AutoReloader::new(move |notifier| {
+    let reloader = AutoReloader::new(|notifier| {
+        // Create the loader *inside* the closure
+        let loader = path_loader("templates");
         let mut env = Environment::new();
         env.set_loader(loader);
+        // Watch the templates directory for changes
         notifier.watch_path("templates", true);
         Ok(env)
     });
@@ -51,22 +53,20 @@ fn create_minijinja_env() -> Result<AutoReloader> {
 async fn index_handler(
     State(state): State<AppState>,
 ) -> Result<axum::response::Html<String>, axum::response::Html<String>> {
-    let tmpl = state
-        .templates
-        .acquire_env()
-        .and_then(|env| env.get_template("index.html"))
-        .map_err(|e| {
-            error!("Failed to get template: {}", e);
-            axum::response::Html(format!("Internal Server Error: {}", e))
-        })?;
-
-    let context = minijinja::context! {
-        title => "Veda Web UI",
-        // Add more context variables as needed
-    };
-
-    tmpl.render(context).map(axum::response::Html).map_err(|e| {
-        error!("Failed to render template: {}", e);
+    // Acquire env, get template, and render within the same block
+    state.templates.acquire_env().and_then(|env| {
+        env.get_template("index.html").and_then(|tmpl| {
+            let context = minijinja::context! {
+                title => "Veda Web UI",
+                // Add more context variables as needed
+            };
+            tmpl.render(context)
+        })
+    })
+    .map(axum::response::Html) // Wrap successful render in Html()
+    .map_err(|e| {
+        // Handle errors from acquire_env, get_template, or render
+        error!("Failed to get or render template: {}", e);
         axum::response::Html(format!("Internal Server Error: {}", e))
     })
 }
@@ -121,7 +121,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         info!("Received text message from client: {}", text);
                         // TODO: Process client message (e.g., parse as JSON, handle chat input)
                         // Example: Echo back or broadcast
-                        let response = BroadcastMessage {
+                        let _response = BroadcastMessage { // Prefixed with underscore
                             message_type: "ChatEcho".to_string(), // Example type
                             payload: serde_json::json!({ "original": text }),
                         };
@@ -193,8 +193,12 @@ pub async fn start_web_server(port: u16) -> Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Web server listening on http://{}", addr);
 
-    Server::bind(&addr)
-        .serve(app.into_make_service())
+    // Bind using tokio::net::TcpListener
+    let listener = tokio::net::TcpListener::bind(addr).await
+        .context(format!("Failed to bind to address {}", addr))?;
+
+    // Use axum::serve to run the application
+    serve(listener, app.into_make_service())
         .await
         .context("Web server failed")?;
 

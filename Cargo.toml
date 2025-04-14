@@ -20,7 +20,7 @@ lazy_static = "1.4.0" # For constants.rs
 
 # Web server dependencies
 axum = { version = "0.7", features = ["ws"] } # Enable WebSocket feature
-tower = "0.4"
+tower = { version = "0.4", features = ["util"] } # Enable util feature for service_fn
 tower-http = { version = "0.5", features = ["fs", "trace"] } # For static file serving and request tracing
 minijinja = { version = "1", features = ["loader"] }
 minijinja-autoreload = "1" # Optional: for auto-reloading templates during development
