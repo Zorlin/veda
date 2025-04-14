@@ -16,6 +16,23 @@ and then merging and managing the results.
 
 Veda is not affiliated with Aider, but full credit to them for an excellent project.
 
+---
+
+## Getting Started & Readiness
+
+Veda is designed to be a thoughtful, collaborative orchestrator. Before it begins building, Veda will engage you in a readiness dialogue to ensure it fully understands your goals and that you are ready to proceed. This process is not hardcoded, but handled by Veda's LLM-based reasoning and dialogue.
+
+**What to expect:**
+- When you start Veda, it will ask clarifying questions and discuss your ideas.
+- Veda will not proceed to build mode until it is convinced you are ready.
+- You can interact with Veda at any time, even during build mode, to provide more information, pause, or change direction.
+- Once Veda determines readiness (and confirms with you), it will enter build mode and begin orchestrating agents to work on your project.
+- You can press Ctrl+D to detach from the interactive session; Veda will continue building in the background.
+
+This readiness process ensures that Veda builds exactly what you want, and that you remain in control throughout the development process.
+
+For more details on Veda's orchestration philosophy, see [RULES.md](RULES.md).
+
 ## Prerequisites
 
 *   **Python 3.9+**
