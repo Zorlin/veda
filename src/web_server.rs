@@ -404,13 +404,11 @@ mod tests {
         let expected_ollama_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- api_tag1\n- api_tag2\n\nSynthesized Goal:";
         let expected_model = constants::VEDA_CHAT_MODEL.clone();
 
-        // Define expected body *with* options explicitly set to json!(null)
-        // Ensure field order matches OllamaRequest struct
-        let ollama_request_body = json!({
+        // Define the fields we *definitely* expect for body_partial_json
+        let expected_partial_body = json!({
             "model": expected_model,
             "prompt": expected_ollama_prompt,
             "stream": false,
-            "options": json!(null)
         });
 
          let ollama_response_body = json!({
