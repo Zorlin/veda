@@ -20,6 +20,7 @@ use tracing::{debug, error, info, instrument, warn}; // Added instrument
 
 use crate::agent_manager::{AgentManager, AgentStatusReport}; // Import AgentManager
 use crate::llm_interaction; // Import the new module
+use crate::constants; // Import constants at the top level
 
 // Define the structure for messages broadcasted to clients
 // Using serde allows easy conversion to/from JSON for WebSocket messages

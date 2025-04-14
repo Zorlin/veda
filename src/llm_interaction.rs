@@ -150,9 +150,10 @@ mod tests {
     async fn test_synthesize_goal_empty_tags() {
         // Arrange
         let tags = Vec::<String>::new();
+        let dummy_url = "http://dummy-url-for-empty-test"; // Provide a dummy URL
 
         // Act
-        let result = synthesize_goal_with_ollama(tags).await;
+        let result = synthesize_goal_with_ollama(tags, dummy_url).await;
 
         // Assert
         assert!(result.is_ok());
