@@ -27,12 +27,19 @@ def test_thread_api_returns_threads():
     proc = subprocess.Popen([sys.executable, "src/main.py", "start", "--prompt", "test thread api"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=test_env, text=True)
     server_started = False # Initialize before try block
     stdout_data, stderr_data = "", "" # Initialize before try block
+    test_timeout = 30  # seconds
+    start_time = time.time()
     try:
-        server_started = wait_for_port(9900) # Assign result
-        assert server_started, "Web server did not start on port 9900"
+        # Wait for port with a timeout
+        while not server_started and (time.time() - start_time) < test_timeout:
+            server_started = wait_for_port(9900, timeout=1)
+            if not server_started:
+                time.sleep(0.5)
+        if not server_started:
+            raise RuntimeError("Web server did not start on port 9900 within timeout")
         # Give the server a moment to serve the API
         time.sleep(1)
-        resp = requests.get("http://localhost:9900/api/threads")
+        resp = requests.get("http://localhost:9900/api/threads", timeout=5)
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -44,16 +51,16 @@ def test_thread_api_returns_threads():
     finally:
         # Capture output if server didn't start
         if not server_started:
-             try:
-                 stdout_data, stderr_data = proc.communicate(timeout=1)
-             except subprocess.TimeoutExpired:
-                 proc.kill()
-                 stdout_data, stderr_data = proc.communicate()
-             print("\n--- Subprocess stdout (test_thread_api) ---")
-             print(stdout_data)
-             print("--- Subprocess stderr (test_thread_api) ---")
-             print(stderr_data)
-             print("------------------------------------------")
+            try:
+                stdout_data, stderr_data = proc.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout_data, stderr_data = proc.communicate()
+            print("\n--- Subprocess stdout (test_thread_api) ---")
+            print(stdout_data)
+            print("--- Subprocess stderr (test_thread_api) ---")
+            print(stderr_data)
+            print("------------------------------------------")
 
         # Ensure termination
         if proc.poll() is None:
