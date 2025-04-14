@@ -41,11 +41,12 @@ pub struct AgentInfo {
 }
 
 // Simplified status for UI/API reporting
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, Deserialize)] // Add Deserialize
 pub struct AgentStatusReport {
-    id: u32,
-    role: String,
-    status: AgentStatus,
+    // Make fields public for test assertions
+    pub id: u32,
+    pub role: String,
+    pub status: AgentStatus,
     // Add other relevant fields like model, uptime, etc. later
 }
 
@@ -283,7 +284,8 @@ impl AgentManager {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    use test_log::test; // Enables logging during tests
+    // Remove unused test_log::test
+    // use test_log::test;
     use tokio::time::timeout;
 
     #[tokio::test]
@@ -291,7 +293,9 @@ mod tests {
         // Arrange
         let temp_dir = tempdir().unwrap();
         let handoff_path = temp_dir.path().join("handoffs");
-        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
+        // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
+        // Test now uses default or env var for HANDOFF_DIR. Ensure it's writable or mock fs::create_dir_all.
+        // For now, we assume the default 'handoffs' dir can be created relative to where tests run.
 
         // Act
         let manager_result = AgentManager::new().await;
@@ -305,10 +309,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_next_id() {
         // Arrange
-        let temp_dir = tempdir().unwrap();
-        let handoff_path = temp_dir.path().join("handoffs");
-        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
-        let manager = AgentManager::new().await.unwrap();
+        // let temp_dir = tempdir().unwrap();
+        // let handoff_path = temp_dir.path().join("handoffs");
+        // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
+        let manager = AgentManager::new().await.unwrap(); // Assumes default dir creation works
 
         // Act & Assert
         assert_eq!(manager.get_next_id(), 1);
@@ -319,10 +323,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_status_report_empty() {
         // Arrange
-        let temp_dir = tempdir().unwrap();
-        let handoff_path = temp_dir.path().join("handoffs");
-        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
-        let manager = AgentManager::new().await.unwrap();
+        // let temp_dir = tempdir().unwrap();
+        // let handoff_path = temp_dir.path().join("handoffs");
+        // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
+        let manager = AgentManager::new().await.unwrap(); // Assumes default dir creation works
 
         // Act
         let report = manager.get_status_report().await;
@@ -334,10 +338,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_status_report_with_agents() {
         // Arrange
-        let temp_dir = tempdir().unwrap();
-        let handoff_path = temp_dir.path().join("handoffs");
-        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
-        let manager = AgentManager::new().await.unwrap();
+        // let temp_dir = tempdir().unwrap();
+        // let handoff_path = temp_dir.path().join("handoffs");
+        // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
+        let manager = AgentManager::new().await.unwrap(); // Assumes default dir creation works
         {
             let mut agents = manager.active_agents.lock().await;
             agents.insert(1, AgentInfo {
@@ -362,10 +366,10 @@ mod tests {
     #[tokio::test]
     async fn test_spawn_agent_placeholder() {
         // Arrange
-        let temp_dir = tempdir().unwrap();
-        let handoff_path = temp_dir.path().join("handoffs");
-        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
-        let manager = Arc::new(AgentManager::new().await.unwrap());
+        // let temp_dir = tempdir().unwrap();
+        // let handoff_path = temp_dir.path().join("handoffs");
+        // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
+        let manager = Arc::new(AgentManager::new().await.unwrap()); // Assumes default dir creation works
 
         // Act
         let spawn_result = manager.spawn_agent("test-sleep".to_string(), "test prompt".to_string()).await;
@@ -391,10 +395,10 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_agents_loop_detects_finish() {
         // Arrange
-        let temp_dir = tempdir().unwrap();
-        let handoff_path = temp_dir.path().join("handoffs");
-        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
-        let manager = Arc::new(AgentManager::new().await.unwrap());
+        // let temp_dir = tempdir().unwrap();
+        // let handoff_path = temp_dir.path().join("handoffs");
+        // let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string()); // Removed override
+        let manager = Arc::new(AgentManager::new().await.unwrap()); // Assumes default dir creation works
 
         // Spawn a quick-finishing process (e.g., `true` or `sleep 0.1`)
         let mut cmd = Command::new("sleep");
@@ -478,48 +482,6 @@ mod tests {
         assert!(notified.is_ok(), "Shutdown should have been notified");
      }
 
-
-    // --- Test Helpers for Constants ---
-    // Need to allow modification of lazy_static constants for testing paths etc.
-    // This is generally unsafe and dependency injection is preferred.
-
-    impl constants::HANDOFF_DIR {
-         fn set(&'static self, value: String) -> impl Drop {
-             let original = self.as_str().to_string();
-             unsafe {
-                 let ptr = &**self as *const String as *mut String;
-                 *ptr = value;
-             }
-             StaticGuardHandoff { original }
-         }
-     }
-     struct StaticGuardHandoff { original: String }
-     impl Drop for StaticGuardHandoff {
-         fn drop(&mut self) {
-             unsafe {
-                 let ptr = &*constants::HANDOFF_DIR as *const String as *mut String;
-                 *ptr = self.original.clone();
-             }
-         }
-     }
-     // Add similar helpers for other constants if needed (like OLLAMA_URL used in web_server tests)
-     impl constants::OLLAMA_URL {
-         fn set(&'static self, value: String) -> impl Drop {
-             let original = self.as_str().to_string();
-             unsafe {
-                 let ptr = &**self as *const String as *mut String;
-                 *ptr = value;
-             }
-             StaticGuardOllama { original }
-         }
-     }
-     struct StaticGuardOllama { original: String }
-     impl Drop for StaticGuardOllama {
-         fn drop(&mut self) {
-             unsafe {
-                 let ptr = &*constants::OLLAMA_URL as *const String as *mut String;
-                 *ptr = self.original.clone();
-             }
-         }
-     }
+    // NOTE: Removed the unsafe constant override helpers (`set` methods and StaticGuard structs).
+    // Tests relying on these might need adjustment or use proper configuration/dependency injection.
 }
