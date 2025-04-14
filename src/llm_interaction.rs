@@ -139,7 +139,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body));
 
         // Assign the result of Mock::given directly to 'mock'
-        let mock = mock_definition;
+        let mock = mock_definition; // <-- ERROR: mock_definition doesn't exist
         // Mount the mock *before* making the request
         mock_server.register(mock).await;
 
