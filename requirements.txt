@@ -15,4 +15,4 @@ textual
 pyyaml
 
 # Testing
-pytest-textual
+pytest-asyncio
