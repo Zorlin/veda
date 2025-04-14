@@ -282,8 +282,8 @@ mod tests {
     // Import wiremock items needed for mocking in tests
     #[cfg(test)]
     use wiremock::{
-        // Ensure body_json import is present
-        matchers::{method, path, body_json},
+        // Remove unused body_json import
+        matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
 

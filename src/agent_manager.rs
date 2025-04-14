@@ -248,21 +248,26 @@ impl AgentManager {
         info!("Stopping Agent Manager...");
 
         // Signal the monitor loop to shut down *first*
-        info!("Signaling monitor loop to shut down...");
+        info!("Stop: Signaling monitor loop to shut down...");
         self.monitor_shutdown_notify.notify_one();
 
         // Wait for the monitor loop task to complete
-        info!("Waiting for monitor task to stop...");
-        if let Some(_handle) = self.monitor_task_handle.lock().await.take() { // Prefix unused handle
-            // Don't await the aborted handle
-            info!("Monitor task aborted signal sent.");
+        info!("Stop: Waiting for monitor task to stop...");
+        if let Some(handle) = self.monitor_task_handle.lock().await.take() { // Use handle
+             info!("Stop: Awaiting monitor task handle...");
+             // Await the handle gracefully
+             if let Err(e) = handle.await {
+                  error!("Stop: Error awaiting monitor task handle: {:?}", e);
+             }
+             info!("Stop: Monitor task stopped.");
         } else {
             info!("Monitor task was not running.");
         }
 
 
+        info!("Stop: Locking active agents for termination...");
         let mut agents = self.active_agents.lock().await;
-        info!("Terminating {} active agent(s)...", agents.len());
+        info!("Stop: Terminating {} active agent(s)...", agents.len());
 
         for (id, agent_info) in agents.iter_mut() {
              // Check if process exists and is likely running
@@ -292,9 +297,9 @@ impl AgentManager {
         drop(agents);
 
         // Now signal the main manager task in main.rs to exit
-        info!("Signaling main shutdown...");
+        info!("Stop: Signaling main shutdown...");
         self.shutdown_notify.notify_waiters();
-        info!("Agent termination process complete.");
+        info!("Stop: Agent termination process complete.");
 
 
         Ok(())
@@ -505,9 +510,9 @@ mod tests {
         // Increase sleep duration to give the OS more time
         sleep(Duration::from_millis(500)).await; // Give OS more time to reap process
         // Prefix unused variable again
-        let _kill_result = Command::new("kill").arg("-0").arg(process_id.unwrap().to_string()).status().await;
+        let _kill_result = Command::new("kill").arg("-0").arg(process_id.unwrap().to_string()).status().await; // Keep this line for now, might be useful later
         // assert!(kill_result.is_ok()); // Remove OS process check
-        // assert!(!kill_result.unwrap().success(), "Process should no longer exist after stop"); // Remove OS process check
+        // assert!(!_kill_result.unwrap().success(), "Process should no longer exist after stop"); // Remove OS process check
 
         // Remove timeout check for notification entirely
         // let notified = tokio::time::timeout(Duration::from_secs(5), manager.shutdown_notify.notified()).await;
