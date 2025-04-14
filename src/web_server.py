@@ -281,21 +281,17 @@ def ensure_webui_directory():
 </html>""")
         logging.info(f"Created basic index.html file at {index_path}")
         
-        # Also create a copy in the project root for tests
-        root_index_path = os.path.join(project_root, 'index.html')
-        if not os.path.exists(root_index_path):
-            import shutil
-            shutil.copy(index_path, root_index_path)
-            logging.info(f"Created copy of index.html at project root for tests")
+    # Removed the copy to project root - server should only serve from webui
 
 def create_flask_app():
     """Creates and configures the Flask application."""
-    # Calculate project root and static directory path
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    static_dir = os.path.join(project_root, 'webui') # Use 'webui' directory where index.html is located
+    # Calculate project root and static directory path more robustly
+    src_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(src_dir, '..'))
+    static_dir = os.path.join(project_root, 'webui') # Use 'webui' directory
 
     # Ensure webui directory and index.html exist
-    ensure_webui_directory()
+    ensure_webui_directory() # ensure_webui_directory uses project_root calculation internally
 
     # Configure Flask to find static files in webui directory
     # Set static_url_path to empty string to serve static files from root URL
