@@ -45,21 +45,43 @@ def read_file_safely(filename, max_size=50*1024):
     if not full_path.startswith(cwd_prefix):
         raise SecurityException(f"Cannot access files outside the project directory: {filename}")
     
-    # Check if file exists
-    if not os.path.isfile(full_path):
+    # Check if file exists with exact case
+    if os.path.isfile(full_path):
+        # File exists with exact case match
+        pass
+    else:
         # Try case-insensitive search if the file is not found
         dir_path = os.path.dirname(full_path) or cwd
         base_name = os.path.basename(full_path)
         
         if os.path.isdir(dir_path):
-            for entry in os.listdir(dir_path):
-                if entry.lower() == base_name.lower():
-                    # Found a case-insensitive match
-                    full_path = os.path.join(dir_path, entry)
-                    break
+            # First try exact filename in current directory (common case)
+            if os.path.isfile(os.path.join(cwd, base_name)):
+                full_path = os.path.join(cwd, base_name)
             else:
-                # No match found even with case-insensitive search
-                raise FileNotFoundError(f"File not found: {filename}")
+                # Then try case-insensitive search in the specified directory
+                found = False
+                for entry in os.listdir(dir_path):
+                    if entry.lower() == base_name.lower():
+                        # Found a case-insensitive match
+                        full_path = os.path.join(dir_path, entry)
+                        found = True
+                        logger.info(f"Found case-insensitive match: '{entry}' for '{base_name}'")
+                        break
+                
+                if not found:
+                    # No match found even with case-insensitive search
+                    # Try searching in the current directory as a fallback
+                    if dir_path != cwd:
+                        for entry in os.listdir(cwd):
+                            if entry.lower() == base_name.lower():
+                                full_path = os.path.join(cwd, entry)
+                                found = True
+                                logger.info(f"Found case-insensitive match in current directory: '{entry}' for '{base_name}'")
+                                break
+                    
+                    if not found:
+                        raise FileNotFoundError(f"File not found: {filename}")
         else:
             raise FileNotFoundError(f"File not found: {filename}")
     
@@ -90,12 +112,40 @@ def detect_file_read_request(text):
         r"^open\s+([^\s]+)",
         r"^cat\s+([^\s]+)",
         r"^show\s+([^\s]+)",
-        r"^show me\s+([^\s]+)"
+        r"^show me\s+([^\s]+)",
+        r"^view\s+([^\s]+)",
+        r"^display\s+([^\s]+)",
+        r"^get\s+([^\s]+)"
     ]
     
-    text_lower = text.lower()
+    # Also handle patterns with quotes around filenames
+    quoted_patterns = [
+        r'^read\s+"([^"]+)"',
+        r"^read\s+'([^']+)'",
+        r'^look at\s+"([^"]+)"',
+        r"^look at\s+'([^']+)'",
+        r'^open\s+"([^"]+)"',
+        r"^open\s+'([^']+)'",
+        r'^cat\s+"([^"]+)"',
+        r"^cat\s+'([^']+)'",
+        r'^show\s+"([^"]+)"',
+        r"^show\s+'([^']+)'",
+        r'^show me\s+"([^"]+)"',
+        r"^show me\s+'([^']+)'"
+    ]
+    
+    import re
+    
+    # First check for quoted patterns
+    text_original = text.strip()
+    for pattern in quoted_patterns:
+        match = re.match(pattern, text_original, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    
+    # Then check for regular patterns
+    text_lower = text_original.lower()
     for pattern in read_patterns:
-        import re
         match = re.match(pattern, text_lower)
         if match:
             return match.group(1)
@@ -279,6 +329,8 @@ def chat_interface():
                     "content": f"Context: User asked to read '{filename}'. Here is the content:\n\n```\n{file_content}\n```"
                 }
                 messages.append(context_message)
+                # Print a more informative message for debugging
+                print(f"Successfully read file: {filename} ({len(file_content)} bytes)")
             except FileNotFoundError:
                 print(f"File not found: {filename}")
                 messages.append({"role": "user", "content": msg})
