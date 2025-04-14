@@ -277,3 +277,249 @@ impl AgentManager {
         Ok(())
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use test_log::test; // Enables logging during tests
+    use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn test_agent_manager_new() {
+        // Arrange
+        let temp_dir = tempdir().unwrap();
+        let handoff_path = temp_dir.path().join("handoffs");
+        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
+
+        // Act
+        let manager_result = AgentManager::new().await;
+
+        // Assert
+        assert!(manager_result.is_ok());
+        assert!(handoff_path.exists()); // Check if directory was created
+        assert!(handoff_path.is_dir());
+    }
+
+    #[tokio::test]
+    async fn test_get_next_id() {
+        // Arrange
+        let temp_dir = tempdir().unwrap();
+        let handoff_path = temp_dir.path().join("handoffs");
+        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
+        let manager = AgentManager::new().await.unwrap();
+
+        // Act & Assert
+        assert_eq!(manager.get_next_id(), 1);
+        assert_eq!(manager.get_next_id(), 2);
+        assert_eq!(manager.get_next_id(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_get_status_report_empty() {
+        // Arrange
+        let temp_dir = tempdir().unwrap();
+        let handoff_path = temp_dir.path().join("handoffs");
+        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
+        let manager = AgentManager::new().await.unwrap();
+
+        // Act
+        let report = manager.get_status_report().await;
+
+        // Assert
+        assert!(report.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_status_report_with_agents() {
+        // Arrange
+        let temp_dir = tempdir().unwrap();
+        let handoff_path = temp_dir.path().join("handoffs");
+        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
+        let manager = AgentManager::new().await.unwrap();
+        {
+            let mut agents = manager.active_agents.lock().await;
+            agents.insert(1, AgentInfo {
+                id: 1, role: "role1".to_string(), status: AgentStatus::Running,
+                process: None, task_handle: None, output_buffer: vec![]
+            });
+            agents.insert(2, AgentInfo {
+                id: 2, role: "role2".to_string(), status: AgentStatus::Finished,
+                process: None, task_handle: None, output_buffer: vec![]
+            });
+        }
+
+        // Act
+        let report = manager.get_status_report().await;
+
+        // Assert
+        assert_eq!(report.len(), 2);
+        assert!(report.iter().any(|r| r.id == 1 && r.role == "role1" && r.status == AgentStatus::Running));
+        assert!(report.iter().any(|r| r.id == 2 && r.role == "role2" && r.status == AgentStatus::Finished));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_placeholder() {
+        // Arrange
+        let temp_dir = tempdir().unwrap();
+        let handoff_path = temp_dir.path().join("handoffs");
+        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
+        let manager = Arc::new(AgentManager::new().await.unwrap());
+
+        // Act
+        let spawn_result = manager.spawn_agent("test-sleep".to_string(), "test prompt".to_string()).await;
+
+        // Assert
+        assert!(spawn_result.is_ok());
+        let agent_id = spawn_result.unwrap();
+        assert_eq!(agent_id, 1); // First agent spawned
+
+        let agents = manager.active_agents.lock().await;
+        assert!(agents.contains_key(&agent_id));
+        let agent_info = agents.get(&agent_id).unwrap();
+        assert_eq!(agent_info.role, "test-sleep");
+        assert_eq!(agent_info.status, AgentStatus::Running); // Initial status
+        assert!(agent_info.process.is_some());
+
+        // Cleanup: Ensure the spawned process is killed
+        if let Some(mut child) = agent_info.process.as_ref().unwrap().id().and_then(|pid| Command::new("kill").arg(pid.to_string()).spawn().ok()) {
+             let _ = child.wait().await; // Wait for kill command
+        }
+    }
+
+    #[tokio::test]
+    async fn test_monitor_agents_loop_detects_finish() {
+        // Arrange
+        let temp_dir = tempdir().unwrap();
+        let handoff_path = temp_dir.path().join("handoffs");
+        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
+        let manager = Arc::new(AgentManager::new().await.unwrap());
+
+        // Spawn a quick-finishing process (e.g., `true` or `sleep 0.1`)
+        let mut cmd = Command::new("sleep");
+        cmd.arg("0.1");
+        let child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let agent_id = 1;
+        {
+            let mut agents = manager.active_agents.lock().await;
+            agents.insert(agent_id, AgentInfo {
+                id: agent_id, role: "quick-finish".to_string(), status: AgentStatus::Running,
+                process: Some(child), task_handle: None, output_buffer: vec![]
+            });
+        }
+
+        // Act
+        // Run the monitor loop for a short time (longer than the sleep duration)
+        let monitor_task = tokio::spawn({
+            let manager_clone = manager.clone();
+            async move {
+                manager_clone.monitor_agents_loop().await;
+            }
+        });
+
+        // Wait for slightly longer than the check interval + sleep time
+        sleep(Duration::from_secs(6)).await;
+        monitor_task.abort(); // Stop the monitor loop
+
+        // Assert
+        let agents = manager.active_agents.lock().await;
+        let agent_info = agents.get(&agent_id).expect("Agent should still exist");
+        assert_eq!(agent_info.status, AgentStatus::Finished);
+    }
+
+     #[tokio::test]
+    async fn test_stop_terminates_monitor_and_agents() {
+        // Arrange
+        let temp_dir = tempdir().unwrap();
+        let handoff_path = temp_dir.path().join("handoffs");
+        let _lock = constants::HANDOFF_DIR.set(handoff_path.to_str().unwrap().to_string());
+        let manager = Arc::new(AgentManager::new().await.unwrap());
+
+        // Start the monitor loop
+        let manager_clone = manager.clone();
+        let monitor_handle = tokio::spawn(async move {
+            manager_clone.monitor_agents_loop().await;
+        });
+        *manager.monitor_task_handle.lock().await = Some(monitor_handle);
+
+
+        // Spawn a placeholder agent
+        let agent_id = manager.spawn_agent("to-be-killed".to_string(), "".to_string()).await.unwrap();
+        let process_id = { // Get the OS process ID
+             let agents = manager.active_agents.lock().await;
+             agents.get(&agent_id).unwrap().process.as_ref().unwrap().id()
+        };
+        assert!(process_id.is_some(), "Spawned agent should have a process ID");
+
+
+        // Act
+        let stop_result = manager.stop().await;
+
+        // Assert
+        assert!(stop_result.is_ok());
+
+        // Check monitor task was stopped
+        assert!(manager.monitor_task_handle.lock().await.is_none()); // Handle should be taken
+
+        // Check agent status
+        let agents = manager.active_agents.lock().await;
+        let agent_info = agents.get(&agent_id).unwrap();
+        assert!(matches!(agent_info.status, AgentStatus::Failed(ref msg) if msg == "Terminated by shutdown"));
+
+        // Check if process is actually gone (might take a moment)
+        sleep(Duration::from_millis(100)).await; // Give OS time to reap process
+        let kill_result = Command::new("kill").arg("-0").arg(process_id.unwrap().to_string()).status().await;
+        assert!(kill_result.is_ok());
+        assert!(!kill_result.unwrap().success(), "Process should no longer exist after stop");
+
+        // Check if shutdown was notified
+        let notified = timeout(Duration::from_millis(10), manager.shutdown_notify.notified()).await;
+        assert!(notified.is_ok(), "Shutdown should have been notified");
+     }
+
+
+    // --- Test Helpers for Constants ---
+    // Need to allow modification of lazy_static constants for testing paths etc.
+    // This is generally unsafe and dependency injection is preferred.
+
+    impl constants::HANDOFF_DIR {
+         fn set(&'static self, value: String) -> impl Drop {
+             let original = self.as_str().to_string();
+             unsafe {
+                 let ptr = &**self as *const String as *mut String;
+                 *ptr = value;
+             }
+             StaticGuardHandoff { original }
+         }
+     }
+     struct StaticGuardHandoff { original: String }
+     impl Drop for StaticGuardHandoff {
+         fn drop(&mut self) {
+             unsafe {
+                 let ptr = &*constants::HANDOFF_DIR as *const String as *mut String;
+                 *ptr = self.original.clone();
+             }
+         }
+     }
+     // Add similar helpers for other constants if needed (like OLLAMA_URL used in web_server tests)
+     impl constants::OLLAMA_URL {
+         fn set(&'static self, value: String) -> impl Drop {
+             let original = self.as_str().to_string();
+             unsafe {
+                 let ptr = &**self as *const String as *mut String;
+                 *ptr = value;
+             }
+             StaticGuardOllama { original }
+         }
+     }
+     struct StaticGuardOllama { original: String }
+     impl Drop for StaticGuardOllama {
+         fn drop(&mut self) {
+             unsafe {
+                 let ptr = &*constants::OLLAMA_URL as *const String as *mut String;
+                 *ptr = self.original.clone();
+             }
+         }
+     }
+}

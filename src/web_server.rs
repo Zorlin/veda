@@ -262,3 +262,203 @@ pub async fn start_web_server(port: u16, agent_manager: Arc<AgentManager>) -> Re
 
     Ok(())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, http::{Request, StatusCode}};
+    use axum_test::TestServer;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use tokio::sync::{Mutex, Notify};
+    use test_log::test; // Enables logging during tests
+
+    use crate::agent_manager::{AgentInfo, AgentStatus};
+
+    // Helper to create a mock AgentManager for testing
+    fn create_mock_agent_manager() -> Arc<AgentManager> {
+        // We don't need a real handoff dir for these tests
+        let manager = AgentManager {
+             active_agents: Arc::new(Mutex::new(HashMap::new())),
+             next_agent_id: AtomicU32::new(1),
+             handoff_dir: PathBuf::from("/tmp/veda-test-handoff"), // Dummy path
+             monitor_task_handle: Mutex::new(None),
+             shutdown_notify: Arc::new(Notify::new()),
+        };
+        Arc::new(manager)
+    }
+
+     // Helper to create the Axum app with state for testing
+     async fn create_test_app(agent_manager: Arc<AgentManager>) -> TestServer {
+         let templates = create_minijinja_env().expect("Failed to create test templates");
+         let (broadcast_tx, _) = broadcast::channel::<BroadcastMessage>(1); // Small channel for tests
+
+         let state = AppState {
+             templates: Arc::new(templates),
+             broadcast_tx,
+             agent_manager,
+         };
+
+         let app = Router::new()
+             .route("/api/agents/status", get(api_agent_status_handler))
+             .route("/api/synthesize-goal", axum::routing::post(synthesize_goal_handler))
+             // Add other routes if needed for testing
+             .with_state(state);
+
+         TestServer::new(app).expect("Failed to create test server")
+     }
+
+    #[tokio::test]
+    async fn test_api_agent_status_empty() {
+        // Arrange
+        let agent_manager = create_mock_agent_manager();
+        let server = create_test_app(agent_manager).await;
+
+        // Act
+        let response = server.get("/api/agents/status").await;
+
+        // Assert
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let report: Vec<AgentStatusReport> = response.json();
+        assert!(report.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_api_agent_status_with_agents() {
+        // Arrange
+        let agent_manager = create_mock_agent_manager();
+        { // Scope for mutex guard
+            let mut agents = agent_manager.active_agents.lock().await;
+            agents.insert(1, AgentInfo {
+                id: 1,
+                role: "test-role".to_string(),
+                status: AgentStatus::Running,
+                process: None, // No real process needed for status test
+                task_handle: None,
+                output_buffer: vec![],
+            });
+             agents.insert(2, AgentInfo {
+                id: 2,
+                role: "failed-role".to_string(),
+                status: AgentStatus::Failed("Test failure".to_string()),
+                process: None,
+                task_handle: None,
+                output_buffer: vec![],
+            });
+        }
+        let server = create_test_app(agent_manager).await;
+
+        // Act
+        let response = server.get("/api/agents/status").await;
+
+        // Assert
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let report: Vec<AgentStatusReport> = response.json();
+        assert_eq!(report.len(), 2);
+        // Order isn't guaranteed, so check contents
+        assert!(report.iter().any(|r| r.id == 1 && r.role == "test-role" && r.status == AgentStatus::Running));
+        assert!(report.iter().any(|r| r.id == 2 && r.role == "failed-role" && matches!(r.status, AgentStatus::Failed(_))));
+    }
+
+    // --- Tests for /api/synthesize-goal ---
+    // We need wiremock again here to mock the llm_interaction call indirectly
+
+    #[tokio::test]
+    async fn test_synthesize_goal_api_success() {
+        // Arrange
+        let agent_manager = create_mock_agent_manager();
+        let server = create_test_app(agent_manager).await;
+
+        // Mock Ollama response
+        let mock_ollama_server = MockServer::start().await;
+        let mock_uri = mock_ollama_server.uri();
+        let _lock = constants::OLLAMA_URL.set(mock_uri); // Override global constant
+
+        let request_tags = vec!["api_tag1".to_string(), "api_tag2".to_string()];
+        let expected_ollama_prompt = "Combine the following short goals or tasks into a single, coherent project goal statement. Focus on clarity and conciseness. Present *only* the final synthesized goal statement, without any preamble, introduction, or explanation.\n\nTasks:\n- api_tag1\n- api_tag2\n\nSynthesized Goal:";
+        let expected_model = constants::VEDA_CHAT_MODEL.clone();
+
+        let ollama_request_body = json!({
+            "model": expected_model,
+            "prompt": expected_ollama_prompt,
+            "stream": false,
+            "options": null
+        });
+         let ollama_response_body = json!({
+            "model": expected_model,
+            "created_at": "2023-10-26T18:01:00Z",
+            "response": "API synthesized goal.",
+            "done": true
+        });
+
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .and(body_json(&ollama_request_body))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ollama_response_body))
+            .mount(&mock_ollama_server)
+            .await;
+
+        // Act
+        let response = server
+            .post("/api/synthesize-goal")
+            .json(&json!({ "tags": request_tags }))
+            .await;
+
+        // Assert
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: SynthesizeGoalResponse = response.json();
+        assert_eq!(body.goal, "API synthesized goal.");
+        mock_ollama_server.verify().await;
+    }
+
+     #[tokio::test]
+    async fn test_synthesize_goal_api_empty_tags() {
+        // Arrange
+        let agent_manager = create_mock_agent_manager();
+        let server = create_test_app(agent_manager).await;
+
+        // Act
+        let response = server
+            .post("/api/synthesize-goal")
+            .json(&json!({ "tags": [] })) // Empty tags array
+            .await;
+
+        // Assert
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: SynthesizeGoalResponse = response.json();
+        assert_eq!(body.goal, "");
+        // No Ollama mock needed as it shouldn't be called
+    }
+
+    #[tokio::test]
+    async fn test_synthesize_goal_api_ollama_error() {
+        // Arrange
+        let agent_manager = create_mock_agent_manager();
+        let server = create_test_app(agent_manager).await;
+
+        // Mock Ollama response
+        let mock_ollama_server = MockServer::start().await;
+        let mock_uri = mock_ollama_server.uri();
+        let _lock = constants::OLLAMA_URL.set(mock_uri);
+
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(ResponseTemplate::new(500)) // Simulate Ollama error
+            .mount(&mock_ollama_server)
+            .await;
+
+        // Act
+        let response = server
+            .post("/api/synthesize-goal")
+            .json(&json!({ "tags": ["error_tag"] }))
+            .await;
+
+        // Assert
+        assert_eq!(response.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
+        mock_ollama_server.verify().await;
+    }
+
+    // TODO: Add tests for WebSocket handler (handle_socket) - more complex
+    // Requires simulating WebSocket client connection and messages.
+}

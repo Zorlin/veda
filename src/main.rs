@@ -184,3 +184,9 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+// This allows integration tests in the `tests` directory to use items from the crate.
+#[cfg(test)]
+pub mod test_utils {
+    // You can add common test setup functions here if needed later
+}
