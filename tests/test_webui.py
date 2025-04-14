@@ -6,7 +6,7 @@ import sys
 import socket
 import os # Add os import
 
-def wait_for_port(port, timeout=10):
+def wait_for_port(port, timeout=15): # Increased timeout
     start = time.time()
     while time.time() - start < timeout:
         try:

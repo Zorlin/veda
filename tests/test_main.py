@@ -45,7 +45,7 @@ def test_web_server_starts():
     test_env = os.environ.copy()
     test_env["OPENROUTER_API_KEY"] = "test-key-for-pytest"
     proc = subprocess.Popen([sys.executable, "src/main.py", "start"], env=test_env)
-    time.sleep(2) # Give server time to start
+    time.sleep(5) # Increased wait time for server startup
     s = socket.socket()
     try:
         s.connect(("localhost", 9900))

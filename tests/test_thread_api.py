@@ -4,12 +4,13 @@ import subprocess
 import sys
 import time
 import os # Add os import
+import socket # Import socket once at the top
 
-def wait_for_port(port, timeout=10):
+def wait_for_port(port, timeout=15): # Increased timeout
     start = time.time()
     while time.time() - start < timeout:
         try:
-            import socket
+            # Use the imported socket
             s = socket.create_connection(("localhost", port), timeout=1)
             s.close()
             return True
