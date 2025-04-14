@@ -68,10 +68,11 @@ async fn main() -> Result<()> {
 
     // Handle the parsed command
     match cli.command {
-        Commands::Start { prompt, port } => {
+        // Prefix unused 'prompt' with underscore
+        Commands::Start { prompt: _prompt, port } => {
             info!("Starting Veda services on port {}...", port);
 
-            // TODO: Initialize AgentManager properly
+            // TODO: Initialize AgentManager properly and use _prompt
             // let agent_manager = Arc::new(agent_manager::AgentManager::new()?);
 
             // Start the web server in a separate asynchronous task
@@ -93,31 +94,45 @@ async fn main() -> Result<()> {
             // });
 
             // Keep the main thread alive and wait for shutdown signals or task completion
+            let ctrl_c = tokio::signal::ctrl_c();
+            // Pin the ctrl_c future to the stack so its address is stable
+            tokio::pin!(ctrl_c);
+
             tokio::select! {
                 // Wait for Ctrl-C signal for graceful shutdown
-                _ = tokio::signal::ctrl_c() => {
+                _ = &mut ctrl_c => {
                     info!("Ctrl-C received, initiating shutdown...");
                     // TODO: Add graceful shutdown for agent_manager
                     // agent_manager.stop().await?; // Example
-                    web_server_handle.abort(); // Abort the web server task
-                    // agent_manager_handle.abort(); // Abort the agent manager task
-                    info!("Shutdown complete.");
                 }
                 // Handle potential completion/failure of the web server task
-                res = web_server_handle => {
-                    match res {
-                        Ok(_) => info!("Web server task completed unexpectedly."),
-                        Err(e) => error!("Web server task failed: {:?}", e),
-                    }
+                res = &mut web_server_handle => {
+                     match res {
+                         Ok(_) => info!("Web server task completed unexpectedly."),
+                         // Handle JoinError (e.g., if the task panicked)
+                         Err(e) if e.is_panic() => error!("Web server task panicked: {:?}", e),
+                         Err(e) => error!("Web server task failed: {:?}", e),
+                     }
                 }
                 // Handle potential completion/failure of the agent manager task
-                // res = agent_manager_handle => {
+                // res = &mut agent_manager_handle => {
                 //    match res {
                 //        Ok(_) => info!("Agent manager task completed unexpectedly."),
+                //        Err(e) if e.is_panic() => error!("Agent manager task panicked: {:?}", e),
                 //        Err(e) => error!("Agent manager task failed: {:?}", e),
                 //    }
                 // }
             }
+
+            // After select! finishes (due to Ctrl+C or task completion), ensure shutdown.
+            info!("Shutting down remaining tasks...");
+            if !web_server_handle.is_finished() {
+                 web_server_handle.abort();
+            }
+            // if !agent_manager_handle.is_finished() {
+            //     agent_manager_handle.abort();
+            // }
+            info!("Shutdown complete.");
         }
         Commands::Chat => {
             info!("Starting interactive chat session...");

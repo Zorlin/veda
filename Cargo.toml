@@ -25,7 +25,9 @@ tower-http = { version = "0.5", features = ["fs", "trace"] } # For static file s
 minijinja = { version = "1", features = ["loader"] }
 minijinja-autoreload = "1" # Optional: for auto-reloading templates during development
 futures = "0.3" # For WebSocket stream handling
-hyper = "0.14" # Required by tower-http not_found_service example
+# Update hyper to v1.x, compatible with axum v0.7.x and http v1.x
+# Also add the "full" feature set to ensure necessary components like `body` are available.
+hyper = { version = "1", features = ["full"] }
 
 # Placeholder for potential future dependencies based on DEVELOPMENT.md
 # socketioxide = "0.11" # Example WebSocket library
