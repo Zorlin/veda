@@ -4,7 +4,7 @@ Veda aims to make software development accessible and efficient through an intel
 
 **Core Focus:**
 
-*   **User-Centric Web UI:** Veda's primary goal is to provide an exceptionally intuitive web interface that simplifies software creation and management for users of all technical levels. The UI guides users, clearly communicates Veda's actions, and makes the development process transparent and controllable.
+*   **User-Centric TUI:** Veda's primary goal is to provide an exceptionally intuitive terminal interface that simplifies software creation and management for users of all technical levels. The UI guides users, clearly communicates Veda's actions, and makes the development process transparent and controllable.
 *   **AI-Enhanced User Experience:** We are actively exploring how AI can be integrated *within* the UI to offer intelligent prompting assistance, suggest relevant tasks, and provide proactive guidance, making the interaction smoother and more effective.
 *   **Seamless Aider Integration:** Veda manages Aider instances in the background. The focus is on how Aider's work is presented, managed, and refined through the user-friendly web interface.
 
