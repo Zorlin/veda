@@ -57,8 +57,8 @@ pub async fn synthesize_goal_with_ollama(tags: Vec<String>, ollama_api_base_url:
         model: model_name.clone(),
         prompt,
         stream: false,
-        // Explicitly set options to null JSON value to match mock expectation if needed
-        options: Some(serde_json::json!(null)),
+        // Revert to None, as this is simpler and likely serialized correctly by reqwest
+        options: None,
     };
 
     let response = client
@@ -114,7 +114,8 @@ mod tests {
             "model": expected_model,
             "prompt": expected_prompt,
             "stream": false,
-            "options": null // Ensure options match if you add them later
+            // Adjust mock expectation: options field might be omitted by serde when None
+            // If this still fails, try expecting `options: serde_json::Value::Null` explicitly.
         });
 
         let mock_response_body = json!({

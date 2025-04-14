@@ -407,7 +407,7 @@ mod tests {
             "model": expected_model,
             "prompt": expected_ollama_prompt,
             "stream": false,
-            "options": null
+            // Adjust mock expectation: options field might be omitted by serde when None
         });
          let ollama_response_body = json!({
             "model": expected_model,

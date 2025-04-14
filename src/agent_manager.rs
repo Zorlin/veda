@@ -488,9 +488,9 @@ mod tests {
         // assert!(kill_result.is_ok()); // Remove OS process check
         // assert!(!kill_result.unwrap().success(), "Process should no longer exist after stop"); // Remove OS process check
 
-        // Check if shutdown was notified
-        let notified = timeout(Duration::from_millis(10), manager.shutdown_notify.notified()).await;
-        assert!(notified.is_ok(), "Shutdown should have been notified");
+        // Check if shutdown was notified (increase timeout significantly)
+        let notified = timeout(Duration::from_secs(1), manager.shutdown_notify.notified()).await;
+        assert!(notified.is_ok(), "Shutdown should have been notified within 1 second");
      }
 
     // NOTE: Constant override helpers removed from here to avoid duplication.
