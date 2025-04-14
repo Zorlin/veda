@@ -391,12 +391,11 @@ mod tests {
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        let mock_uri = mock_ollama_server.uri(); // Use mock_uri
-        // Set the OLLAMA_URL environment variable to the mock server URI
-        let _lock = constants::OLLAMA_URL.set(mock_uri.clone()); // Use the helper
+        let _mock_uri = mock_ollama_server.uri(); // Prefix unused variable
+        // let _lock = constants::OLLAMA_URL.set(mock_uri.clone()); // Removed override
 
         // NOTE: This test now relies on the handler using the actual OLLAMA_URL constant.
-        // To make it work reliably with wiremock, the handler would need to accept the URL,
+        // The core logic is tested in llm_interaction tests.
         // or the test environment needs to set the OLLAMA_URL env var to the mock server's URI.
         // For now, we assume the test might hit the real Ollama or fail if it's not running.
         // The core logic is tested in llm_interaction tests.
@@ -468,8 +467,8 @@ mod tests {
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        let mock_uri = mock_ollama_server.uri(); // Use mock_uri
-        let _lock = constants::OLLAMA_URL.set(mock_uri.clone()); // Use the helper
+        let _mock_uri = mock_ollama_server.uri(); // Prefix unused variable
+        // let _lock = constants::OLLAMA_URL.set(mock_uri.clone()); // Removed override
 
         // NOTE: See comment in test_synthesize_goal_api_success regarding testing this handler.
 
@@ -493,26 +492,6 @@ mod tests {
     // TODO: Add tests for WebSocket handler (handle_socket) - more complex
     // Requires simulating WebSocket client connection and messages.
 
-    // --- Test Helpers for Constants (Copied from llm_interaction.rs) ---
-    // NOTE: Unsafe constant override helpers for reliable testing until DI is implemented.
-    impl constants::OLLAMA_URL {
-        // Make the set method public for use in other test modules
-        pub fn set(&'static self, value: String) -> impl Drop {
-            let original = self.as_str().to_string();
-            unsafe {
-                let ptr = &**self as *const String as *mut String;
-                *ptr = value;
-            }
-            StaticGuardOllama { original }
-        }
-    }
-    struct StaticGuardOllama { original: String }
-    impl Drop for StaticGuardOllama {
-        fn drop(&mut self) {
-            unsafe {
-                let ptr = &*constants::OLLAMA_URL as *const String as *mut String;
-                *ptr = self.original.clone();
-            }
-        }
-    }
+    // NOTE: Removed unsafe constant override helpers. Tests requiring Ollama interaction
+    // in this module will use the configured OLLAMA_URL.
 }
