@@ -47,7 +47,21 @@ def read_file_safely(filename, max_size=50*1024):
     
     # Check if file exists
     if not os.path.isfile(full_path):
-        raise FileNotFoundError(f"File not found: {filename}")
+        # Try case-insensitive search if the file is not found
+        dir_path = os.path.dirname(full_path) or cwd
+        base_name = os.path.basename(full_path)
+        
+        if os.path.isdir(dir_path):
+            for entry in os.listdir(dir_path):
+                if entry.lower() == base_name.lower():
+                    # Found a case-insensitive match
+                    full_path = os.path.join(dir_path, entry)
+                    break
+            else:
+                # No match found even with case-insensitive search
+                raise FileNotFoundError(f"File not found: {filename}")
+        else:
+            raise FileNotFoundError(f"File not found: {filename}")
     
     # Read file with size limit
     with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -87,6 +101,53 @@ def detect_file_read_request(text):
             return match.group(1)
     
     return None
+
+def get_file_completions(partial_path):
+    """
+    Get file completion suggestions for a partial path.
+    
+    Args:
+        partial_path: The partial file path to complete
+        
+    Returns:
+        A list of possible completions
+    """
+    import os
+    import glob
+    
+    # Handle empty path
+    if not partial_path:
+        return []
+    
+    # Get the directory part and the file prefix
+    if os.path.sep in partial_path:
+        dir_part = os.path.dirname(partial_path)
+        file_prefix = os.path.basename(partial_path)
+        search_dir = os.path.join(os.getcwd(), dir_part)
+    else:
+        dir_part = ""
+        file_prefix = partial_path
+        search_dir = os.getcwd()
+    
+    # Make sure the directory exists
+    if not os.path.isdir(search_dir):
+        return []
+    
+    # Get all matching files and directories
+    pattern = os.path.join(search_dir, f"{file_prefix}*")
+    matches = glob.glob(pattern)
+    
+    # Format the results
+    completions = []
+    for match in matches:
+        # Get the relative path from the current directory
+        rel_path = os.path.relpath(match, os.getcwd())
+        # Add a trailing slash for directories
+        if os.path.isdir(match):
+            rel_path += os.path.sep
+        completions.append(rel_path)
+    
+    return sorted(completions)
 
 def ollama_chat(messages, model=VEDA_CHAT_MODEL, api_url=OLLAMA_URL):
     """Sends messages to the Ollama chat API and returns the response."""
@@ -132,6 +193,7 @@ def chat_interface():
     print("\nWelcome to Veda chat.", file=sys.stderr, flush=True)
     print("Ask about your project, give instructions, or type 'exit' to quit.", file=sys.stdout, flush=True)
     print("Ask about your project, give instructions, or type 'exit' to quit.", file=sys.stderr, flush=True)
+    print("You can read files with 'read filename' and use tab completion for filenames.", file=sys.stdout, flush=True)
     print(f"Connecting to Ollama at {OLLAMA_URL} using model {VEDA_CHAT_MODEL}", file=sys.stdout, flush=True)
     print(f"Connecting to Ollama at {OLLAMA_URL} using model {VEDA_CHAT_MODEL}", file=sys.stderr, flush=True)
 
@@ -153,6 +215,39 @@ def chat_interface():
     )
 
     messages = [{"role": "system", "content": system_prompt}]
+    
+    # Set up readline for tab completion
+    try:
+        import readline
+        
+        def complete(text, state):
+            # This function is called by readline to get completion suggestions
+            if text.lower().startswith(("read ", "look at ", "open ", "cat ", "show ", "show me ")):
+                # Extract the command and partial filename
+                parts = text.split(" ", 1)
+                if len(parts) > 1:
+                    command = parts[0]
+                    partial_path = parts[1].strip()
+                    
+                    # Get completions for the partial path
+                    completions = get_file_completions(partial_path)
+                    
+                    # Format completions with the command prefix
+                    formatted_completions = [f"{command} {c}" for c in completions]
+                    
+                    # Return the state-th completion
+                    if state < len(formatted_completions):
+                        return formatted_completions[state]
+            
+            # No completions or all completions returned
+            return None
+        
+        # Set the completer function
+        readline.set_completer(complete)
+        readline.parse_and_bind("tab: complete")
+        
+    except ImportError:
+        print("Warning: readline module not available. Tab completion disabled.")
 
     while True:
         try:
@@ -228,6 +323,40 @@ def run_readiness_chat() -> str | None:
     print("\nWelcome to Veda. Let's define your project goal.")
     print(f"Connecting to Ollama at {OLLAMA_URL} using model {VEDA_CHAT_MODEL}")
     print("Describe what you want to build or change. Type 'exit' to cancel.")
+    print("You can read files with 'read filename' and use tab completion for filenames.")
+
+    # Set up readline for tab completion
+    try:
+        import readline
+        
+        def complete(text, state):
+            # This function is called by readline to get completion suggestions
+            if text.lower().startswith(("read ", "look at ", "open ", "cat ", "show ", "show me ")):
+                # Extract the command and partial filename
+                parts = text.split(" ", 1)
+                if len(parts) > 1:
+                    command = parts[0]
+                    partial_path = parts[1].strip()
+                    
+                    # Get completions for the partial path
+                    completions = get_file_completions(partial_path)
+                    
+                    # Format completions with the command prefix
+                    formatted_completions = [f"{command} {c}" for c in completions]
+                    
+                    # Return the state-th completion
+                    if state < len(formatted_completions):
+                        return formatted_completions[state]
+            
+            # No completions or all completions returned
+            return None
+        
+        # Set the completer function
+        readline.set_completer(complete)
+        readline.parse_and_bind("tab: complete")
+        
+    except ImportError:
+        print("Warning: readline module not available. Tab completion disabled.")
 
     system_prompt = (
         "You are Veda, an AI orchestrator. Your current task is to help the user define their initial project goal. "
