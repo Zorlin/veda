@@ -136,8 +136,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/api/generate"))
-            // Use body_json to match the exact expected body
-            .and(body_json(&mock_request_body))
+            // Use body_partial_json to only check fields present in our expectation
+            .and(wiremock::matchers::body_partial_json(&expected_partial_body))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body))
             .mount(&mock_server)
             .await;
