@@ -246,11 +246,11 @@ class AgentManager:
             except FileNotFoundError:
                 os.close(master_fd)
                 err_msg = f"Error: Command '{self.aider_command_base}' not found. Is Aider installed and in PATH?"
-            logger.error(err_msg)
-            self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
-        except Exception as e:
-            err_msg = f"Failed to spawn agent '{role}': {e}"
-            logger.exception(err_msg)
+                logger.error(err_msg) # Correct indentation
+                self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]")) # Correct indentation
+            except Exception as e:
+                err_msg = f"Failed to spawn agent '{role}': {e}"
+                logger.exception(err_msg)
             escaped_error = rich.markup.escape(str(e))
             self.app.post_message(LogMessage(f"[bold red]Failed to spawn agent '{role}': {escaped_error}[/]"))
             # Ensure master_fd is closed if already created before exception
