@@ -289,7 +289,7 @@ def create_flask_app():
 
     # Configure Flask to find static files in webui directory
     # Set static_url_path to empty string to serve static files from root URL
-    app = Flask(__name__, static_folder=static_dir, static_url_path='')
+    app = Flask(__name__, static_folder=static_dir, static_url_path='/static')
 
     # --- Socket.IO Setup ---
     # Socket.IO server (sio) is initialized globally.
@@ -665,6 +665,7 @@ def create_flask_app():
         return jsonify({"status": "ok"})
         
     # Add a route to serve index.html from the root URL
+    @app.route('/')
     @app.route('/index.html')
     def serve_index_html():
         webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
@@ -690,6 +691,25 @@ def create_flask_app():
             return send_from_directory(project_root, filename)
             
         return f"File {filename} not found", 404
+        
+    # Add a catch-all route to serve index.html for any unmatched routes (SPA support)
+    @app.route('/<path:path>')
+    def catch_all(path):
+        # Skip API routes
+        if path.startswith('api/'):
+            return f"API endpoint not found: {path}", 404
+            
+        # For all other routes, serve index.html
+        webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
+        if os.path.exists(os.path.join(webui_dir, 'index.html')):
+            return send_from_directory(webui_dir, 'index.html')
+            
+        # Fallback to project root
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        if os.path.exists(os.path.join(project_root, 'index.html')):
+            return send_from_directory(project_root, 'index.html')
+            
+        return "Index.html not found", 404
         
     # Add a route to serve files from webui directory
     @app.route('/webui/<path:filename>')
@@ -815,6 +835,12 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     def test_endpoint():
         """Simple test endpoint that always returns 200 OK."""
         return "Test endpoint is working"
+        
+    # Add a root route to serve index.html
+    @app.route("/")
+    def serve_root():
+        """Serve index.html from the root URL."""
+        return app.send_static_file('index.html')
     
     # Create Socket.IO server
     sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False)
