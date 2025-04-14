@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::sync::Arc; // Import Arc
 use tracing::{error, info};
 
 // Declare modules that will be part of the project
