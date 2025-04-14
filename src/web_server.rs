@@ -468,8 +468,8 @@ mod tests {
 
         // Mock Ollama response
         let mock_ollama_server = MockServer::start().await;
-        // let mock_uri = mock_ollama_server.uri();
-        // let _lock = constants::OLLAMA_URL.set(mock_uri); // Removed override
+        let mock_uri = mock_ollama_server.uri(); // Use mock_uri
+        let _lock = constants::OLLAMA_URL.set(mock_uri); // Uncomment override
 
         // NOTE: See comment in test_synthesize_goal_api_success regarding testing this handler.
 
