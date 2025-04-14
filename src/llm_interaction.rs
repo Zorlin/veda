@@ -209,7 +209,8 @@ mod tests {
      // NOTE: Re-adding unsafe constant override helpers for reliable testing until DI is implemented.
      // --- Test Helpers for Constants ---
      impl constants::OLLAMA_URL {
-         fn set(&'static self, value: String) -> impl Drop {
+         // Make the set method public for use in other test modules
+         pub fn set(&'static self, value: String) -> impl Drop {
              let original = self.as_str().to_string();
              unsafe {
                  let ptr = &**self as *const String as *mut String;
