@@ -124,7 +124,7 @@ def main():
 
         initial_prompt = args.prompt
 
-        # If no prompt provided, run the readiness chat
+        # If no prompt provided, use a simple default or run a simplified readiness chat
         if not initial_prompt:
             if not sys.stdin.isatty():
                 # Non-interactive environment (e.g., CI/CD, testing)
@@ -132,20 +132,24 @@ def main():
                 initial_prompt = "Default task: Analyze the current project structure and suggest improvements."
                 print(f"Running non-interactively. Using default prompt: '{initial_prompt}'")
             else:
-                # Interactive environment, run readiness chat
+                # Interactive environment, but with simplified approach
+                print("\nWelcome to Veda! Please describe your project goal in a few sentences.")
+                print("(Type your goal and press Enter, or type 'exit' to cancel)")
                 try:
-                    initial_prompt = run_readiness_chat()
-                    if initial_prompt is None:
-                        logger.info("User exited readiness chat. Shutting down.")
+                    user_input = input("> ")
+                    if user_input.lower() in ('exit', 'quit', 'cancel'):
+                        logger.info("User exited prompt input. Shutting down.")
                         print("Setup cancelled by user.")
-                        # Attempt graceful shutdown if possible (though agent manager hasn't started threads yet)
                         if agent_manager:
                             agent_manager.stop()
                         sys.exit(0)
+                    initial_prompt = user_input
                 except Exception as e:
-                    logger.error(f"Error during readiness chat: {e}", exc_info=True)
-                    print(f"\nAn error occurred during the readiness chat: {e}")
-                    sys.exit(1)
+                    logger.error(f"Error during prompt input: {e}", exc_info=True)
+                    print(f"\nAn error occurred: {e}")
+                    # Fall back to default prompt instead of exiting
+                    initial_prompt = "Analyze the current project structure and suggest improvements."
+                    print(f"Using default prompt: '{initial_prompt}'")
 
         # Start the Agent Manager's main loop and initial agents
         logger.info(f"Starting Agent Manager with initial prompt: {initial_prompt[:100]}...")
