@@ -97,7 +97,8 @@ struct SynthesizeGoalResponse {
 }
 
 // API handler for synthesizing goals
-#[instrument(skip(state, request))]
+// Update skip list to match the parameter name _state
+#[instrument(skip(_state, request))]
 async fn synthesize_goal_handler(
     State(_state): State<AppState>, // Prefix unused state with underscore
     axum::extract::Json(request): axum::extract::Json<SynthesizeGoalRequest>,
