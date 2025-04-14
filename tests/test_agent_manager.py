@@ -237,8 +237,6 @@ async def test_initialize_project(agent_manager, temp_work_dir, mock_app):
     # Check if the initial agent (planner) was spawned
     agent_manager.spawn_agent.assert_called_once_with(
         role="planner",
-        model=agent_manager.config.get("coordinator_model"), # Uses coordinator model for planner
-        role="planner",
         # Coordinator model is used for the initial planner/orchestrator role
         model=agent_manager.config.get("coordinator_model"),
         initial_prompt=project_goal

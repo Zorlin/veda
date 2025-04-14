@@ -1,16 +1,18 @@
 import pytest
 from pathlib import Path
 import sys
+from unittest.mock import patch # Add patch import
 
 # Add src to path for imports
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
 sys.path.insert(0, str(src_path))
 
-from textual.widgets import RichLog, Input # Import the missing widgets
+from textual.widgets import RichLog, Input, TabbedContent, TabPane # Import missing widgets
+from unittest.mock import patch # Add patch import
 
 from config import load_config
-from tui import VedaApp
+from tui import VedaApp, AgentOutputMessage, AgentExitedMessage # Import messages
 
 
 # Load config once for tests
