@@ -713,23 +713,7 @@ def create_flask_app():
             
         return f"File {filename} not found", 404
         
-    # Add a catch-all route to serve index.html for any unmatched routes (SPA support)
-    @app.route('/<path:path>')
-    def catch_all(path):
-        # Skip API routes
-        if path.startswith('api/'):
-            return f"API endpoint not found: {path}", 404
-            
-        # For all other routes, try to serve as static file first
-        try:
-            return app.send_static_file(path)
-        except:
-            # If not found, serve index.html (SPA support)
-            try:
-                return app.send_static_file('index.html')
-            except Exception as e:
-                logging.error(f"Error serving index.html as fallback: {e}")
-                return "File not found", 404
+    # Note: catch-all route is defined in start_web_server function to avoid duplicate route errors
         
     # Add a route to serve files from webui directory (for backward compatibility)
     @app.route('/webui/<path:filename>')
