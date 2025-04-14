@@ -75,7 +75,76 @@ async def test_user_input_appears_in_log():
         log = pilot.app.query_one("#main-log", RichLog)
         assert log is not None
 
-        # We can't easily check the log content or guarantee input clear timing
-        # without more complex mocking/waiting, but we know the input was submitted.
-        # The fact that the test doesn't hang indefinitely implies the worker was called.
-        # TODO: Add more robust checks, potentially involving mocking OllamaClient.
+            # Check if the input appears in the main log
+            main_log_widget = pilot.app.query_one("#main-log", RichLog)
+            assert ">>> This is a test message" in main_log_widget.export_text(strip_styles=True)
+
+            # Check if the "thinking" message appeared (assuming Ollama client is mocked/available)
+            # This might fail if the Ollama client init failed in the fixture
+            if pilot.app.ollama_client:
+                assert "Thinking..." in main_log_widget.export_text(strip_styles=True)
+                # Check if the (mocked) response appeared - Requires mocking OllamaClient in the fixture
+                # assert f"Veda ({test_config['ollama_model']}): Mock Ollama Response" in main_log_widget.export_text(strip_styles=True)
+
+            # Check if input was cleared (happens in the worker's finally block)
+            input_widget = pilot.app.query_one(Input)
+            assert input_widget.value == ""
+
+        @pytest.mark.asyncio
+        async def test_agent_tab_creation_and_output(test_config):
+            """Test that agent output creates a new tab and logs correctly."""
+            app = VedaApp(config=test_config)
+            async with app.run_test() as pilot:
+                # Wait for initial prompt to finish if necessary
+                await pilot.pause(0.1)
+
+                # Simulate receiving output from a new agent
+                agent_role = "coder"
+                agent_line_1 = "Agent coder starting..."
+                agent_line_2 = "```python\nprint('Hello from coder')\n```"
+                message1 = AgentOutputMessage(role=agent_role, line=agent_line_1)
+                message2 = AgentOutputMessage(role=agent_role, line=agent_line_2)
+
+                # Post messages as if they came from the agent manager
+                pilot.app.post_message(message1)
+                await pilot.pause(0.1) # Allow UI to update
+                pilot.app.post_message(message2)
+                await pilot.pause(0.1) # Allow UI to update
+
+                # Check if the new tab exists
+                tabbed_content = pilot.app.query_one(TabbedContent)
+                agent_tab_pane = pilot.app.query_one(f"#tab-{agent_role}", TabPane)
+                assert agent_tab_pane is not None
+                assert agent_tab_pane.title == f"Agent: {agent_role}"
+
+                # Check if the log widget within the tab exists and contains the output
+                agent_log_widget = agent_tab_pane.query_one(RichLog)
+                log_text = agent_log_widget.export_text(strip_styles=True)
+                assert f"--- Log for agent '{agent_role}' ---" in log_text
+                assert agent_line_1 in log_text
+                assert agent_line_2 in log_text
+
+        @pytest.mark.asyncio
+        async def test_agent_exit_message_handling(test_config):
+            """Test that agent exit messages are logged correctly."""
+            app = VedaApp(config=test_config)
+            async with app.run_test() as pilot:
+                # First, create an agent tab by sending some output
+                agent_role = "architect"
+                pilot.app.post_message(AgentOutputMessage(role=agent_role, line="Architect planning..."))
+                await pilot.pause(0.1)
+
+                # Now, simulate the agent exiting
+                exit_code = 0
+                exit_message = AgentExitedMessage(role=agent_role, return_code=exit_code)
+                pilot.app.post_message(exit_message)
+                await pilot.pause(0.1)
+
+                # Check main log
+                main_log = pilot.app.query_one("#main-log", RichLog)
+                assert f"Agent '{agent_role}' exited with code {exit_code}" in main_log.export_text(strip_styles=True)
+
+                # Check agent log
+                agent_tab_pane = pilot.app.query_one(f"#tab-{agent_role}", TabPane)
+                agent_log = agent_tab_pane.query_one(RichLog)
+                assert f"--- Agent '{agent_role}' exited with code {exit_code} ---" in agent_log.export_text(strip_styles=True)
