@@ -239,13 +239,8 @@ impl AgentManager {
         if let Some(handle) = self.monitor_task_handle.lock().await.take() {
             info!("Aborting monitor task...");
             handle.abort();
-            // Explicitly await the handle after aborting
-            match handle.await {
-                Ok(_) => info!("Monitor task completed after abort."),
-                Err(e) if e.is_cancelled() => info!("Monitor task cancelled successfully."),
-                Err(e) => error!("Error awaiting aborted monitor task: {:?}", e),
-            }
-            info!("Monitor task stopped.");
+            // Don't await the aborted handle, just signal it.
+            info!("Monitor task aborted signal sent.");
         } else {
             info!("Monitor task was not running.");
         }
