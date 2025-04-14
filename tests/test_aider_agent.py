@@ -20,10 +20,12 @@ import subprocess # Import subprocess to patch it
 class DummyProcess:
     def __init__(self, output_lines):
         self._output_lines = output_lines
-        self.stdout = self
+        self.stdout = self # Simulate stdout attribute being the object itself
+        self.stdin = None # Add stdin attribute, can be mocked further if needed
         self._index = 0
         self.returncode = None
         self._terminated = False
+        self.closed = False # Add closed attribute
 
     def poll(self):
         return self.returncode if self._terminated else None
@@ -58,7 +60,8 @@ class DummyProcess:
         self.returncode = -9
 
     def close(self):
-        pass
+        """Simulate closing the stream."""
+        self.closed = True
 
 @pytest.fixture
 def agent_manager(monkeypatch):

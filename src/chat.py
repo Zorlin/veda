@@ -242,14 +242,19 @@ def run_readiness_chat() -> str | None:
             # Try to extract the goal from Veda's confirmation question or use the user's previous message.
             # This is still fragile. A more robust approach needs LLM to explicitly output the confirmed prompt.
             # For now, let's assume the user's message *before* the confirmation signal is the goal.
-            # Find the user message before the last one.
+            # Find the user message before the last 'assistant' response and the last 'user' confirmation.
             potential_prompt = None
-            if len(messages) >= 4: # Need system, user, veda, user(confirmation)
-                # The message before the last 'assistant' and last 'user' message
-                if messages[-3]['role'] == 'user':
-                    potential_prompt = messages[-3]['content']
+            # Iterate backwards from the message before the last assistant response
+            for i in range(len(messages) - 3, 0, -1):
+                if messages[i]['role'] == 'user':
+                    potential_prompt = messages[i]['content']
+                    break # Found the most recent user message before confirmation cycle
 
             if potential_prompt:
+                 # Avoid returning just the file context message if that was the last user message found
+                 if "Context: User asked to read" in potential_prompt and len(messages) > i+1 and messages[i-1]['role'] == 'user':
+                     potential_prompt = messages[i-1]['content']
+
                  print(f"\nVeda: Okay, proceeding with the goal: '{potential_prompt[:100]}...'")
                  return potential_prompt
             else:
