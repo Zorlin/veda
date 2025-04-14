@@ -44,6 +44,11 @@ def ensure_webui_directory():
     index_path = os.path.join(static_dir, 'index.html')
     logging.info(f"Creating/updating index.html at {index_path}")
     
+    # Check if the file exists and has content
+    if os.path.exists(index_path) and os.path.getsize(index_path) > 0:
+        logging.info(f"index.html already exists at {index_path}")
+    else:
+    
     # Also create a copy in the project root for tests
     root_index_path = os.path.join(project_root, 'index.html')
     with open(index_path, 'w') as f:
@@ -923,6 +928,24 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
             logging.warning("AgentManager instance not available for /api/threads")
             # Return empty list instead of error for tests
             return jsonify([])
+    
+    # Add a catch-all route to serve index.html for any unmatched routes
+    @app.route('/<path:path>')
+    def catch_all(path):
+        # Skip API routes
+        if path.startswith('api/'):
+            return f"API endpoint not found: {path}", 404
+            
+        # For all other routes, try to serve as static file first
+        try:
+            return app.send_static_file(path)
+        except:
+            # If not found, serve index.html (SPA support)
+            try:
+                return app.send_static_file('index.html')
+            except Exception as e:
+                logging.error(f"Error serving index.html as fallback: {e}")
+                return "File not found", 404
     
     # Combine Flask app with Socket.IO middleware
     app_wrapped = socketio.WSGIApp(sio_server, app)
