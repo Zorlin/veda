@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="bg-white shadow-md rounded p-6">
+    <h1 class="text-2xl font-bold mb-4">{{ title }}</h1>
+    <p class="mb-4">Welcome to the Veda Web Interface. Define your goals and monitor progress here.</p>
+
+    {# Simple Alpine.js example #}
+    <div x-data="{ count: 0 }" class="mt-4 p-4 border rounded">
+        <h2 class="text-lg font-semibold">Alpine.js Counter</h2>
+        <p>Current count: <span x-text="count" class="font-mono"></span></p>
+        <button @click="count++" class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+            Increment
+        </button>
+    </div>
+
+    {# Placeholder for future UI components #}
+    <div class="mt-6">
+        <h2 class="text-xl font-semibold">Agent Status</h2>
+        <p class="text-gray-600">(Agent status will appear here)</p>
+        {# TODO: Fetch and display agent status dynamically #}
+    </div>
+
+    <div class="mt-6" x-data="chatApp()">
+        <h2 class="text-xl font-semibold">Chat / Goal Input</h2>
+
+        {# Display connection status #}
+        <p class="text-sm mb-2" :class="wsStatus === 'Connected' ? 'text-green-600' : 'text-red-600'">
+            WebSocket Status: <span x-text="wsStatus"></span>
+        </p>
+
+        {# Chat message display area #}
+        <div class="h-64 overflow-y-auto border rounded p-2 mb-3 bg-gray-50">
+             <template x-for="(msg, index) in messages" :key="index">
+                <div class="mb-2 p-2 rounded text-sm"
+                     :class="msg.type === 'user' ? 'bg-blue-100 text-right ml-auto max-w-[80%]' : 'bg-gray-200 text-left mr-auto max-w-[80%]'">
+                    <strong x-text="msg.sender + ':'"></strong>
+                    <span x-html="msg.text"></span> {# Basic rendering, sanitize if needed #}
+                 </div>
+             </template>
+             <p x-show="messages.length === 0" class="text-gray-500 italic">Chat history will appear here.</p>
+        </div>
+
+        {# Input area #}
+        <div class="flex">
+            <textarea x-model="inputText" @keydown.enter.prevent="sendMessage()"
+                      class="flex-grow p-2 border rounded-l" rows="3"
+                      placeholder="Enter your project goal or chat message..."
+                      :disabled="wsStatus !== 'Connected'"></textarea>
+            <button @click="sendMessage()"
+                    class="px-4 py-2 bg-green-500 text-white rounded-r hover:bg-green-600 disabled:opacity-50"
+                    :disabled="wsStatus !== 'Connected' || !inputText.trim()">
+                Send
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function chatApp() {
+        return {
+            ws: null,
+            wsStatus: 'Disconnected',
+            messages: [], // { type: 'user'/'veda'/'info', sender: 'You'/'Veda'/'System', text: '...' }
+            inputText: '',
+            reconnectAttempts: 0,
+            maxReconnectAttempts: 5,
+            reconnectDelay: 3000, // ms
+
+            init() {
+                console.log('Chat app initializing...');
+                this.connectWebSocket();
+
+                // Keep Alpine component scope for event listeners
+                const self = this;
+                window.addEventListener('beforeunload', () => {
+                    if (self.ws) {
+                        console.log('Closing WebSocket connection on page unload.');
+                        self.ws.close();
+                    }
+                });
+            },
+
+            connectWebSocket() {
+                // Construct WebSocket URL (ws:// or wss://)
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+                console.log(`Attempting to connect to WebSocket: ${wsUrl}`);
+                this.wsStatus = 'Connecting...';
+
+                this.ws = new WebSocket(wsUrl);
+
+                this.ws.onopen = () => {
+                    console.log('WebSocket connection established.');
+                    this.wsStatus = 'Connected';
+                    this.reconnectAttempts = 0; // Reset attempts on successful connection
+                     this.addMessage('info', 'System', 'Connected to Veda.');
+                };
+
+                this.ws.onmessage = (event) => {
+                    console.log('WebSocket message received:', event.data);
+                    try {
+                        const data = JSON.parse(event.data);
+                        // TODO: Handle different message types based on `data.message_type`
+                        if (data.message_type === 'Info') {
+                             this.addMessage('info', 'System', data.payload.message || 'Received info');
+                        } else if (data.message_type === 'ChatEcho') { // Example echo
+                             this.addMessage('veda', 'Veda (Echo)', `Server received: ${data.payload.original}`);
+                        } else {
+                             // Assume it's a chat message from Veda for now
+                             this.addMessage('veda', 'Veda', data.payload.message || JSON.stringify(data.payload));
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse WebSocket message or invalid format:', e);
+                         this.addMessage('info', 'System', `Received raw data: ${event.data}`);
+                    }
+                };
+
+                this.ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    this.wsStatus = 'Error';
+                     this.addMessage('info', 'System', 'WebSocket connection error.');
+                    // Attempt to reconnect on error as well
+                    this.handleReconnect();
+                };
+
+                this.ws.onclose = (event) => {
+                    console.log('WebSocket connection closed:', event.code, event.reason);
+                    this.wsStatus = 'Disconnected';
+                    this.ws = null;
+                     this.addMessage('info', 'System', `WebSocket disconnected: ${event.reason || 'No reason given'}`);
+                    // Attempt to reconnect if not a clean close (e.g., server restart)
+                    if (!event.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
+                         this.handleReconnect();
+                    } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                        console.warn('Max WebSocket reconnect attempts reached.');
+                         this.addMessage('info', 'System', 'Could not reconnect to Veda.');
+                    }
+                };
+            },
+
+            handleReconnect() {
+                this.reconnectAttempts++;
+                const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts -1); // Exponential backoff
+                console.log(`Attempting WebSocket reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay / 1000}s...`);
+                 this.addMessage('info', 'System', `Attempting reconnect (${this.reconnectAttempts})...`);
+                setTimeout(() => this.connectWebSocket(), delay);
+            },
+
+            sendMessage() {
+                const text = this.inputText.trim();
+                if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    console.log('Sending message:', text);
+                    // Send raw text for now, backend needs to parse
+                    // TODO: Standardize message format (e.g., JSON) if needed
+                    this.ws.send(text);
+                    this.addMessage('user', 'You', text); // Add user message locally
+                    this.inputText = '';
+                } else {
+                    console.warn('Cannot send message: WebSocket not connected or input is empty.');
+                     this.addMessage('info', 'System', 'Cannot send message: Not connected.');
+                }
+            },
+
+            addMessage(type, sender, text) {
+                this.messages.push({ type, sender, text });
+                // Auto-scroll chat window (optional)
+                this.$nextTick(() => {
+                    const chatWindow = this.$el.querySelector('.overflow-y-auto');
+                    if (chatWindow) {
+                        chatWindow.scrollTop = chatWindow.scrollHeight;
+                    }
+                });
+            }
+        }
+    }
+</script>
+
+{% endblock %}
