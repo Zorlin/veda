@@ -75,6 +75,12 @@ class AgentManager:
             else:
                 self._start_coordinator_agent("coordinator", "No prompt provided.")
 
+            # Always start at least one aider agent for the current project directory
+            if "aider" not in self.active_agents:
+                project_dir = os.getcwd()
+                prompt = initial_prompt or f"Improve and maintain this codebase: {os.path.basename(project_dir)}"
+                self._start_aider_agent("aider", prompt)
+
             # Start the main agent monitoring loop in a separate thread
             monitor_thread = threading.Thread(target=self._agent_monitor_loop, daemon=True)
             monitor_thread.start()
