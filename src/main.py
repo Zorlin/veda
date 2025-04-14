@@ -182,15 +182,17 @@ def main():
         # For now, this CLI command is less useful if Veda runs as a background process.
         # Let's make it print a message suggesting API/Web UI usage.
         logger.warning("Setting options via CLI is currently informational. Use Web UI or API when available.")
-        print("Setting options via CLI is currently informational.")
+        print("Setting options via CLI is currently informational.", file=sys.stderr)
         if args.option == "instances":
-            print(f"To set instances, please interact with a running Veda instance (Web UI/API planned).")
-            # If we had a way to connect to a running instance:
-            # If we had a way to connect to a running instance or modify the global one:
+            if args.value == "auto":
+                print("Agent instance management set to auto.", file=sys.stderr)
+            else:
+                print(f"Agent instances set to {args.value}.", file=sys.stderr)
             agent_manager.set_instances(args.value) # Modify the global instance directly
             # The log message is handled inside set_instances
 
     elif args.command == "chat":
+        print("Welcome to Veda chat")
         chat_interface()
 
     elif args.command == "web":
@@ -264,6 +266,8 @@ def main():
 
     else:
         # No command provided or invalid command
+        help_message = "Veda - Software development that doesn't sleep."
+        print(help_message)
         parser.print_help()
         # Print examples directly, as shown in README.md
         print("\nExamples:")
