@@ -14,6 +14,11 @@ def main():
     """Loads configuration and runs the Veda TUI application."""
     config_path = project_root / "config.yaml"
     config = load_config(config_path)
+
+    # Ensure workdir exists (redundant if AgentManager does it, but safe)
+    work_dir_path = project_root / "workdir"
+    work_dir_path.mkdir(parents=True, exist_ok=True)
+
     app = VedaApp(config=config)
     app.run()
 

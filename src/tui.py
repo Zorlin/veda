@@ -3,9 +3,11 @@ import rich.markup # Import for escaping
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import Header, Footer, Input, RichLog
+from pathlib import Path
 from textual import work, message # Import message base class
 
 from ollama_client import OllamaClient # Import the new client
+from agent_manager import AgentManager # Import the AgentManager
 
 # Configure logging for TUI
 # Use a file for more persistent logs during development
@@ -159,13 +161,41 @@ class VedaApp(App[None]):
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user input submission."""
-        user_input = event.value
+        user_input = event.value.strip()
 
-        if user_input and self.ollama_client and not self.input_widget.disabled:
+        if not user_input:
+            self.input_widget.focus()
+            return # Ignore empty input
+
+        if not self.project_goal_set:
+            # This is the initial project goal
+            self.log_widget.write(f"[bold blue]>>> Project Goal:[/bold] {user_input}")
+            if self.agent_manager:
+                self.log_widget.write("[yellow]Initializing project orchestration...[/]")
+                # Pass goal to AgentManager (runs in background, no worker needed here for now)
+                # In the future, this might trigger async tasks within AgentManager
+                try:
+                    self.agent_manager.initialize_project(user_input)
+                    self.project_goal_set = True
+                    self.log_widget.write("[green]Project goal received. Veda will start working.[/]")
+                    self.log_widget.write("You can provide further instructions or ask questions.")
+                    self.input_widget.placeholder = "Enter further instructions or commands..."
+                except Exception as e:
+                    logger.exception("Error during project initialization")
+                    escaped_error = rich.markup.escape(str(e))
+                    self.log_widget.write(f"[bold red]Error initializing project: {escaped_error}[/]")
+            else:
+                self.log_widget.write("[bold red]Error: Agent Manager not available.[/]")
+            self.input_widget.clear()
+            self.input_widget.focus()
+
+        elif self.ollama_client and not self.input_widget.disabled:
+            # Subsequent input: Treat as chat/command for Veda's Ollama client
             self.log_widget.write(f"[bold blue]>>>[/] {user_input}")
-            # Call the worker
+            # Call the worker for Veda's response/action
             self.call_ollama(user_input)
             # Don't clear input here, worker will do it after response
+
         elif not self.ollama_client or self.input_widget.disabled:
              self.log_widget.write("[bold red]Interaction disabled. Ollama client not available.[/]")
              self.input_widget.clear() # Clear input even if disabled

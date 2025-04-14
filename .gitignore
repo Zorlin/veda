@@ -46,3 +46,6 @@ htmlcov/
 .coverage
 *.cov
 
+# Agent working directory
+workdir/
+
