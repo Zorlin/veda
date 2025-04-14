@@ -30,22 +30,22 @@ log.setLevel(logging.ERROR)
 # This is not ideal, dependency injection would be better, but follows current pattern.
 agent_manager_instance: 'AgentManager' = None
 
-def create_flask_app():
-    """Creates and configures the Flask application."""
-    # Calculate project root and static directory path
+def ensure_webui_directory():
+    """Ensures the webui directory exists and contains index.html."""
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    static_dir = os.path.join(project_root, 'webui') # Use 'webui' directory where index.html is located
-
-    # Check if static dir exists during app creation for early feedback
+    static_dir = os.path.join(project_root, 'webui')
+    
+    # Create webui directory if it doesn't exist
     if not os.path.isdir(static_dir):
         logging.warning(f"Static directory not found at {static_dir}. Creating it now.")
         os.makedirs(static_dir, exist_ok=True)
-        
-        # Create a basic index.html file if it doesn't exist
-        index_path = os.path.join(static_dir, 'index.html')
-        if not os.path.exists(index_path):
-            with open(index_path, 'w') as f:
-                f.write("""<!DOCTYPE html>
+    
+    # Copy index.html from the project root if it exists there
+    index_path = os.path.join(static_dir, 'index.html')
+    if not os.path.exists(index_path):
+        # Create a basic index.html file with the full content from webui/index.html
+        with open(index_path, 'w') as f:
+            f.write("""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -53,32 +53,244 @@ def create_flask_app():
     <title>Veda - AI Software Development</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Include Socket.IO client library (updated to match server version) -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        /* Basic styles for chat */
+        .chat-message { margin-bottom: 8px; padding: 8px; border-radius: 4px; }
+        .user-message { background-color: #e0f2fe; text-align: right; } /* Light blue */
+        .veda-message { background-color: #f3f4f6; } /* Light gray */
+        pre { white-space: pre-wrap; word-wrap: break-word; } /* Wrap long lines in agent output */
+    </style>
 </head>
-<body>
-    <div id="app">
-        <h1>Veda</h1>
-        <p>AI-Powered Software Development</p>
+<body class="bg-gray-100 font-sans">
+    <div id="app" class="max-w-4xl mx-auto p-4">
+        <h1 class="text-3xl font-bold mb-4 text-gray-800 border-b pb-2">Veda</h1>
+
+        <!-- System Status -->
+        <div class="mb-6 p-4 bg-white rounded shadow">
+            <h2 class="text-xl font-semibold mb-2 text-gray-700">System Status</h2>
+            <p class="italic" :class="statusColor">{{ statusMessage }}</p>
+            <div v-if="apiKeyMissing" class="mt-2 text-red-600 font-semibold">
+              Warning: OPENROUTER_API_KEY environment variable not set or empty. Agents may not function correctly.
+            </div>
+        </div>
+
+        <!-- Chat Interface -->
+        <div class="mb-6 p-4 bg-white rounded shadow">
+            <h2 class="text-xl font-semibold mb-2 text-gray-700">Chat with Veda</h2>
+            <div id="chat-window" class="h-64 overflow-y-auto border rounded p-2 mb-3 bg-gray-50">
+                <div v-for="(msg, index) in chatMessages" :key="index"
+                     :class="['chat-message', msg.sender === 'user' ? 'user-message' : 'veda-message']">
+                    <strong>{{ msg.sender === 'user' ? 'You' : 'Veda' }}:</strong>
+                    <span v-html="formatMessage(msg.text)"></span> <!-- Use v-html to render potential markdown -->
+                </div>
+                <p v-if="chatMessages.length === 0" class="text-gray-500 italic">Chat history will appear here.</p>
+            </div>
+            <div class="flex">
+                <input type="text" v-model="chatInput" @keyup.enter="sendMessage"
+                       placeholder="Describe your goal or ask a question..."
+                       class="flex-grow border rounded-l p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       :disabled="!isConnected">
+                <button @click="sendMessage"
+                        class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-r"
+                        :disabled="!isConnected || !chatInput.trim()">
+                    Send
+                </button>
+            </div>
+        </div>
+
+        <!-- Active Agents -->
+        <div class="p-4 bg-white rounded shadow">
+            <h2 class="text-xl font-semibold mb-2 text-gray-700">Active Agents</h2>
+            <div v-if="agents.length > 0">
+                <div v-for="agent in agents" :key="agent.id" class="mb-4 p-3 border rounded bg-gray-50 shadow-sm">
+                    <div class="flex justify-between items-center mb-2 pb-1 border-b">
+                        <span class="font-bold text-blue-700">Role: {{ agent.role || 'Unknown' }}</span>
+                        <span :class="agentStatusClass(agent.status)" class="px-2 py-1 rounded text-xs font-semibold uppercase tracking-wide">
+                            {{ agent.status || 'Unknown' }}
+                        </span>
+                    </div>
+                    <div class="text-sm text-gray-600 mb-1">Model: {{ agent.model || 'N/A' }}</div>
+                    <div class="text-sm text-gray-600 mb-2">ID: {{ agent.id || 'N/A' }}</div>
+                    <details class="text-xs">
+                        <summary class="cursor-pointer text-gray-500 hover:text-gray-700">Output Preview</summary>
+                        <pre class="mt-1 p-2 bg-gray-200 rounded overflow-auto max-h-40 text-gray-800"><code>{{ (agent.output_preview || []).join('\\n') || 'No output yet.' }}</code></pre>
+                    </details>
+                </div>
+            </div>
+            <p v-else class="text-gray-500 italic">No agents currently active.</p>
+        </div>
+
     </div>
+
+    <script>
+        const { createApp, ref, onMounted, computed, nextTick } = Vue;
+
+        const app = createApp({
+            setup() {
+                const statusMessage = ref('Connecting to Veda server...');
+                const isConnected = ref(false);
+                const apiKeyMissing = ref(false); // Will be updated if needed
+                const agents = ref([]);
+                const chatInput = ref('');
+                const chatMessages = ref([]); // Format: { sender: 'user'/'veda', text: 'message' }
+
+                // --- Socket.IO Connection ---
+                const socket = io({
+                    reconnectionAttempts: 5, // Try to reconnect a few times
+                    reconnectionDelay: 3000, // Wait 3 seconds between attempts
+                    transports: ['websocket'] // Force WebSocket transport
+                });
+
+                socket.on('connect', () => {
+                    console.log('Socket connected:', socket.id);
+                    statusMessage.value = 'Connected to Veda server';
+                    isConnected.value = true;
+                    // Optionally request initial state if server doesn't push it automatically on connect
+                    // socket.emit('request_initial_state');
+                });
+
+                socket.on('disconnect', (reason) => {
+                    console.log('Socket disconnected:', reason);
+                    statusMessage.value = `Connection lost: ${reason}. Attempting to reconnect...`;
+                    isConnected.value = false;
+                    // Optional: Clear agents list or show a disconnected state
+                    // agents.value = [];
+                });
+
+                socket.on('connect_error', (error) => {
+                    console.error('Socket connection error:', error);
+                    statusMessage.value = `Connection error: ${error.message}`;
+                    isConnected.value = false;
+                });
+
+                // --- Event Handlers ---
+                socket.on('threads_update', (updatedAgents) => {
+                    console.log('Received threads_update:', updatedAgents);
+                    // Check if OPENROUTER_API_KEY is missing based on server info (if available)
+                    // This assumes the server might send a flag or check it.
+                    // Alternatively, we could fetch '/api/config' or similar.
+                    // For now, we'll rely on the minimal UI check if index.html wasn't found.
+                    agents.value = updatedAgents || [];
+                });
+
+                socket.on('chat_update', (message) => {
+                    console.log('Received chat_update:', message);
+                    // Assume message is { sender: 'veda', text: '...' }
+                    if (message && message.text) {
+                        chatMessages.value.push({ sender: 'veda', text: message.text });
+                        scrollToChatBottom();
+                    }
+                });
+
+                // --- Methods ---
+                const sendMessage = () => {
+                    const text = chatInput.value.trim();
+                    if (text && isConnected.value) {
+                        const message = { sender: 'user', text: text };
+                        chatMessages.value.push(message);
+                        socket.emit('chat_message', { text: text }); // Send only text to server
+                        chatInput.value = '';
+                        scrollToChatBottom();
+                    }
+                };
+
+                const scrollToChatBottom = () => {
+                    nextTick(() => {
+                        const chatWindow = document.getElementById('chat-window');
+                        if (chatWindow) {
+                            chatWindow.scrollTop = chatWindow.scrollHeight;
+                        }
+                    });
+                };
+
+                // Basic markdown formatting (links, bold, italics, code)
+                const formatMessage = (text) => {
+                    if (!text) return '';
+                    let html = text
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;")
+                        .replace(/"/g, "&quot;")
+                        .replace(/'/g, "&#039;");
+
+                    // Basic Markdown-like replacements
+                    html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>'); // Bold
+                    html = html.replace(/\\*(.*?)\\*/g, '<em>$1</em>');       // Italics
+                    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');     // Inline code
+                    // Simple link detection (http/https)
+                    html = html.replace(/(https?:\\/\\/[^\\s]+)/g, '<a href="$1" target="_blank" class="text-blue-600 hover:underline">$1</a>');
+
+                    return html.replace(/\\n/g, '<br>'); // Render newlines
+                };
+
+
+                // --- Computed Properties ---
+                const statusColor = computed(() => {
+                    if (!isConnected.value) return 'text-red-500';
+                    // Could add more colors for different statuses later
+                    return 'text-green-600';
+                });
+
+                const agentStatusClass = (status) => {
+                    status = (status || '').toLowerCase();
+                    if (status === 'running') return 'bg-green-100 text-green-800';
+                    if (status.startsWith('finished') || status === 'completed') return 'bg-blue-100 text-blue-800';
+                    if (status.startsWith('failed') || status.startsWith('error')) return 'bg-red-100 text-red-800';
+                    if (status.startsWith('waiting')) return 'bg-yellow-100 text-yellow-800';
+                    if (status.startsWith('handoff')) return 'bg-purple-100 text-purple-800';
+                    return 'bg-gray-100 text-gray-800'; // Default/unknown
+                };
+
+                // --- Lifecycle Hooks ---
+                onMounted(() => {
+                    // Initial fetch or rely on connect event push
+                    console.log('Vue app mounted');
+                    // Check API key status (example - might need a dedicated API endpoint)
+                    // fetch('/api/config').then(r=>r.json()).then(cfg => apiKeyMissing.value = !cfg.apiKeySet);
+                });
+
+                return {
+                    statusMessage,
+                    isConnected,
+                    apiKeyMissing,
+                    agents,
+                    chatInput,
+                    chatMessages,
+                    sendMessage,
+                    statusColor,
+                    agentStatusClass,
+                    formatMessage
+                };
+            }
+        });
+
+        app.mount('#app');
+    </script>
 </body>
 </html>""")
             logging.info(f"Created basic index.html file at {index_path}")
 
+def create_flask_app():
+    """Creates and configures the Flask application."""
+    # Calculate project root and static directory path
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    static_dir = os.path.join(project_root, 'webui') # Use 'webui' directory where index.html is located
+
+    # Ensure webui directory and index.html exist
+    ensure_webui_directory()
+
     # Configure Flask to find static files in webui directory
     # Set static_url_path to empty string to serve static files from root URL
     app = Flask(__name__, static_folder=static_dir, static_url_path='')
-    
-    # Add a route to serve index.html from the root URL
-    @app.route('/')
-    def serve_index():
-        return send_from_directory(static_dir, 'index.html')
 
     # --- Socket.IO Setup ---
     # Socket.IO server (sio) is initialized globally.
     # It will be attached to the app in start_web_server using WSGIApp.
 
     # --- Routes ---
-    @app.route("/")
+    @app.route('/')
     def index():
         # Check if OPENROUTER_API_KEY is set in the environment before serving
         # Read directly from os.environ within the request context
@@ -437,6 +649,16 @@ def create_flask_app():
         """Simple health check endpoint for tests."""
         return jsonify({"status": "ok"})
         
+    # Add a route to serve index.html from the root URL
+    @app.route('/index.html')
+    def serve_index_html():
+        return send_from_directory(app.static_folder, 'index.html')
+        
+    # Add a route to serve static files
+    @app.route('/static/<path:filename>')
+    def serve_static(filename):
+        return send_from_directory(app.static_folder, filename)
+        
     # Return the Flask app instance and the Socket.IO server instance
     return app, sio # Return both app and sio
 
@@ -537,7 +759,10 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     """Starts the Flask-SocketIO web server in a separate thread."""
     global agent_manager_instance
     agent_manager_instance = manager_instance # Set the global instance
-
+    
+    # Ensure webui directory and index.html exist before starting server
+    ensure_webui_directory()
+    
     # Create Flask app
     app, _ = create_flask_app()  # Properly unpack the tuple
     
