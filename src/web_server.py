@@ -323,55 +323,60 @@ def create_flask_app():
     # --- Routes ---
     @app.route('/')
     def index():
-        # For tests, don't check API key
-        if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("OPENROUTER_API_KEY") == "test-key-for-pytest":
-            logging.info("Test environment detected, skipping API key check")
-            try:
-                return app.send_static_file('index.html')
-            except Exception as e:
-                logging.error(f"Error serving index.html in test environment: {e}")
-                return "Test UI", 200  # Return a simple response for tests
-        
-        # Check if OPENROUTER_API_KEY is set in the environment before serving
-        # Read directly from os.environ within the request context
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-        if api_key is None or api_key.strip() == "":
-            logging.error("OPENROUTER_API_KEY environment variable not set or empty in web server process.")
-            return """
+        # Always try to serve index.html from the static folder first
+        try:
+            logging.info(f"Serving index() -> attempting send_static_file('index.html') from {app.static_folder}")
+            return app.send_static_file('index.html')
+        except Exception as e:
+            logging.error(f"Error serving index.html from static folder in index() route: {e}")
+            # Fallback for safety, though ideally send_static_file should work
+            # Check API key only if serving fallback content
+            api_key_check_passed = check_api_key()
+            if not api_key_check_passed and not is_test_environment():
+                 return api_key_error_page(), 403
+
+            # If static serving failed, try direct path (less ideal)
+            index_path = os.path.join(app.static_folder, 'index.html')
+            if os.path.exists(index_path):
+                 logging.warning(f"Serving index.html via send_from_directory as fallback.")
+                 return send_from_directory(app.static_folder, 'index.html')
+            else:
+                 logging.error(f"index.html not found in static folder: {app.static_folder}")
+                 # Provide a minimal error page if index.html is truly missing
+                 return "<h1>Error</h1><p>UI index file not found.</p>", 404
+
+    def is_test_environment():
+        """Checks if running in a pytest environment."""
+        return os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("OPENROUTER_API_KEY") == "test-key-for-pytest"
+
+    def check_api_key():
+        """Checks if the OpenRouter API key is set."""
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        is_set = api_key is not None and api_key.strip() != ""
+        if not is_set:
+             logging.error("OPENROUTER_API_KEY environment variable not set or empty.")
+        return is_set
+
+    def api_key_error_page():
+        """Returns the HTML page for API key error."""
+        return """
             <!DOCTYPE html><html><head><title>Veda Error</title></head>
             <body><h1>Configuration Error</h1>
             <p>Error: OPENROUTER_API_KEY environment variable not set or empty.</p>
             <p>Please set this environment variable and restart Veda.</p>
             </body></html>
-            """, 403 # Forbidden due to config issue
+            """
 
-        # Serve index.html from the configured static folder
-        try:
-            # First try to serve from static folder
-            logging.info(f"Attempting to serve index.html from static folder: {app.static_folder}")
-            return app.send_static_file('index.html')
-            
-        except Exception as e:
-            logging.error(f"Error serving index.html from static folder: {e}")
-            
-            # Fallback to direct file serving
-            # First try to serve from webui directory
-            webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
-            if os.path.exists(os.path.join(webui_dir, 'index.html')):
-                logging.info(f"Serving index.html from {webui_dir}")
-                return send_from_directory(webui_dir, 'index.html')
-            
-            # Then try project root as fallback
-            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-            if os.path.exists(os.path.join(project_root, 'index.html')):
-                logging.info(f"Serving index.html from {project_root}")
-                return send_from_directory(project_root, 'index.html')
-                
-            # If index.html is missing in both locations, serve a basic UI directly
-            logging.warning(f"index.html not found in {webui_dir} or {project_root}, serving basic UI")
-            return render_template_string("""
-<!DOCTYPE html>
-<html lang="en">
+    # --- Removed complex fallback logic from index() ---
+    # The logic is simplified: try send_static_file, if fails, check key and serve error or 404.
+
+    # NOTE: The explicit @app.route('/static/<path:path>') is removed.
+    # Flask handles serving files from the `static_folder` automatically
+    # because static_url_path='' means they are served from the root.
+    # Example: A request for /styles.css will look for webui/styles.css
+
+    @app.route("/api/threads")
+    def api_threads():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
