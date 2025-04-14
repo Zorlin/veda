@@ -57,7 +57,8 @@ pub async fn synthesize_goal_with_ollama(tags: Vec<String>, ollama_api_base_url:
         model: model_name.clone(),
         prompt,
         stream: false,
-        options: None, // Add options like temperature if needed
+        // Explicitly set options to null JSON value to match mock expectation if needed
+        options: Some(serde_json::json!(null)),
     };
 
     let response = client
