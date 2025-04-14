@@ -135,16 +135,13 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/generate"))
             // Use body_partial_json matcher
-            .and(wiremock::matchers::body_partial_json(&expected_partial_body))
-            .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body));
+            .and(wiremock::matchers::body_partial_json(&expected_partial_body));
+            // Don't call respond_with here
 
-        // Assign the result of Mock::given directly to 'mock'
-        let mock = Mock::given(method("POST")) // Correctly assign Mock::given result
-            .and(path("/api/generate"))
-            .and(wiremock::matchers::body_partial_json(&expected_partial_body))
-            .respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body));
-        // Mount the mock *before* making the request
-        mock_server.register(mock).await;
+        // Assign the Mock::given chain to 'mock'
+        let mock = mock_definition;
+        // Now call respond_with separately before registering
+        mock_server.register(mock.respond_with(ResponseTemplate::new(200).set_body_json(mock_response_body))).await;
 
         // Act - Pass the mock server URI to the function
         let result = synthesize_goal_with_ollama(tags, &mock_uri).await;
