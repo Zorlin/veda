@@ -98,7 +98,13 @@ class VedaApp(App[None]):
             # Optional: Could ask Ollama to phrase the initial question, but let's keep it simple for now.
             # response = self.ollama_client.generate("Ask the user what project goal they want to work on.")
             # self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {response}")
-            self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {initial_question}")
+
+            # Escape the entire string for now to diagnose MarkupError
+            formatted_question = f"Veda: {initial_question}"
+            escaped_question = rich.markup.escape(formatted_question)
+            self.call_from_thread(self.log_widget.write, escaped_question)
+            # Original line causing issues (potentially):
+            # self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {initial_question}")
         except Exception as e:
             logger.exception("Error generating initial prompt:")
             escaped_error = rich.markup.escape(str(e))
