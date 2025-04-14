@@ -132,7 +132,8 @@ class VedaApp(App[None]):
             # self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {response}")
 
             # Restore original markup, assuming escaping user input/LLM output fixes issues
-            self.post_message(LogMessage(f"[bold magenta]Veda:[/bold] {initial_question}"))
+            # Simplify markup first to diagnose
+            self.post_message(LogMessage(f"[bold]Veda:[/bold] {initial_question}"))
         except Exception as e:
             logger.exception("Error generating initial prompt:")
             escaped_error = rich.markup.escape(str(e))
