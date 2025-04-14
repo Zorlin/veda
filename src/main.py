@@ -131,7 +131,9 @@ def main():
 
         # Start the Agent Manager's main loop and initial agents
         logger.info(f"Starting Agent Manager with initial prompt: {initial_prompt[:100]}...")
+        print(f"\n[INFO] Starting AgentManager...")
         agent_manager.start(initial_prompt=initial_prompt)
+        print(f"[INFO] AgentManager started. Monitoring agent activity...")
 
         # Start periodic broadcasting of agent status to the UI
         # We might want to trigger this more intelligently later (e.g., on status change)
@@ -140,6 +142,18 @@ def main():
         )
         start_periodic_broadcast_thread.start()
 
+        # Wait a few seconds and print agent status summary
+        time.sleep(2)
+        try:
+            agents = agent_manager.get_active_agents_status()
+            if not agents:
+                print("[WARNING] No agents are currently running. Check logs for errors.")
+            else:
+                print(f"[INFO] {len(agents)} agent(s) running:")
+                for agent in agents:
+                    print(f"  - Role: {agent.get('role','?')}, Status: {agent.get('status','?')}, Model: {agent.get('model','?')}")
+        except Exception as e:
+            print(f"[ERROR] Could not retrieve agent status: {e}")
 
         print(f"\n🚀 Veda is running!")
         print(f"   Web UI: http://localhost:{args.port}")
