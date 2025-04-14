@@ -13,8 +13,9 @@
         {# Allow child templates to add extra head elements #}
         {% block head %}{% endblock %}
     </head>
-    <body class="bg-gray-100 text-gray-900 font-sans">
-        <div class="container mx-auto p-4">
+    <body class="bg-gray-100 text-gray-800 font-sans antialiased">
+        {# Use max-w-5xl for a wider content area, add vertical padding #}
+        <div class="container mx-auto max-w-5xl px-4 py-8">
             {# The main content block that child templates will fill #}
             {% block content %}
             <p class="text-red-500">Error: Content block not defined in child template.</p>

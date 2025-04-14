@@ -1,78 +1,140 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="bg-white shadow-md rounded p-6">
-    <h1 class="text-2xl font-bold mb-4">{{ title }}</h1>
-    <p class="mb-4">Welcome to the Veda Web Interface. Define your goals and monitor progress here.</p>
+{# Main Page Header #}
+<div class="mb-8">
+    <h1 class="text-4xl font-bold text-gray-800 mb-2">{{ title }}</h1>
+    <p class="text-lg text-gray-600">Welcome to the Veda Web Interface. Define your goals and monitor progress here.</p>
+</div>
 
-    {# Simple Alpine.js example #}
-    <div x-data="{ count: 0 }" class="mt-4 p-4 border rounded">
-        <h2 class="text-lg font-semibold">Alpine.js Counter</h2>
-        <p>Current count: <span x-text="count" class="font-mono"></span></p>
-        <button @click="count++" class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-            Increment
-        </button>
-    </div>
+{# Grid Layout for Sections #}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-    {# Goal Tag Management Section #}
-    <div class="mt-6 p-4 bg-white rounded shadow" x-data="goalTagApp()">
-        <h2 class="text-xl font-semibold mb-3 text-gray-700">Define Goal</h2>
-        <p class="text-sm text-gray-600 mb-3">Add short goal fragments or tasks below. Drag to reorder, then synthesize into a full goal.</p>
+    {# Left Column #}
+    <div class="space-y-6">
 
-        <div class="flex mb-3">
-            <input type="text" x-model="newTagInput" @keydown.enter.prevent="addTag()"
-                   placeholder="Add a goal fragment..."
-                   class="flex-grow border rounded-l p-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <button @click="addTag()"
-                    class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-r"
-                    :disabled="!newTagInput.trim()">
-                Add Tag
+        {# Goal Definition Section #}
+        <div class="bg-white rounded-lg shadow-md p-6" x-data="goalTagApp()">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Define Goal</h2>
+            <p class="text-sm text-gray-600 mb-4">Add short goal fragments or tasks below. Drag to reorder, then synthesize into a full goal.</p>
+
+            <div class="flex mb-4">
+                <input type="text" x-model="newTagInput" @keydown.enter.prevent="addTag()"
+                       placeholder="Add a goal fragment..."
+                       class="flex-grow border border-gray-300 rounded-l-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                <button @click="addTag()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-r-md text-sm transition duration-150 ease-in-out disabled:opacity-50"
+                        :disabled="!newTagInput.trim()">
+                    Add Tag
+                </button>
+            </div>
+
+            <div x-ref="tagList" class="mb-4 space-y-2 min-h-[60px] border border-gray-200 p-3 rounded-md bg-gray-50">
+                <template x-for="(tag, index) in goalTags" :key="index">
+                    <div class="flex items-center justify-between p-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab active:cursor-grabbing text-sm" :data-id="index">
+                        <span class="text-gray-800 flex-grow mr-2" x-text="tag"></span>
+                        <button @click="removeTag(index)" class="text-red-500 hover:text-red-700 ml-2 text-xs font-bold uppercase tracking-wider transition duration-150 ease-in-out">
+                            Remove
+                        </button>
+                    </div>
+                </template>
+                <p x-show="goalTags.length === 0" class="text-gray-400 italic text-center py-3 text-sm">Add tags using the input above.</p>
+            </div>
+
+            <div class="flex items-center justify-between mb-4">
+                 <button @click="synthesizeGoal()"
+                        class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-md text-sm transition duration-150 ease-in-out disabled:opacity-50"
+                        :disabled="goalTags.length === 0 || isSynthesizing">
+                     <span x-show="!isSynthesizing">Synthesize Goal</span>
+                     <span x-show="isSynthesizing">Synthesizing...</span>
+                </button>
+                <span x-show="synthesisError" class="text-red-600 text-sm font-medium" x-text="synthesisError"></span>
+            </div>
+
+            <div x-show="synthesizedGoal" x-transition class="mt-4 p-4 border border-yellow-300 rounded-md bg-yellow-50 text-yellow-800">
+                <h3 class="font-semibold text-yellow-900 mb-1">Synthesized Goal:</h3>
+                <p class="text-sm" x-text="synthesizedGoal"></p>
+                {# TODO: Add button to "Set as Active Goal" which sends it via WebSocket? #}
+                 <button class="mt-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1 px-3 rounded-md text-xs transition duration-150 ease-in-out">
+                    Set as Active Goal
+                 </button>
+            </div>
+        </div>
+
+        {# Simple Alpine.js example - Styled as a card #}
+        <div x-data="{ count: 0 }" class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-3 text-gray-700">Alpine.js Counter</h2>
+            <p class="text-gray-600 mb-3">Current count: <span x-text="count" class="font-mono font-bold text-lg text-blue-600"></span></p>
+            <button @click="count++" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition duration-150 ease-in-out">
+                Increment
             </button>
         </div>
 
-        <div x-ref="tagList" class="mb-3 space-y-2 min-h-[50px] border p-2 rounded bg-gray-50">
-            <template x-for="(tag, index) in goalTags" :key="index">
-                <div class="flex items-center justify-between p-2 bg-white border rounded shadow-sm cursor-grab active:cursor-grabbing" :data-id="index">
-                    <span class="text-gray-800" x-text="tag"></span>
-                    <button @click="removeTag(index)" class="text-red-500 hover:text-red-700 ml-2 text-xs font-semibold">
-                        &times; REMOVE
-                    </button>
-                </div>
-            </template>
-            <p x-show="goalTags.length === 0" class="text-gray-400 italic text-center py-2">Add tags using the input above.</p>
-        </div>
-
-        <div class="flex items-center justify-between">
-             <button @click="synthesizeGoal()"
-                    class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
-                    :disabled="goalTags.length === 0 || isSynthesizing">
-                 <span x-show="!isSynthesizing">Synthesize Goal</span>
-                 <span x-show="isSynthesizing">Synthesizing...</span>
-            </button>
-            <span x-show="synthesisError" class="text-red-500 text-sm" x-text="synthesisError"></span>
-        </div>
-
-
-        <div x-show="synthesizedGoal" class="mt-4 p-3 border rounded bg-yellow-50 border-yellow-200">
-            <h3 class="font-semibold text-gray-700 mb-1">Synthesized Goal:</h3>
-            <p class="text-gray-800" x-text="synthesizedGoal"></p>
-            {# TODO: Add button to "Set as Active Goal" which sends it via WebSocket? #}
-        </div>
     </div>
 
+    {# Right Column #}
+    <div class="space-y-6">
 
-    {# Placeholder for future UI components #}
-    <div class="mt-6">
-        <h2 class="text-xl font-semibold">Agent Status</h2>
-        <p class="text-gray-600">(Agent status will appear here)</p>
-        {# TODO: Fetch and display agent status dynamically #}
-    </div>
+        {# Agent Status Section #}
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Agent Status</h2>
+            <div class="max-h-96 overflow-y-auto space-y-3 pr-2">
+                {# TODO: Fetch and display agent status dynamically from API or WebSocket #}
+                <template x-for="i in 3" :key="i"> {# Placeholder loop #}
+                    <div class="p-3 border border-gray-200 rounded bg-gray-50 shadow-sm">
+                         <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold text-indigo-700 text-sm">Role: Placeholder {{ i }}</span>
+                            <span class="px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide bg-yellow-100 text-yellow-800">
+                                Waiting
+                            </span>
+                        </div>
+                        <div class="text-xs text-gray-500">ID: agent-{{ i }}</div>
+                    </div>
+                </template>
+                 <p class="text-gray-500 italic text-sm">(Agent status will appear here)</p>
+            </div>
+        </div>
 
-    <div class="mt-6" x-data="chatApp()">
-        <h2 class="text-xl font-semibold">Chat / Goal Input</h2>
+        {# Chat Section #}
+        <div class="bg-white rounded-lg shadow-md p-6" x-data="chatApp()">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Chat / Goal Input</h2>
 
-        {# Display connection status #}
-        <p class="text-sm mb-2" :class="wsStatus === 'Connected' ? 'text-green-600' : 'text-red-600'">
+            {# Display connection status #}
+            <p class="text-xs mb-3 font-medium" :class="wsStatus === 'Connected' ? 'text-green-600' : 'text-red-600'">
+                WebSocket Status: <span x-text="wsStatus"></span>
+            </p>
+
+            {# Chat message display area #}
+            <div class="h-80 overflow-y-auto border border-gray-200 rounded-md p-3 mb-4 bg-gray-50 space-y-3">
+                 <template x-for="(msg, index) in messages" :key="index">
+                    <div class="flex" :class="msg.type === 'user' ? 'justify-end' : 'justify-start'">
+                        <div class="max-w-[80%] p-2 rounded-lg text-sm"
+                             :class="msg.type === 'user' ? 'bg-blue-100 text-blue-900' : 'bg-gray-200 text-gray-800'">
+                            <strong class="block mb-0.5" x-text="msg.sender + ':'"></strong>
+                            <span x-html="msg.text"></span> {# Basic rendering, sanitize if needed #}
+                         </div>
+                     </div>
+                 </template>
+                 <p x-show="messages.length === 0" class="text-gray-400 italic text-center py-4 text-sm">Chat history will appear here.</p>
+            </div>
+
+            {# Input area #}
+            <div class="flex">
+                <textarea x-model="inputText" @keydown.enter.prevent="sendMessage()"
+                          class="flex-grow border border-gray-300 rounded-l-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm resize-none" rows="3"
+                          placeholder="Enter your project goal or chat message..."
+                          :disabled="wsStatus !== 'Connected'"></textarea>
+                <button @click="sendMessage()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-r-md text-sm transition duration-150 ease-in-out disabled:opacity-50"
+                        :disabled="wsStatus !== 'Connected' || !inputText.trim()">
+                    Send
+                </button>
+            </div>
+        </div>
+
+    </div> {# End Right Column #}
+
+</div> {# End Grid #}
             WebSocket Status: <span x-text="wsStatus"></span>
         </p>
 
