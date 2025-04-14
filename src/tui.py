@@ -100,7 +100,8 @@ class VedaApp(App[None]):
             self.call_from_thread(self.log_widget.write, f"[bold magenta]Veda:[/bold] {initial_question}")
         except Exception as e:
             logger.exception("Error generating initial prompt:")
-            self.call_from_thread(self.log_widget.write, f"[bold red]Error generating initial prompt: {e}[/]")
+            escaped_error = rich.markup.escape(str(e))
+            self.call_from_thread(self.log_widget.write, f"[bold red]Error generating initial prompt: {escaped_error}[/]")
         finally:
              # Ensure input is focused after the prompt is displayed
              self.call_from_thread(self.input_widget.focus)
@@ -124,7 +125,8 @@ class VedaApp(App[None]):
         except Exception as e:
             # Log the exception and display an error in the TUI
             logger.exception("Error during Ollama call in worker thread:")
-            self.call_from_thread(self.log_widget.write, f"[bold red]Error during Ollama call: {e}[/]")
+            escaped_error = rich.markup.escape(str(e))
+            self.call_from_thread(self.log_widget.write, f"[bold red]Error during Ollama call: {escaped_error}[/]")
         finally:
             # Ensure input is cleared and focused even if there was an error
             self.call_from_thread(self.input_widget.clear)

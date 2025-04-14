@@ -41,7 +41,8 @@ async def test_app_starts_and_shows_welcome():
         await pilot.pause(0.5) # Give time for mount and initial logs
 
         log = pilot.app.query_one("#main-log", RichLog)
-        log_text = log.to_plain_text()
+        # Use the 'capture' property to get plain text content
+        log_text = log.capture
 
         assert "Welcome to Veda TUI!" in log_text
         if pilot.app.ollama_client:
@@ -77,7 +78,8 @@ async def test_user_input_appears_in_log():
         await pilot.pause(0.5)
 
         log = pilot.app.query_one("#main-log", RichLog)
-        log_text = log.to_plain_text()
+        # Use the 'capture' property to get plain text content
+        log_text = log.capture
 
         # Check if the user's input is logged
         assert f">>> {test_message}" in log_text
