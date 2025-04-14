@@ -1,20 +1,24 @@
-# veda
+# Veda: AI-Powered Software Development via an Intuitive Web UI
 
-Software development that doesn't sleep.
+Veda aims to make software development accessible and efficient through an intelligent, user-friendly web interface. It orchestrates AI agents, primarily using Aider as its coding engine, to build and manage your projects based on your guidance.
 
-## how it works
-* You provide API keys, an Ollama endpoint and a machine to run it on.
-* You install Aider, Veda's thinking engine.
-* You write a detailed prompt, or chat with Veda to refine your prompt and give it details and context.
-* You start Veda in your project's directory.
+**Core Focus:**
 
-Veda will run continuously, working on your project.
+*   **User-Centric Web UI:** Veda's primary goal is to provide an exceptionally intuitive web interface that simplifies software creation and management for users of all technical levels. The UI guides users, clearly communicates Veda's actions, and makes the development process transparent and controllable.
+*   **AI-Enhanced User Experience:** We are actively exploring how AI can be integrated *within* the UI to offer intelligent prompting assistance, suggest relevant tasks, and provide proactive guidance, making the interaction smoother and more effective.
+*   **Seamless Aider Integration:** Veda manages Aider instances in the background. The focus is on how Aider's work is presented, managed, and refined through the user-friendly web interface.
 
-It will spin up, manage and watch multiple instances of Aider,
-splitting up the work of creating your project,
-and then merging and managing the results.
+Veda is not affiliated with Aider, but full credit to them for an excellent underlying coding engine.
 
-Veda is not affiliated with Aider, but full credit to them for an excellent project.
+---
+
+## How it Works
+
+1.  **Setup:** Provide API keys (like OpenRouter), ensure Ollama is running locally (for Veda's internal reasoning), and install Aider.
+2.  **Interact via Web UI:** Launch Veda and open the web interface (default: http://localhost:9900).
+3.  **Define Your Goal:** Use the web UI to describe your project goals. Veda may engage in a dialogue (powered by its own LLM) to clarify requirements before starting.
+4.  **Veda Orchestrates:** Veda manages Aider agents to execute the development tasks, translating your goals into code.
+5.  **Monitor & Refine:** Observe progress, review changes, and provide further instructions through the web UI. Veda aims to keep you informed and in control.
 
 ---
 
@@ -59,37 +63,29 @@ python -m pip install -r requirements.txt
 ```
 
 
-## how to use
-```
-veda
-```
+## How to Use
 
-Running `veda` by itself will tell you more about Veda and how to use it.
+1.  **Start Veda:**
+    ```bash
+    veda start
+    ```
+    This launches the Veda background service and the web server.
 
-```bash
-veda start
-```
+2.  **Open the Web Interface:**
+    Navigate to `http://localhost:9900` (or the configured address) in your web browser. This is the primary way to interact with Veda.
 
-Veda will run in the background automatically, 
-and you can interact with it via the command line or via your web browser.
+3.  **Interact:**
+    Use the web UI to:
+    *   Define and refine project goals.
+    *   Monitor the progress of AI agents.
+    *   Review code changes.
+    *   Chat with Veda for clarification or adjustments.
 
-By default, it will manage how many instances it has running by itself,
-but you can also set it manually.
+**Command-Line (Secondary):**
 
-```bash
-veda set instances 10
-```
+While the web UI is the main interface, some basic commands are available:
 
-If you want to let it manage itself, you can run this:
-```bash
-veda set instances auto
-```
-
-
-```bash
-veda chat
-```
-Veda chat allows you to chat with Veda directly to refine what it's working on.
-
-## web interface
-Open http://localhost:9900 in your web browser to see the Veda web interface.
+*   `veda`: Display help and status information.
+*   `veda chat`: Engage in a text-based chat session with Veda (useful for quick interactions or if the web UI is unavailable).
+*   `veda set instances <number|auto>`: Manually override the number of Aider instances Veda manages (use with caution, 'auto' is recommended).
+*   `veda stop`: Stop the Veda service.
