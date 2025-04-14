@@ -43,6 +43,9 @@ def ensure_webui_directory():
     # Always create/update index.html in webui directory to ensure it exists
     index_path = os.path.join(static_dir, 'index.html')
     logging.info(f"Creating/updating index.html at {index_path}")
+    
+    # Also create a copy in the project root for tests
+    root_index_path = os.path.join(project_root, 'index.html')
     with open(index_path, 'w') as f:
         f.write("""<!DOCTYPE html>
 <html lang="en">
@@ -290,6 +293,9 @@ def create_flask_app():
     # Configure Flask to find static files in webui directory
     # Set static_url_path to empty string to serve static files from root URL
     app = Flask(__name__, static_folder=static_dir, static_url_path='')
+    
+    # Disable caching for development/testing
+    app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
     # --- Socket.IO Setup ---
     # Socket.IO server (sio) is initialized globally.
@@ -668,7 +674,21 @@ def create_flask_app():
     @app.route('/')
     @app.route('/index.html')
     def serve_index_html():
-        return app.send_static_file('index.html')
+        try:
+            return app.send_static_file('index.html')
+        except Exception as e:
+            logging.error(f"Error serving index.html: {e}")
+            # Fallback to direct file serving if static_folder approach fails
+            webui_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), 'webui')
+            if os.path.exists(os.path.join(webui_dir, 'index.html')):
+                return send_from_directory(webui_dir, 'index.html')
+            
+            # Try project root as last resort
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            if os.path.exists(os.path.join(project_root, 'index.html')):
+                return send_from_directory(project_root, 'index.html')
+                
+            return "Index.html not found", 404
         
     # Add routes to serve static files from multiple locations
     @app.route('/static/<path:filename>')
@@ -820,6 +840,12 @@ def start_web_server(manager_instance: 'AgentManager', host: str = "0.0.0.0", po
     def test_endpoint():
         """Simple test endpoint that always returns 200 OK."""
         return "Test endpoint is working"
+    
+    # Add a root route to serve index.html directly for tests
+    @app.route("/")
+    def root_for_tests():
+        """Direct root route for tests."""
+        return app.send_static_file('index.html')
     
     # Create Socket.IO server
     sio_server = socketio.Server(async_mode="threading", cors_allowed_origins="*", engineio_logger=False)
