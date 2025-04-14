@@ -1,10 +1,10 @@
+import os
 import pytest
 import requests
 import time
 import subprocess
 import sys
 import socket
-import os
 
 def wait_for_port(port, timeout=15): # Increased timeout
     start = time.time()
