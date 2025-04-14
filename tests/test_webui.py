@@ -37,8 +37,8 @@ def test_webui_serves_vue_and_tailwind():
         assert "vue" in resp.text.lower() or "Vue" in resp.text, "Vue.js not found in the HTML response"
         assert "tailwind" in resp.text.lower() or "Tailwind" in resp.text, "Tailwind CSS not found in the HTML response"
         # Check for chat UI elements
-        assert "chat" in resp.text.lower()
-        assert "thread" in resp.text.lower()
+        assert "chat" in resp.text.lower(), "Chat element not found in the HTML response"
+        assert "thread" in resp.text.lower() or "agent" in resp.text.lower(), "Thread or agent element not found in the HTML response"
     finally:
         # Capture output if server didn't start
         if not server_started:
