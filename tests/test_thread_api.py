@@ -45,7 +45,7 @@ def test_thread_api_returns_threads():
         last_exception = None
         while time.time() - api_start < api_timeout:
             try:
-                resp = requests.get("http://localhost:9900/api/threads", timeout=5)
+                resp = requests.get("http://localhost:9900/api/threads", timeout=2)
                 resp.raise_for_status()
                 data = resp.json()
                 assert isinstance(data, list)
