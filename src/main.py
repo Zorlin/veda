@@ -603,8 +603,11 @@ def main():
                  while True:
                      time.sleep(1)
             else:
-                 # In non-interactive mode (like tests or background), just let the daemon threads run
-                 pass # Or implement a more robust background running mechanism if needed
+                 # In non-interactive mode (like tests or background), keep the main thread alive
+                 # so the daemon threads (like the web server) can continue running.
+                 logging.info("Running in non-interactive mode, keeping main thread alive.")
+                 while True:
+                     time.sleep(1)
         except KeyboardInterrupt:
             print("\nShutting down Veda...")
             agent_manager.stop() # Use global manager
