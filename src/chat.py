@@ -267,13 +267,20 @@ def run_readiness_chat() -> str | None:
             for i in range(len(messages) - 3, 0, -1):
                 if messages[i]['role'] == 'user':
                     potential_prompt = messages[i]['content']
-                    break # Found the most recent user message before confirmation cycle
+                    # Check if this prompt is actually a system note or context message
+                    is_system_note = potential_prompt.startswith("[System note:")
+                    is_context_msg = potential_prompt.startswith("Context: User asked to read")
+
+                    if is_system_note or is_context_msg:
+                        # If it is, try to get the *actual* user message before it
+                        if i > 0 and messages[i-1]['role'] == 'user':
+                            potential_prompt = messages[i-1]['content']
+                        else:
+                            # Should not happen if history is built correctly, but handle defensively
+                            potential_prompt = None # Reset if we can't find the original user message
+                    break # Found the relevant message (or the note/context derived from it)
 
             if potential_prompt:
-                 # Avoid returning just the file context message if that was the last user message found
-                 if "Context: User asked to read" in potential_prompt and len(messages) > i+1 and messages[i-1]['role'] == 'user':
-                     potential_prompt = messages[i-1]['content']
-
                  print(f"\nVeda: Okay, proceeding with the goal: '{potential_prompt[:100]}...'")
                  return potential_prompt
             else:
