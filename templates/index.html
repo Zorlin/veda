@@ -14,6 +14,53 @@
         </button>
     </div>
 
+    {# Goal Tag Management Section #}
+    <div class="mt-6 p-4 bg-white rounded shadow" x-data="goalTagApp()">
+        <h2 class="text-xl font-semibold mb-3 text-gray-700">Define Goal</h2>
+        <p class="text-sm text-gray-600 mb-3">Add short goal fragments or tasks below. Drag to reorder, then synthesize into a full goal.</p>
+
+        <div class="flex mb-3">
+            <input type="text" x-model="newTagInput" @keydown.enter.prevent="addTag()"
+                   placeholder="Add a goal fragment..."
+                   class="flex-grow border rounded-l p-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button @click="addTag()"
+                    class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-r"
+                    :disabled="!newTagInput.trim()">
+                Add Tag
+            </button>
+        </div>
+
+        <div x-ref="tagList" class="mb-3 space-y-2 min-h-[50px] border p-2 rounded bg-gray-50">
+            <template x-for="(tag, index) in goalTags" :key="index">
+                <div class="flex items-center justify-between p-2 bg-white border rounded shadow-sm cursor-grab active:cursor-grabbing" :data-id="index">
+                    <span class="text-gray-800" x-text="tag"></span>
+                    <button @click="removeTag(index)" class="text-red-500 hover:text-red-700 ml-2 text-xs font-semibold">
+                        &times; REMOVE
+                    </button>
+                </div>
+            </template>
+            <p x-show="goalTags.length === 0" class="text-gray-400 italic text-center py-2">Add tags using the input above.</p>
+        </div>
+
+        <div class="flex items-center justify-between">
+             <button @click="synthesizeGoal()"
+                    class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+                    :disabled="goalTags.length === 0 || isSynthesizing">
+                 <span x-show="!isSynthesizing">Synthesize Goal</span>
+                 <span x-show="isSynthesizing">Synthesizing...</span>
+            </button>
+            <span x-show="synthesisError" class="text-red-500 text-sm" x-text="synthesisError"></span>
+        </div>
+
+
+        <div x-show="synthesizedGoal" class="mt-4 p-3 border rounded bg-yellow-50 border-yellow-200">
+            <h3 class="font-semibold text-gray-700 mb-1">Synthesized Goal:</h3>
+            <p class="text-gray-800" x-text="synthesizedGoal"></p>
+            {# TODO: Add button to "Set as Active Goal" which sends it via WebSocket? #}
+        </div>
+    </div>
+
+
     {# Placeholder for future UI components #}
     <div class="mt-6">
         <h2 class="text-xl font-semibold">Agent Status</h2>
@@ -171,6 +218,109 @@
                         chatWindow.scrollTop = chatWindow.scrollHeight;
                     }
                 });
+            }
+        }
+    }
+
+    function goalTagApp() {
+        return {
+            goalTags: [], // Array of strings
+            newTagInput: '',
+            synthesizedGoal: '',
+            isSynthesizing: false,
+            synthesisError: '',
+            sortable: null,
+
+            init() {
+                console.log('Goal tag app initializing...');
+                // Load tags from localStorage if available
+                const savedTags = localStorage.getItem('vedaGoalTags');
+                if (savedTags) {
+                    try {
+                        this.goalTags = JSON.parse(savedTags);
+                    } catch (e) {
+                        console.error("Failed to parse saved goal tags:", e);
+                        localStorage.removeItem('vedaGoalTags');
+                    }
+                }
+                // Initialize SortableJS after Alpine renders the list
+                this.$nextTick(() => this.initSortable());
+            },
+
+            initSortable() {
+                if (this.sortable) {
+                    this.sortable.destroy(); // Destroy previous instance if exists
+                }
+                const el = this.$refs.tagList;
+                if (!el) {
+                    console.error("Sortable target element not found");
+                    return;
+                }
+                this.sortable = new Sortable(el, {
+                    animation: 150,
+                    ghostClass: 'bg-blue-100', // Class for the drop placeholder
+                    onEnd: (evt) => {
+                        // Update the Alpine data array order based on SortableJS reorder
+                        const item = this.goalTags.splice(evt.oldIndex, 1)[0];
+                        this.goalTags.splice(evt.newIndex, 0, item);
+                        this.saveTags(); // Save new order
+                    },
+                });
+            },
+
+            addTag() {
+                const tag = this.newTagInput.trim();
+                if (tag) {
+                    this.goalTags.push(tag);
+                    this.newTagInput = '';
+                    this.saveTags();
+                    this.$nextTick(() => this.initSortable()); // Re-init sortable if list was empty
+                }
+            },
+
+            removeTag(index) {
+                this.goalTags.splice(index, 1);
+                this.saveTags();
+                 this.$nextTick(() => this.initSortable()); // Re-init sortable if list becomes empty
+            },
+
+            saveTags() {
+                localStorage.setItem('vedaGoalTags', JSON.stringify(this.goalTags));
+                this.synthesizedGoal = ''; // Clear synthesized goal when tags change
+                this.synthesisError = '';
+            },
+
+            async synthesizeGoal() {
+                if (this.goalTags.length === 0) return;
+
+                this.isSynthesizing = true;
+                this.synthesizedGoal = '';
+                this.synthesisError = '';
+                console.log("Synthesizing goal with tags:", this.goalTags);
+
+                try {
+                    const response = await fetch('/api/synthesize-goal', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ tags: this.goalTags }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    this.synthesizedGoal = data.goal;
+                    console.log("Synthesized goal:", this.synthesizedGoal);
+
+                } catch (error) {
+                    console.error('Error synthesizing goal:', error);
+                    this.synthesisError = `Failed to synthesize goal: ${error.message}`;
+                } finally {
+                    this.isSynthesizing = false;
+                }
             }
         }
     }

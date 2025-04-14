@@ -7,6 +7,7 @@ use tracing::{error, info};
 mod agent_manager;
 mod chat;
 mod constants;
+mod llm_interaction; // Add the new module
 mod web_server;
 
 // Define the command-line interface structure using clap

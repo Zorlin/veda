@@ -14,9 +14,11 @@ use minijinja_autoreload::AutoReloader;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::broadcast;
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{debug, error, info, warn}; // Added debug
+use serde::{Deserialize, Serialize}; // Add Serialize/Deserialize
+use tracing::{debug, error, info, instrument, warn}; // Added instrument
 
 use crate::agent_manager::{AgentManager, AgentStatusReport}; // Import AgentManager
+use crate::llm_interaction; // Import the new module
 
 // Define the structure for messages broadcasted to clients
 // Using serde allows easy conversion to/from JSON for WebSocket messages
@@ -80,6 +82,45 @@ async fn api_agent_status_handler(
     debug!("Handling request for /api/agents/status");
     let report = state.agent_manager.get_status_report().await;
     axum::response::Json(report)
+}
+
+// Request structure for the synthesis endpoint
+#[derive(Deserialize, Debug)]
+struct SynthesizeGoalRequest {
+    tags: Vec<String>,
+}
+
+// Response structure for the synthesis endpoint
+#[derive(Serialize)]
+struct SynthesizeGoalResponse {
+    goal: String,
+}
+
+// API handler for synthesizing goals
+#[instrument(skip(state, request))]
+async fn synthesize_goal_handler(
+    State(state): State<AppState>, // Access AppState if needed later (e.g., for config)
+    axum::extract::Json(request): axum::extract::Json<SynthesizeGoalRequest>,
+) -> Result<axum::response::Json<SynthesizeGoalResponse>, axum::http::StatusCode> {
+    info!(tags = ?request.tags, "Handling request for /api/synthesize-goal");
+
+    if request.tags.is_empty() {
+        warn!("Received empty tag list for synthesis.");
+        // Return bad request or an empty goal? Let's return empty goal for now.
+        return Ok(axum::response::Json(SynthesizeGoalResponse { goal: "".to_string() }));
+    }
+
+    match llm_interaction::synthesize_goal_with_ollama(request.tags).await {
+        Ok(synthesized_goal) => {
+            info!(synthesized_goal = ?synthesized_goal, "Goal synthesized successfully");
+            Ok(axum::response::Json(SynthesizeGoalResponse { goal: synthesized_goal }))
+        }
+        Err(e) => {
+            error!("Failed to synthesize goal: {:?}", e);
+            // Return an internal server error status code
+            Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 
@@ -199,6 +240,7 @@ pub async fn start_web_server(port: u16, agent_manager: Arc<AgentManager>) -> Re
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler)) // WebSocket route
         .route("/api/agents/status", get(api_agent_status_handler)) // API route for status
+        .route("/api/synthesize-goal", axum::routing::post(synthesize_goal_handler)) // Add synthesis route
         // Route for static files must be nested under a path like /static
         // or it will conflict with other routes.
         .nest_service("/static", static_files_service)
