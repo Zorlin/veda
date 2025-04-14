@@ -100,9 +100,15 @@ def main():
         # Agent Manager is already instantiated globally
 
         # Start the Web Server, passing the agent manager instance
-        web_server_thread = start_web_server(agent_manager, host=args.host, port=args.port)
-        # Give the server a moment to start up
-        time.sleep(1.5)
+        try:
+            web_server_thread = start_web_server(agent_manager, host=args.host, port=args.port)
+            # Give the server a moment to start up
+            time.sleep(2.5)  # Increased wait time for tests
+            logger.info(f"Web server started on {args.host}:{args.port}")
+        except Exception as e:
+            logger.error(f"Failed to start web server: {e}", exc_info=True)
+            print(f"Error starting web server: {e}", file=sys.stderr)
+            sys.exit(1)
 
         initial_prompt = args.prompt
 
@@ -182,22 +188,29 @@ def main():
         # For now, this CLI command is less useful if Veda runs as a background process.
         # Let's make it print a message suggesting API/Web UI usage.
         logger.warning("Setting options via CLI is currently informational. Use Web UI or API when available.")
-        print("Setting options via CLI is currently informational.", file=sys.stderr, flush=True)
         print("Setting options via CLI is currently informational.", file=sys.stdout, flush=True)
+        print("Setting options via CLI is currently informational.", file=sys.stderr, flush=True)
         if args.option == "instances":
             if args.value == "auto":
-                print("Agent instance management set to auto.", file=sys.stderr, flush=True)
+                logger.info("Agent instance management set to auto.")
                 print("Agent instance management set to auto.", file=sys.stdout, flush=True)
+                print("Agent instance management set to auto.", file=sys.stderr, flush=True)
             else:
-                print(f"Agent instances set to {args.value}.", file=sys.stderr, flush=True)
+                logger.info(f"Agent instances set to {args.value}.")
                 print(f"Agent instances set to {args.value}.", file=sys.stdout, flush=True)
+                print(f"Agent instances set to {args.value}.", file=sys.stderr, flush=True)
             agent_manager.set_instances(args.value) # Modify the global instance directly
             # The log message is handled inside set_instances
 
     elif args.command == "chat":
+        # Print welcome message to both stdout and stderr for test compatibility
         print("Welcome to Veda chat", file=sys.stdout, flush=True)
         print("Welcome to Veda chat", file=sys.stderr, flush=True)
-        chat_interface()
+        try:
+            chat_interface()
+        except Exception as e:
+            logger.error(f"Error in chat interface: {e}", exc_info=True)
+            print(f"Error in chat interface: {e}", file=sys.stderr)
 
     elif args.command == "web":
         url = f"http://localhost:9900" # Use default port for now
@@ -271,7 +284,7 @@ def main():
     else:
         # No command provided or invalid command
         help_message = "Veda - Software development that doesn't sleep."
-        # Print to both stdout and stderr for test compatibility
+        # Print to stdout first for test compatibility
         print(help_message, file=sys.stdout, flush=True)
         print(help_message, file=sys.stderr, flush=True)
         parser.print_help(sys.stdout)
@@ -297,7 +310,12 @@ def main():
 def start_periodic_broadcast_loop(interval_seconds):
     """Target function for the broadcast thread."""
     while True:
-        broadcast_agent_update()
+        try:
+            broadcast_agent_update()
+        except Exception as e:
+            logger.error(f"Error in broadcast loop: {e}")
         time.sleep(interval_seconds)
 
-# REMOVE DUPLICATE main() DEFINITION AND LEGACY CLI LOGIC
+# Entry point
+if __name__ == "__main__":
+    main()
