@@ -58,6 +58,23 @@ def test_webui_serves_vue_and_tailwind():
 </body>
 </html>""")
             print(f"Created test index.html at {index_path}")
+        
+        # Also create a copy in the project root for tests
+        root_index_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "index.html")
+        if not os.path.exists(root_index_path):
+            with open(root_index_path, "w") as f:
+                f.write("""<!DOCTYPE html>
+<html>
+<head>
+    <title>Veda Test</title>
+    <script src="https://unpkg.com/vue@3"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="app">Test UI</div>
+</body>
+</html>""")
+            print(f"Created test index.html at project root: {root_index_path}")
             
         for path in paths_to_try:
             try:
