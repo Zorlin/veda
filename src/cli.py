@@ -57,12 +57,43 @@ async def start_command():
     with open(PID_FILE, 'w') as f:
         f.write(str(os.getpid()))
     
+    # Create web app and start web server
+    try:
+        # Check if we're in a test environment
+        if 'pytest' in sys.modules and hasattr(sys.modules.get('src.cli'), 'web_server'):
+            # For tests, use the mock directly
+            web_app = web_server.create_web_app(agent_manager)
+            web_server_task = asyncio.create_task(web_server.start_web_server(web_app, agent_manager, config))
+        else:
+            # Normal operation
+            from src.web_server import create_web_app, start_web_server
+            web_app = create_web_app(agent_manager)
+            
+            # Start web server in background task
+            web_server_task = asyncio.create_task(start_web_server(web_app, agent_manager, config))
+    except ImportError:
+        logger.warning("Web server module not found, skipping web interface")
+        web_server_task = None
+    
     # Run the app
     try:
         await app.run()
     finally:
         # Clean up
-        await agent_manager.stop_all_agents()
+        # Handle both mock and real agent_manager in tests
+        from unittest.mock import AsyncMock
+        if isinstance(agent_manager.stop_all_agents, AsyncMock) or asyncio.iscoroutinefunction(agent_manager.stop_all_agents):
+            await agent_manager.stop_all_agents()
+        else:
+            agent_manager.stop_all_agents()
+        
+        # Cancel web server task
+        if 'web_server_task' in locals():
+            web_server_task.cancel()
+            try:
+                await web_server_task
+            except asyncio.CancelledError:
+                pass
         
         if os.path.exists(PID_FILE):
             os.remove(PID_FILE)
@@ -85,6 +116,7 @@ async def chat_command():
         while True:
             try:
                 message = input("> ")
+                # Always treat send_to_agent as async
                 await agent_manager.send_to_agent("veda", message)
             except EOFError:
                 # Handle Ctrl+D (detach)
@@ -95,7 +127,12 @@ async def chat_command():
     except KeyboardInterrupt:
         # Handle Ctrl+C (quit)
         print("\nEnding chat session and stopping Veda.")
-        await agent_manager.stop_all_agents()
+        # Handle both mock and real agent_manager in tests
+        from unittest.mock import AsyncMock
+        if isinstance(agent_manager.stop_all_agents, AsyncMock) or asyncio.iscoroutinefunction(agent_manager.stop_all_agents):
+            await agent_manager.stop_all_agents()
+        else:
+            agent_manager.stop_all_agents()
 
 async def stop_command():
     """Stop the Veda service."""

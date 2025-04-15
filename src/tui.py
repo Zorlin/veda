@@ -434,26 +434,13 @@ class VedaApp(App[None]):
         return getattr(self, "_dark", False)
 
     @dark.setter
-    def dark(self, value):
-        self._dark = value
-        # For test compatibility, also update the -dark-mode class
-        if value:
-            self.add_class("-dark-mode")
-            self.add_pseudo_class("dark")
-            # Patch: for test compatibility, set _dark to True
-            self._dark = True
-        else:
-            self.remove_class("-dark-mode")
-            self.remove_pseudo_class("dark")
-            self._dark = False
-        # Patch: force a re-render for test compatibility
-        try:
-            self.refresh()
-        except Exception:
-            pass
+    def dark(self, value: bool):
+        # Use the built-in setter which handles classes and refreshing
+        super(VedaApp, self.__class__).dark.fset(self, value) # Call Textual's setter
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
+        # Directly toggle the app's dark mode state
         self.dark = not self.dark
 
     def action_quit(self) -> None:
