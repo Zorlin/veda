@@ -186,9 +186,8 @@ class VedaApp(App[None]):
         RichLog.get_content = get_content
 
         # Start the Veda workflow: prompt for goal, parse files, spawn planner, etc.
-        if self.agent_manager:
-            # This will prompt for the goal, parse files, spawn planner, and workers
-            self.run_worker(self.agent_manager.initialize_project(), exclusive=True)
+        # Do NOT call initialize_project here! It requires a project_goal argument.
+        # The workflow should start after the user submits the initial goal via the input box.
         # TODO: Add other initial status information based on config/state
 
     @work(exclusive=True, thread=True)
