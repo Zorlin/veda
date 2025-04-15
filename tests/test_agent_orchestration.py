@@ -11,7 +11,7 @@ src_path = project_root / "src"
 import sys
 sys.path.insert(0, str(src_path))
 
-from agent_manager import AgentManager, AgentInstance, AgentOutputMessage, AgentExitedMessage
+from agent_manager import AgentManager, AgentInstance, AgentOutputMessage, AgentExitedMessage, LogMessage
 
 @pytest.fixture
 def mock_app():
