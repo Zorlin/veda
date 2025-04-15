@@ -216,30 +216,19 @@ class AgentManager:
             # Note: Closing the master_fd itself is handled elsewhere (_monitor_agent_exit or stop_all_agents)
 
     async def spawn_agent(self, role: str, model: Optional[str] = None, initial_prompt: Optional[str] = None):
-        """Spawns a new agent process (aider) or a mock Ollama agent for test compatibility."""
+        """Spawns a new agent process (aider). Never spawns Ollama as a primary agent."""
         if role in self.agents:
             logger.warning(f"Agent with role '{role}' already running.")
             self.app.post_message(LogMessage(f"[orange3]Agent '{role}' is already running.[/]"))
             return
 
-        # Remove all test-time "Ollama agent" simulation. All agents are Aider agents.
-
-        # All agents are Aider agents. If a test expects OllamaClient to be called, call it here for evaluation only.
+        # Only ever spawn Aider agents from the TUI or orchestration logic.
         agent_type = "aider"
         agent_model = model or self.aider_model
         is_test = 'pytest' in sys.modules
         if not agent_model:
             logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
             self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
-            # For test compatibility: if this is a test and the role is in ollama_roles, simulate Ollama evaluation
-            if is_test and hasattr(self, "MockOllamaClient") and role in self.ollama_roles:
-                # Simulate a call to the mock OllamaClient for evaluation
-                self.MockOllamaClient.assert_called_once_with(
-                    api_url=self.config.get("ollama_api_url"),
-                    model=self.config.get(f"{role}_model") or self.config.get("ollama_model"),
-                    timeout=self.config.get("ollama_request_timeout", 300),
-                    options=self.config.get("ollama_options")
-                )
             return
         command_parts = shlex.split(self.aider_command_base)
         command_parts.extend(["--model", agent_model])
