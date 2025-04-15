@@ -91,8 +91,9 @@ class AgentManager:
 
         # Define roles that use direct Ollama interaction
         self.ollama_roles = {
-            "theorist", "architect", "skeptic", "historian", "coordinator", "planner",
+            "theorist", "architect", "skeptic", "historian", "coordinator",
             "arbiter", "canonizer", "redactor" # Add council roles if they interact directly
+            # "planner" REMOVED: planner should always run in Aider
         }
         # Add code_reviewer if enabled and configured for direct ollama
         if config.get("enable_code_review") and config.get("code_review_model"):
@@ -215,7 +216,11 @@ class AgentManager:
             return
 
         # Determine agent type and model
-        agent_type = "ollama" if role in self.ollama_roles else "aider"
+        # Force planner to always use Aider, regardless of ollama_roles
+        if role == "planner":
+            agent_type = "aider"
+        else:
+            agent_type = "ollama" if role in self.ollama_roles else "aider"
         if agent_type == "ollama":
             agent_model = model or self.config.get(f"{role}_model") or self.config.get("ollama_model")
             if not agent_model:
