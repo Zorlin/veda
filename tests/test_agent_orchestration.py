@@ -128,6 +128,10 @@ async def test_multi_agent_coordination():
             
             manager = AgentManager(mock_app, config, work_dir)
             
+            # Create handoffs directory
+            handoffs_dir = work_dir / "handoffs"
+            handoffs_dir.mkdir(parents=True, exist_ok=True)
+            
             # Spawn multiple agents
             await manager.spawn_agent("architect")
             await manager.spawn_agent("developer")
@@ -137,26 +141,20 @@ async def test_multi_agent_coordination():
             assert "developer" in manager.agents
             
             # Test agent handoff
-            handoff_file = work_dir / "handoffs" / "architect_to_developer.json"
-            os.makedirs(work_dir / "handoffs", exist_ok=True)
+            handoff_file = handoffs_dir / "architect_to_developer.json"
             
             # Simulate architect creating handoff file
             with open(handoff_file, 'w') as f:
                 json.dump({"message": "I've designed the architecture, please implement it"}, f)
             
-            # Process handoffs - mock this method if it doesn't exist
-            if hasattr(manager, 'process_handoffs'):
-                await manager.process_handoffs()
-            else:
-                # Simulate what process_handoffs would do
-                mock_app.post_message.reset_mock()
-                mock_app.post_message(AgentOutputMessage(
-                    role="developer", 
-                    line="Received handoff from architect: I've designed the architecture, please implement it"
-                ))
+            # Process handoffs
+            await manager.process_handoffs()
             
             # Verify developer received the handoff
-            mock_app.post_message.assert_called()
+            mock_app.post_message.assert_any_call(AgentOutputMessage(
+                role="developer",
+                line="Received handoff from architect: I've designed the architecture, please implement it"
+            ))
 
 @pytest.mark.asyncio
 async def test_agent_roles_and_personalities():
@@ -269,18 +267,21 @@ async def test_detach_and_background_operation():
             await manager.spawn_agent("developer")
             
             # Simulate user detaching (Ctrl+D)
-            # We need to add this method to AgentManager
-            if hasattr(manager, 'handle_user_detach'):
-                await manager.handle_user_detach()
+            result = await manager.handle_user_detach()
             
             # Verify agent continues running
+            assert result is True
             assert "developer" in manager.agents
             assert manager.agents["developer"].process is not None
+            
+            # Verify message was posted
+            mock_app.post_message.assert_any_call(LogMessage("User detached. Agents will continue running in the background."))
 
 @pytest.mark.asyncio
 async def test_agent_exit_monitoring():
     """Test that agent exits are properly monitored and handled."""
-    with patch('agent_manager.OllamaClient') as MockOllamaClient:
+    with patch('agent_manager.OllamaClient') as MockOllamaClient, \
+         patch('agent_manager.os.close'):
         mock_client = MockOllamaClient.return_value
         
         mock_app = MagicMock()
@@ -295,6 +296,11 @@ async def test_agent_exit_monitoring():
         # Create a mock process
         mock_process = AsyncMock()
         mock_process.wait = AsyncMock(return_value=0)  # Exit code 0
+        mock_process.pid = 12345
+        
+        # Create a mock read task
+        mock_read_task = MagicMock()
+        mock_read_task.cancel = MagicMock()
         
         # Setup an agent
         manager.agents["developer"] = AgentInstance(
@@ -302,7 +308,7 @@ async def test_agent_exit_monitoring():
             agent_type="aider",
             process=mock_process,
             master_fd=5,
-            read_task=MagicMock()
+            read_task=mock_read_task
         )
         
         # Monitor the exit
@@ -311,3 +317,4 @@ async def test_agent_exit_monitoring():
         # Verify agent was removed and exit message was posted
         assert "developer" not in manager.agents
         mock_app.post_message.assert_called_with(AgentExitedMessage(role="developer", return_code=0))
+        mock_read_task.cancel.assert_called_once()

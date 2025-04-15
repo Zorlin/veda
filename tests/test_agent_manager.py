@@ -100,7 +100,7 @@ async def test_spawn_aider_agent(agent_manager, mock_app):
     # Use the agent_manager fixture which has proper cleanup
     
     # Create patches for all external dependencies
-    with patch('agent_manager.pty.openpty', return_value=(3, 4)), \
+    with patch('agent_manager.os.openpty', return_value=(3, 4)), \
          patch('agent_manager.fcntl.fcntl'), \
          patch('agent_manager.os.close'), \
          patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_exec, \

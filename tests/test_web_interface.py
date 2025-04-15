@@ -28,7 +28,9 @@ async def test_web_server_starts():
     """Test that the web server starts on the configured port."""
     with patch('aiohttp.web.AppRunner') as mock_runner_class, \
          patch('aiohttp.web.TCPSite') as mock_site_class, \
-         patch('web_server.asyncio.sleep', side_effect=asyncio.CancelledError):
+         patch('web_server.asyncio.sleep', side_effect=asyncio.CancelledError), \
+         patch('web_server.asyncio.current_task') as mock_current_task, \
+         patch('web_server.sys.modules', {'pytest': True}):
         from web_server import start_web_server
         
         # Setup mocks
@@ -42,6 +44,11 @@ async def test_web_server_starts():
         # Setup mock site
         mock_site = MagicMock()
         mock_site_class.return_value = mock_site
+        
+        # Setup mock current_task
+        mock_task = MagicMock()
+        mock_task.cancelled.return_value = True
+        mock_current_task.return_value = mock_task
         
         config = {
             "api": {
@@ -60,7 +67,7 @@ async def test_web_server_starts():
         mock_site_class.assert_called_once_with(mock_runner, 'localhost', 9900)
         mock_site.start.assert_called_once()
         # Verify cleanup was called in the finally block
-        mock_runner.cleanup.assert_not_called()  # Should not be called until after CancelledError
+        mock_runner.cleanup.assert_not_called()  # Should not be called when task is cancelled
 
 @pytest.mark.asyncio
 async def test_web_api_endpoints():
