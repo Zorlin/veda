@@ -280,7 +280,6 @@ class VedaApp(App[None]):
             # Clear input after submitting goal
             self.input_widget.clear()
             self.input_widget.focus()
-
         elif self.ollama_client and not self.input_widget.disabled:
             # Subsequent input: Treat as chat/command for Veda's Ollama client
             escaped_user_input = rich.markup.escape(user_input)
@@ -289,7 +288,6 @@ class VedaApp(App[None]):
             # Call the worker for Veda's response/action
             self.call_ollama(user_input)
             # Don't clear input here, worker will do it after response
-
         elif not self.ollama_client or self.input_widget.disabled:
              self.log_widget.write("[bold red]Interaction disabled. Ollama client not available.[/]")
              try:
@@ -300,6 +298,7 @@ class VedaApp(App[None]):
         else:
             # Handle empty input if needed, or just ignore
             self.input_widget.focus()
+
 
     # --- Custom Message Handlers ---
     def on_log_message(self, message: LogMessage) -> None:
