@@ -243,18 +243,13 @@ async def test_initialize_project(agent_manager, temp_work_dir, mock_app):
     mock_app.post_message.assert_any_call(LogMessage(f"Initial goal saved to {goal_file.name}"))
 
     # Check if the initial agent (planner) was spawned
+    # Check if coordinator_model exists in config, otherwise expect None
+    expected_model = agent_manager.config.get("coordinator_model")
     agent_manager.spawn_agent.assert_called_once_with(
         role="planner",
-        # Coordinator model is used for the initial planner/orchestrator role
-        model=agent_manager.config.get("coordinator_model"),
-        # Coordinator model is used for the initial planner/orchestrator role
-        # Check if coordinator_model exists in config, otherwise expect None
-        expected_model = agent_manager.config.get("coordinator_model")
-        agent_manager.spawn_agent.assert_called_once_with(
-            role="planner",
-            model=expected_model,
-            initial_prompt=project_goal
-        )
+        model=expected_model,
+        initial_prompt=project_goal
+    )
 
 @pytest.mark.asyncio
 @patch('agent_manager.os.write')
