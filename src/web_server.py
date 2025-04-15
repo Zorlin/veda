@@ -149,4 +149,6 @@ async def start_web_server(app, agent_manager, config):
             await asyncio.sleep(3600)  # Sleep for an hour
     except asyncio.CancelledError:
         logger.info("Web server shutting down")
+    finally:
+        # Ensure cleanup happens even if there's an exception
         await runner.cleanup()

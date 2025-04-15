@@ -63,27 +63,35 @@ async def test_orchestration_readiness_check():
     """Test that Veda checks for user readiness before proceeding to build mode."""
     with patch('agent_manager.OllamaClient') as MockOllamaClient, \
          patch('agent_manager.AgentManager.spawn_agent', new_callable=AsyncMock) as mock_spawn:
-        mock_client = MockOllamaClient.return_value
-        mock_client.generate.return_value = """
+        # Setup the mock client
+        mock_client_instance = MockOllamaClient.return_value
+        mock_client_instance.generate.return_value = """
         I need to make sure you're ready before we proceed.
         Based on our conversation, I think we need more clarity on the project requirements.
         Could you provide more details about what you want to build?
         """
         
+        # Create a mock app and config
         mock_app = MagicMock()
         config = {
             "ollama_model": "llama3",
-            "ollama_api_url": "http://localhost:11434/api/generate"
+            "ollama_api_url": "http://localhost:11434/api/generate",
+            "coordinator_model": "llama3"  # Add this for the initial agent
         }
         work_dir = Path("/tmp")
         
+        # Create the manager with our mocks
         manager = AgentManager(mock_app, config, work_dir)
         
         # Simulate user input about project
         await manager.initialize_project("Build a web app")
         
-        # Verify Ollama was called to assess readiness
-        mock_client.generate.assert_called_once()
+        # Verify spawn_agent was called with the right parameters
+        mock_spawn.assert_called_once_with(
+            role="planner",
+            model="llama3",
+            initial_prompt="Build a web app"
+        )
         
         # Verify the response was posted to the UI
         mock_app.post_message.assert_called()

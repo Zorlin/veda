@@ -25,12 +25,14 @@ def test_config():
 @pytest.mark.asyncio
 async def test_web_server_starts():
     """Test that the web server starts on the configured port."""
-    with patch('aiohttp.web.TCPSite') as mock_site, \
-         patch('web_server.asyncio.sleep', side_effect=asyncio.CancelledError) as mock_sleep:
+    with patch('aiohttp.web.AppRunner') as mock_runner, \
+         patch('aiohttp.web.TCPSite') as mock_site_class, \
+         patch('web_server.asyncio.sleep', side_effect=asyncio.CancelledError):
         from web_server import start_web_server
         
         mock_app = MagicMock()
         mock_agent_manager = MagicMock()
+        mock_site = mock_site_class.return_value
         
         config = {
             "api": {
@@ -44,8 +46,10 @@ async def test_web_server_starts():
             await start_web_server(mock_app, mock_agent_manager, config)
         
         # Verify the server was started with correct host/port
-        mock_site.assert_called_once()
-        mock_site.return_value.start.assert_called_once()
+        mock_runner.assert_called_once_with(mock_app)
+        mock_runner.return_value.setup.assert_called_once()
+        mock_site_class.assert_called_once_with(mock_runner.return_value, 'localhost', 9900)
+        mock_site.start.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_web_api_endpoints():

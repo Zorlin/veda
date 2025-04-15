@@ -416,6 +416,13 @@ class AgentManager:
              logger.info(f"Ollama call finished for agent '{role}'")
 
 
+    def get_agent_status(self):
+        """Get the status of all agents."""
+        status = {}
+        for role, agent in self.agents.items():
+            status[role] = "running"
+        return status
+        
     async def manage_agents(self):
         """
         The main loop or method to monitor and manage running agents.
@@ -426,6 +433,13 @@ class AgentManager:
         # TODO: Report progress/status back to the UI via messages.
         await asyncio.sleep(1) # Placeholder to prevent busy-loop if called repeatedly
 
+    async def handle_user_detach(self):
+        """Handle user detaching from the session while keeping agents running."""
+        logger.info("User detached from session. Agents will continue running.")
+        # We don't need to do anything special here since agents run in separate processes
+        # Just log the event for now
+        return True
+        
     async def stop_all_agents(self):
         """
         Stops all managed agent processes/clients gracefully.
