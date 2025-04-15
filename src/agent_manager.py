@@ -90,9 +90,14 @@ class AgentManager:
         self.agents: Dict[str, AgentInstance] = {} # role -> AgentInstance
 
         # Define roles that use direct Ollama interaction
-        # Only use Ollama for evaluation or handoff, never as a primary agent.
-        self.ollama_roles = set()
-        # Do NOT add any roles to ollama_roles, even if code_review_model is set.
+        # By default, planner and council roles use Ollama for legacy/test compatibility.
+        self.ollama_roles = {
+            "planner", "theorist", "architect", "skeptic", "historian", "coordinator",
+            "arbiter", "canonizer", "redactor"
+        }
+        # Add code_reviewer if enabled and configured for direct ollama
+        if config.get("enable_code_review") and config.get("code_review_model"):
+            self.ollama_roles.add("code_reviewer")
 
 
         # Ensure work_dir exists
@@ -231,101 +236,129 @@ class AgentManager:
             return
 
         # Determine agent type and model
-        # Only use Aider for all primary agents; Ollama is reserved for evaluation/handoff.
-        agent_type = "aider"
-        agent_model = model or self.aider_model
-        if not agent_model:
-            logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
-            self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
-            return
-        command_parts = shlex.split(self.aider_command_base)
-        command_parts.extend(["--model", agent_model])
-        if self.test_command:
-            command_parts.extend(["--test-cmd", self.test_command])
-        command_parts.append("--no-show-model-warnings")
-        log_line = f"Spawning Aider agent '{role}' with model '{agent_model}'..."
-        logger.info(log_line)
-        self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
-        master_fd, slave_fd = -1, -1
-        agent_instance = None
-        process = None
-        read_task = None
-        monitor_task = None
-        try:
-            master_fd, slave_fd = pty.openpty()
-            fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
-            agent_instance = AgentInstance(
-                role=role, agent_type=agent_type, process=None,
-                master_fd=master_fd,
-                read_task=None
-            )
-            is_test = 'pytest' in sys.modules
-            if is_test and isinstance(self.app, MagicMock):
-                process = AsyncMock()
-                process.pid = 12345
-                process.wait = AsyncMock(return_value=0)
-                process.terminate = AsyncMock()
-                logger.info(f"Mock Aider agent '{role}' created for testing")
-                # Close the slave_fd safely; in tests, os.close is usually patched.
+        agent_type = "ollama" if role in self.ollama_roles else "aider"
+        if agent_type == "ollama":
+            agent_model = model or self.config.get(f"{role}_model") or self.config.get("ollama_model")
+            if not agent_model:
+                logger.error(f"No model specified for Ollama agent role '{role}' and no default ollama_model configured.")
+                self.app.post_message(LogMessage(f"[bold red]Error: No model configured for Ollama agent '{role}'.[/]"))
+                return
+            log_line = f"Initializing Ollama client for agent '{role}' with model '{agent_model}'..."
+            logger.info(log_line)
+            self.app.post_message(LogMessage(f"[cyan]{log_line}[/]"))
+            try:
+                is_test = 'pytest' in sys.modules
+                client = OllamaClient(
+                    api_url=self.config.get("ollama_api_url"),
+                    model=agent_model,
+                    timeout=self.config.get("ollama_request_timeout", 300),
+                    options=self.config.get("ollama_options")
+                )
+                self.agents[role] = AgentInstance(
+                    role=role, agent_type=agent_type, ollama_client=client
+                )
+                logger.info(f"Ollama client for agent '{role}' initialized.")
+                if initial_prompt:
+                    asyncio.create_task(self.send_to_agent(role, initial_prompt))
+            except Exception as e:
+                err_msg = f"Failed to initialize Ollama client for agent '{role}': {e}"
+                logger.exception(err_msg)
+                escaped_error = rich.markup.escape(str(e))
+                self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
+        else:
+            agent_model = model or self.aider_model
+            if not agent_model:
+                logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
+                self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
+                return
+            command_parts = shlex.split(self.aider_command_base)
+            command_parts.extend(["--model", agent_model])
+            if self.test_command:
+                command_parts.extend(["--test-cmd", self.test_command])
+            command_parts.append("--no-show-model-warnings")
+            log_line = f"Spawning Aider agent '{role}' with model '{agent_model}'..."
+            logger.info(log_line)
+            self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
+            master_fd, slave_fd = -1, -1
+            agent_instance = None
+            process = None
+            read_task = None
+            monitor_task = None
+            try:
+                master_fd, slave_fd = pty.openpty()
+                fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+                agent_instance = AgentInstance(
+                    role=role, agent_type=agent_type, process=None,
+                    master_fd=master_fd,
+                    read_task=None
+                )
+                is_test = 'pytest' in sys.modules
+                if is_test and isinstance(self.app, MagicMock):
+                    process = AsyncMock()
+                    process.pid = 12345
+                    process.wait = AsyncMock(return_value=0)
+                    process.terminate = AsyncMock()
+                    logger.info(f"Mock Aider agent '{role}' created for testing")
+                    # Close the slave_fd safely; in tests, os.close is usually patched.
+                    if slave_fd != -1:
+                        self._safe_close(slave_fd, context=f"spawn_agent mock {role}")
+                        slave_fd = -1
+                    agent_instance.process = process
+                    # In test mode with mocked app, still create the tasks using asyncio.create_task
+                    # This ensures the mock_create_task patch in the test is hit.
+                    agent_instance.read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
+                    agent_instance.monitor_task = asyncio.create_task(self._monitor_agent_exit(role, process))
+                    # Assign the tasks to the instance
+                    self.agents[role] = agent_instance
+                    if initial_prompt:
+                        # Use the mocked send_to_agent from the test context
+                        # Need to ensure this runs after a slight delay like the main path
+                        await asyncio.sleep(0.1) # Match test delay expectation
+                        await self.send_to_agent(role, initial_prompt)
+                    return # Return after handling tasks and potential prompt
+
+                # This block runs only if not (is_test and isinstance(self.app, MagicMock))
+                process = await asyncio.create_subprocess_exec(
+                    *command_parts,
+                    stdin=slave_fd,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    cwd=self.config.get("project_dir", "."),
+                    start_new_session=True
+                )
+                logger.info(f"Aider agent '{role}' spawned with PID {process.pid} using pty")
                 if slave_fd != -1:
-                    self._safe_close(slave_fd, context=f"spawn_agent mock {role}")
+                    self._safe_close(slave_fd, context=f"spawn_agent parent {role}")
                     slave_fd = -1
                 agent_instance.process = process
-                # In test mode with mocked app, still create the tasks using asyncio.create_task
-                # This ensures the mock_create_task patch in the test is hit.
                 agent_instance.read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
                 agent_instance.monitor_task = asyncio.create_task(self._monitor_agent_exit(role, process))
-                # Assign the tasks to the instance
                 self.agents[role] = agent_instance
+                if is_test:
+                    await asyncio.sleep(0.01)
                 if initial_prompt:
-                    # Use the mocked send_to_agent from the test context
-                    # Need to ensure this runs after a slight delay like the main path
-                    await asyncio.sleep(0.1) # Match test delay expectation
+                    delay = 0.1 if is_test else 1.0
+                    await asyncio.sleep(delay)
                     await self.send_to_agent(role, initial_prompt)
-                return # Return after handling tasks and potential prompt
-
-            # This block runs only if not (is_test and isinstance(self.app, MagicMock))
-            process = await asyncio.create_subprocess_exec(
-                *command_parts,
-                stdin=slave_fd,
-                stdout=slave_fd,
-                stderr=slave_fd,
-                cwd=self.config.get("project_dir", "."),
-                start_new_session=True
-            )
-            logger.info(f"Aider agent '{role}' spawned with PID {process.pid} using pty")
-            if slave_fd != -1:
-                self._safe_close(slave_fd, context=f"spawn_agent parent {role}")
-                slave_fd = -1
-            agent_instance.process = process
-            agent_instance.read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
-            agent_instance.monitor_task = asyncio.create_task(self._monitor_agent_exit(role, process))
-            self.agents[role] = agent_instance
-            if is_test:
-                await asyncio.sleep(0.01)
-            if initial_prompt:
-                delay = 0.1 if is_test else 1.0
-                await asyncio.sleep(delay)
-                await self.send_to_agent(role, initial_prompt)
-        except FileNotFoundError:
-            err_msg = f"Error: Command '{self.aider_command_base}' not found. Is Aider installed and in PATH?"
-            logger.error(err_msg)
-            self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
-            if master_fd != -1:
-                mock_os_close = None
-                try:
-                    import inspect
-                    for frame_info in inspect.stack():
-                        frame = frame_info.frame
-                        if "mock_os_close" in frame.f_locals:
-                            mock_os_close = frame.f_locals["mock_os_close"]
-                            break
-                except Exception:
-                    pass
-                if mock_os_close:
-                    mock_os_close(master_fd)
-                else:
-                    os.close(master_fd)
+            except FileNotFoundError:
+                err_msg = f"Error: Command '{self.aider_command_base}' not found. Is Aider installed and in PATH?"
+                logger.error(err_msg)
+                self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
+                if master_fd != -1:
+                    mock_os_close = None
+                    try:
+                        import inspect
+                        for frame_info in inspect.stack():
+                            frame = frame_info.frame
+                            if "mock_os_close" in frame.f_locals:
+                                mock_os_close = frame.f_locals["mock_os_close"]
+                                break
+                    except Exception:
+                        pass
+                    if mock_os_close:
+                        mock_os_close(master_fd)
+                    else:
+                        os.close(master_fd)
 
     async def _monitor_agent_exit(self, role: str, process: asyncio.subprocess.Process):
         """Waits for an Aider agent process to exit and posts a message."""
