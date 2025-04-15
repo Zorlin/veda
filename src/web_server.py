@@ -153,6 +153,10 @@ async def start_web_server(app, agent_manager, config):
         raise  # Re-raise the exception for tests to catch
     finally:
         # Ensure cleanup happens even if there's an exception
-        if not ('pytest' in sys.modules and asyncio.current_task().cancelled()):
-            # Skip cleanup during test cancellation to avoid assertion errors
+        if 'pytest' in sys.modules:
+            # In test mode, only cleanup if not cancelled
+            if not asyncio.current_task().cancelled():
+                await runner.cleanup()
+        else:
+            # In normal operation, always cleanup
             await runner.cleanup()

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import pty
@@ -325,6 +326,11 @@ class AgentManager:
         self.app.post_message(LogMessage(f"[green]{log_line}[/]")) # Use LogMessage for status
         logger.info(f"Work directory is: {self.work_dir.resolve()}")
 
+        # Create handoffs directory if it doesn't exist
+        handoffs_dir = self.work_dir / "handoffs"
+        handoffs_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Created handoffs directory: {handoffs_dir}")
+
         # Example: Write initial goal to a file in workdir
         try:
             goal_file = self.work_dir / "initial_goal.txt"
@@ -439,21 +445,63 @@ class AgentManager:
             status[role] = "running"
         return status
         
+    async def process_handoffs(self):
+        """Process handoff files between agents."""
+        handoffs_dir = self.work_dir / "handoffs"
+        if not handoffs_dir.exists():
+            logger.debug("Handoffs directory does not exist")
+            return
+            
+        for handoff_file in handoffs_dir.glob("*_to_*.json"):
+            try:
+                # Parse filename to get source and target agents
+                filename = handoff_file.name
+                if "_to_" not in filename:
+                    continue
+                    
+                source_role, target_role = filename.split("_to_")[0], filename.split("_to_")[1].split(".")[0]
+                
+                # Read the handoff file
+                with open(handoff_file, 'r') as f:
+                    handoff_data = json.loads(f.read())
+                
+                message = handoff_data.get("message", "")
+                if message and target_role in self.agents:
+                    # Post message to UI
+                    self.app.post_message(AgentOutputMessage(
+                        role=target_role,
+                        line=f"Received handoff from {source_role}: {message}"
+                    ))
+                    
+                    # Send message to target agent
+                    await self.send_to_agent(target_role, f"Handoff from {source_role}: {message}")
+                    
+                    # Optionally move or delete the processed handoff file
+                    processed_dir = handoffs_dir / "processed"
+                    processed_dir.mkdir(exist_ok=True)
+                    handoff_file.rename(processed_dir / handoff_file.name)
+                    
+            except Exception as e:
+                logger.exception(f"Error processing handoff file {handoff_file}: {e}")
+    
     async def manage_agents(self):
         """
         The main loop or method to monitor and manage running agents.
-        (Placeholder for future implementation)
         """
-        # TODO: Monitor workdir for agent handoffs, status updates, errors.
-        # TODO: Spawn new agents as needed based on handoff files.
+        # Process any handoffs between agents
+        await self.process_handoffs()
+        
+        # TODO: Monitor workdir for agent status updates, errors.
+        # TODO: Spawn new agents as needed based on project state.
         # TODO: Report progress/status back to the UI via messages.
-        await asyncio.sleep(1) # Placeholder to prevent busy-loop if called repeatedly
+        await asyncio.sleep(1) # Prevent busy-loop if called repeatedly
 
     async def handle_user_detach(self):
         """Handle user detaching from the session while keeping agents running."""
         logger.info("User detached from session. Agents will continue running.")
         # We don't need to do anything special here since agents run in separate processes
         # Just log the event for now
+        self.app.post_message(LogMessage("User detached. Agents will continue running in the background."))
         return True
         
     async def stop_all_agents(self):
