@@ -218,3 +218,48 @@ async def test_input_disabled_on_ollama_fail():
             log_text = log_widget.get_content()
             assert "Error: Veda's Ollama client not initialized" in log_text
             assert "Interaction disabled." in log_text
+
+@pytest.mark.asyncio
+async def test_tab_switching(test_config):
+    """Test switching between dynamically created agent tabs."""
+    app = VedaApp(config=test_config)
+    async with app.run_test() as pilot:
+        await pilot.pause(0.1) # Allow mount
+
+        # Simulate output from two agents to create tabs
+        pilot.app.post_message(AgentOutputMessage(role="coder", line="Coder line 1"))
+        await pilot.pause(0.1)
+        pilot.app.post_message(AgentOutputMessage(role="planner", line="Planner line 1"))
+        await pilot.pause(0.1)
+
+        tabs = pilot.app.query_one(TabbedContent)
+
+        # Check initial active tab (should be the last one created)
+        assert tabs.active == "tab-planner"
+
+        # Switch to coder tab
+        tabs.active = "tab-coder"
+        await pilot.pause(0.1) # Allow UI update
+        assert tabs.active == "tab-coder"
+
+        # Switch back to Veda log
+        tabs.active = "tab-veda-log"
+        await pilot.pause(0.1)
+        assert tabs.active == "tab-veda-log"
+
+@pytest.mark.asyncio
+async def test_log_message_handling(test_config):
+    """Test that LogMessage updates the main log."""
+    app = VedaApp(config=test_config)
+    async with app.run_test() as pilot:
+        await pilot.pause(0.1) # Allow mount
+
+        test_log_line = "[blue]This is a test log message.[/]"
+        pilot.app.post_message(LogMessage(test_log_line))
+        await pilot.pause(0.1)
+
+        main_log = pilot.app.query_one("#main-log", RichLog)
+        log_content = main_log.get_content()
+        # Need to be careful with exact string matching due to potential ANSI codes
+        # Let's check if the core text is present
+        assert "This is a test log message." in log_content

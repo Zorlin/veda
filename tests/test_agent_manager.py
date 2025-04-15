@@ -247,8 +247,14 @@ async def test_initialize_project(agent_manager, temp_work_dir, mock_app):
         role="planner",
         # Coordinator model is used for the initial planner/orchestrator role
         model=agent_manager.config.get("coordinator_model"),
-        initial_prompt=project_goal
-    )
+        # Coordinator model is used for the initial planner/orchestrator role
+        # Check if coordinator_model exists in config, otherwise expect None
+        expected_model = agent_manager.config.get("coordinator_model")
+        agent_manager.spawn_agent.assert_called_once_with(
+            role="planner",
+            model=expected_model,
+            initial_prompt=project_goal
+        )
 
 @pytest.mark.asyncio
 @patch('agent_manager.os.write')
@@ -397,6 +403,101 @@ async def test_code_reviewer_role_config(mock_app, base_config, temp_work_dir):
     config3["code_review_model"] = "test-reviewer-ollama"
     manager3 = AgentManager(app=mock_app, config=config3, work_dir=temp_work_dir)
     assert "code_reviewer" in manager3.ollama_roles
+
+@pytest.mark.asyncio
+async def test_code_reviewer_role_fallback(mock_app, base_config, temp_work_dir):
+    """Test code_reviewer uses ollama_model when its specific model is null/missing."""
+    config = base_config.copy()
+    config["enable_code_review"] = True
+    config["code_review_model"] = None # Explicitly null or missing
+
+    with patch('agent_manager.OllamaClient', autospec=True) as MockOllamaClient:
+        manager = AgentManager(app=mock_app, config=config, work_dir=temp_work_dir)
+        manager.MockOllamaClient = MockOllamaClient # Attach mock for assertion
+
+        # Check if code_reviewer is correctly identified as an Ollama role even with null model
+        assert "code_reviewer" in manager.ollama_roles
+
+        # Spawn the code_reviewer agent
+        await manager.spawn_agent(role="code_reviewer")
+
+        # Assert it used the fallback ollama_model
+        assert "code_reviewer" in manager.agents
+        agent_instance = manager.agents["code_reviewer"]
+        assert agent_instance.agent_type == "ollama"
+        MockOllamaClient.assert_called_once_with(
+            api_url=config["ollama_api_url"],
+            model=config["ollama_model"], # Check fallback model used
+            timeout=config.get("ollama_request_timeout", 300),
+            options=config.get("ollama_options")
+        )
+
+
+@pytest.mark.asyncio
+@patch('agent_manager.os.close')
+@patch('agent_manager.asyncio.wait_for', side_effect=asyncio.TimeoutError) # Simulate timeout
+async def test_stop_all_agents_kill(mock_wait_for, mock_os_close, agent_manager):
+    """Test stop_all_agents uses kill when terminate times out."""
+    # Setup mock Aider agent
+    aider_role = "coder"
+    mock_aider_process = AsyncMock(spec=asyncio.subprocess.Process)
+    mock_aider_process.pid = 2222
+    mock_aider_process.returncode = None # Indicate it's running
+    mock_aider_process.terminate = MagicMock()
+    mock_aider_process.kill = MagicMock() # This should be called now
+    mock_aider_read_task = AsyncMock(spec=asyncio.Task)
+    mock_aider_read_task.cancel = MagicMock()
+    agent_manager.agents[aider_role] = AgentInstance(
+        role=aider_role, agent_type="aider", process=mock_aider_process,
+        master_fd=7, read_task=mock_aider_read_task
+    )
+
+    await agent_manager.stop_all_agents()
+
+    # Assertions for Aider agent
+    mock_aider_process.terminate.assert_called_once()
+    mock_wait_for.assert_called_once() # wait_for was called
+    mock_aider_process.kill.assert_called_once() # Kill should be called after timeout
+    mock_aider_read_task.cancel.assert_called_once()
+    mock_os_close.assert_called_with(7) # Check master_fd close
+
+    assert len(agent_manager.agents) == 0 # Agent should still be removed
+
+@pytest.mark.asyncio
+async def test_ollama_worker_exception(agent_manager, mock_app):
+    """Test error handling when the Ollama client call fails in the worker."""
+    test_role = "planner"
+    mock_ollama_client = MagicMock(spec=OllamaClient)
+    # Configure the mock generate method to raise an exception
+    mock_exception = ValueError("Ollama API Error")
+    mock_ollama_client.generate = MagicMock(side_effect=mock_exception)
+
+    agent_manager.agents[test_role] = AgentInstance(
+        role=test_role,
+        agent_type="ollama",
+        ollama_client=mock_ollama_client
+    )
+
+    input_data = "This will fail"
+    # Directly call the worker function via the mocked run_worker
+    # Note: The simplified mock_run_worker executes this synchronously
+    agent_manager.app.run_worker(
+        agent_manager._call_ollama_agent(agent_manager.agents[test_role], input_data),
+        exclusive=True
+    )
+
+    # Check that generate was called
+    mock_ollama_client.generate.assert_called_once_with(input_data)
+
+    # Check that an error message was posted back to the app
+    error_message_found = False
+    for call_args in mock_app.post_message.call_args_list:
+        message = call_args[0][0] # Get the first positional argument (the message)
+        if isinstance(message, AgentOutputMessage) and message.role == test_role:
+            if "[bold red]Error:" in message.line and "Ollama API Error" in message.line:
+                error_message_found = True
+                break
+    assert error_message_found, "Error message from Ollama worker not found in app messages"
 
 
 # TODO: Add tests for _read_pty_output (might require more complex mocking)
