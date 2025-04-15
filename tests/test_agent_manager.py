@@ -142,31 +142,45 @@ async def agent_manager(mock_app, base_config, temp_work_dir): # Changed to asyn
                          exceptions_during_teardown.append(gather_e) # Store exception
 
 
-                # 2. Stop Process (Handle Mocks)
+                # 2. Stop Process (Handle Mocks) - Attempt SIGINT -> SIGTERM -> SIGKILL
                 if agent.process and not isinstance(agent.process, (MagicMock, AsyncMock)):
                     pid = getattr(agent.process, 'pid', 'unknown')
-                    logger.debug(f"Teardown stopping process for {role} (PID: {pid})")
-                    if getattr(agent.process, "returncode", None) is None:
+                    logger.debug(f"Stopping process for {role} (PID: {pid})")
+                    if getattr(agent.process, "returncode", None) is None: # Check if running
                         try:
-                            agent.process.terminate()
-                            logger.debug(f"Waiting for process {role} termination...")
-                            # Use wait_for with a timeout for the process wait
-                            await asyncio.wait_for(agent.process.wait(), timeout=0.5)
+                            logger.info(f"Sending SIGINT to agent '{role}' (PID: {pid})...")
+                            agent.process.send_signal(signal.SIGINT)
+                            logger.debug(f"Waiting for agent '{role}' process to exit after SIGINT...")
+                            await asyncio.wait_for(agent.process.wait(), timeout=1.0) # Wait longer for SIGINT
+                            logger.info(f"Agent '{role}' exited gracefully after SIGINT.")
                         except asyncio.TimeoutError:
-                            logger.warning(f"Process {role} terminate timed out, killing.")
-                            if getattr(agent.process, "returncode", None) is None:
+                            logger.warning(f"Process {role} did not exit after SIGINT, trying SIGTERM...")
+                            if getattr(agent.process, "returncode", None) is None: # Check again before SIGTERM
                                 try:
-                                    agent.process.kill()
-                                    logger.debug(f"Process {role} killed.")
-                                except ProcessLookupError: pass # Already dead
-                                except Exception as kill_e:
-                                     logger.error(f"Error killing process {role}: {kill_e!r}")
-                                     exceptions_during_teardown.append(kill_e)
+                                    agent.process.terminate() # Send SIGTERM
+                                    logger.debug(f"Waiting for process {role} termination after SIGTERM...")
+                                    await asyncio.wait_for(agent.process.wait(), timeout=0.5)
+                                    logger.info(f"Agent '{role}' terminated after SIGTERM.")
+                                except asyncio.TimeoutError:
+                                     logger.warning(f"Process {role} terminate timed out after SIGTERM, killing.")
+                                     if getattr(agent.process, "returncode", None) is None: # Check again before SIGKILL
+                                         try:
+                                             agent.process.kill()
+                                             logger.debug(f"Process {role} killed.")
+                                         except ProcessLookupError: pass # Already dead
+                                         except Exception as kill_e:
+                                              logger.error(f"Error killing process {role}: {kill_e!r}")
+                                              # Decide if this should be added to exceptions_during_teardown if used outside fixture
+                                except ProcessLookupError:
+                                     logger.warning(f"Process {role} already exited before SIGTERM wait.")
+                                except Exception as term_e:
+                                     logger.error(f"Error terminating process {role}: {term_e!r}")
+                                     # Decide if this should be added to exceptions_during_teardown
                         except ProcessLookupError:
-                            logger.warning(f"Process {role} already exited before wait.")
-                        except Exception as proc_e:
-                            logger.error(f"Error stopping process {role}: {proc_e!r}")
-                            exceptions_during_teardown.append(proc_e)
+                             logger.warning(f"Process {role} already exited before SIGINT.")
+                        except Exception as sigint_e:
+                             logger.error(f"Error sending SIGINT or waiting for process {role}: {sigint_e!r}")
+                             # Decide if this should be added to exceptions_during_teardown
                 elif agent.process: # It's a mock
                      logger.debug(f"Skipping stop for mocked process of {role}")
 

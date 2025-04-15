@@ -16,6 +16,7 @@ from textual.app import App
 from textual.message import Message
 import rich.markup # Import for escaping
 import errno # Import errno for safe closing
+import signal # Import signal for SIGINT
 
 # Import LogMessage from tui (or define it here if preferred)
 # Assuming it's better defined alongside other messages if it becomes more complex,
