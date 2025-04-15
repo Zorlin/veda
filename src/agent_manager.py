@@ -644,8 +644,8 @@ class AgentManager:
                         logger.exception(f"Error awaiting cancelled monitor_task for agent '{role}': {e}")
 
                 # 2. Terminate/Kill Process (if Aider) - Proceed even if monitor task had issues
-                # This block needs to be indented under the main 'try'
-                try:
+                # This block needs to be indented under the main 'try' - Correcting indentation
+                try: # Indent this try block
                     if agent.agent_type == "aider" and agent.process:
                         pid = getattr(agent.process, 'pid', 'unknown')
                         logger.info(f"Stopping Aider agent '{role}' (PID {pid})...")
@@ -685,8 +685,8 @@ class AgentManager:
                         # Catch errors during the stopping process itself
                         logger.exception(f"Error during termination/kill for agent '{role}': {e}")
 
-                # 3. Cancel Read Task (if Aider) - Indent under main 'try'
-                if agent.read_task and not agent.read_task.done():
+                # 3. Cancel Read Task (if Aider) - Indent under main 'try' - Correcting indentation
+                if agent.read_task and not agent.read_task.done(): # Indent this if block
                     logger.debug(f"stop_all_agents cancelling read_task for agent '{role}'.")
                     agent.read_task.cancel()
                     # Await briefly
@@ -697,13 +697,13 @@ class AgentManager:
                     except Exception as e:
                         logger.exception(f"Error awaiting cancelled read_task for agent '{role}': {e}")
 
-                # 4. Close Master FD (if Aider) - Indent under main 'try'
-                if agent.master_fd is not None:
+                # 4. Close Master FD (if Aider) - Indent under main 'try' - Correcting indentation
+                if agent.master_fd is not None: # Indent this if block
                     logger.info(f"stop_all_agents closing master_fd {agent.master_fd} for agent '{role}'.")
                     self._safe_close(agent.master_fd, context=f"stop_all_agents {role}")
                     agent.master_fd = None # Mark as closed
 
-            except Exception as cleanup_error:
+            except Exception as cleanup_error: # This except corresponds to the main try block
                  logger.exception(f"Error during cleanup steps for agent '{role}': {cleanup_error}")
             finally:
                 # 5. Remove from tracking dict - *ALWAYS* attempt this in finally block
