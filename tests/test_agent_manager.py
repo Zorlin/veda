@@ -417,12 +417,12 @@ async def test_stop_all_agents(mock_wait_for, mock_os_write, mock_sleep, mock_cr
 
     # Ollama agent: No process/task actions expected during stop
 
-    # Check agents dictionary is cleared
     # Allow background tasks (like monitor tasks potentially posting messages) to process
-    await asyncio.sleep(0)
+    # Increased sleep duration
+    await asyncio.sleep(0.1)
 
     # Check agents dictionary is cleared
-    assert len(agent_manager.agents) == 0
+    assert len(agent_manager.agents) == 0, f"Agents remaining after stop: {list(agent_manager.agents.keys())}"
 
 @pytest.mark.asyncio
 async def test_spawn_agent_missing_model_config(mock_app, base_config, temp_work_dir):
@@ -573,9 +573,9 @@ async def test_stop_all_agents_kill(mock_wait_for_timeout, mock_os_write, mock_s
     mock_os_close_slave.assert_any_call(5) # Master FD closed during stop
 
     # Allow background tasks to potentially process the exit
-    await asyncio.sleep(0.01) # Increased sleep slightly
+    await asyncio.sleep(0.1) # Increased sleep duration
 
-    assert len(agent_manager.agents) == 0 # Agent should still be removed
+    assert len(agent_manager.agents) == 0, f"Agents remaining after stop (kill): {list(agent_manager.agents.keys())}" # Agent should still be removed
 
 @pytest.mark.asyncio
 async def test_ollama_worker_exception(agent_manager, mock_app):

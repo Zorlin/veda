@@ -623,28 +623,28 @@ class AgentManager:
             if not agent:
                 continue # Agent might have exited and been removed already
 
-            # Cancel monitor task first to prevent race condition on cleanup
-            if agent.monitor_task and not agent.monitor_task.done():
-                logger.debug(f"Cancelling monitor_task for agent '{role}' before stopping...")
-                agent.monitor_task.cancel()
-                # Give cancellation a moment to register, but don't wait long
-                # Avoid awaiting here as it might interfere with test mocks/timing
-                # await asyncio.sleep(0.01) # Removed await
-
             # --- Perform ALL cleanup here in stop_all_agents ---
-            logger.debug(f"Performing cleanup for agent '{role}' in stop_all_agents.")
+            logger.info(f"Initiating cleanup for agent '{role}' in stop_all_agents.")
 
-            # 1. Cancel Monitor Task
+            # 1. Cancel Monitor Task FIRST and await its completion/cancellation
             if agent.monitor_task and not agent.monitor_task.done():
                 logger.debug(f"stop_all_agents cancelling monitor_task for agent '{role}'.")
                 agent.monitor_task.cancel()
-                # Await briefly to allow cancellation processing
                 try:
-                    await asyncio.wait_for(agent.monitor_task, timeout=0.1)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    pass # Ignore errors
+                    # Wait for the task to finish cancellation
+                    logger.debug(f"Waiting for monitor_task cancellation for agent '{role}'...")
+                    await asyncio.wait_for(agent.monitor_task, timeout=0.5) # Increased timeout slightly
+                    logger.debug(f"Monitor_task for agent '{role}' finished cancellation.")
+                except asyncio.TimeoutError:
+                    logger.warning(f"Timeout waiting for monitor_task cancellation for agent '{role}'.")
+                except asyncio.CancelledError:
+                    logger.debug(f"Monitor_task for agent '{role}' confirmed cancelled.")
+                except Exception as e:
+                    logger.exception(f"Error awaiting cancelled monitor_task for agent '{role}': {e}")
 
-            # 2. Terminate/Kill Process (if Aider)
+
+            # 2. Terminate/Kill Process (if Aider) - Proceed even if monitor task had issues
+            process_terminated_cleanly = False
             try:
                 if agent.agent_type == "aider" and agent.process:
                     pid = getattr(agent.process, 'pid', 'unknown')
@@ -694,6 +694,8 @@ class AgentManager:
                     await asyncio.wait_for(agent.read_task, timeout=0.1)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     pass # Ignore errors
+                except Exception as e:
+                    logger.exception(f"Error awaiting cancelled read_task for agent '{role}': {e}")
 
             # 4. Close Master FD (if Aider)
             if agent.master_fd is not None:
@@ -701,14 +703,25 @@ class AgentManager:
                 self._safe_close(agent.master_fd, context=f"stop_all_agents {role}")
                 agent.master_fd = None # Mark as closed
 
-            # 5. Remove from tracking dict *before* awaiting process exit potentially
-            # This signals to the monitor task (if it runs) that cleanup is handled.
+            # 5. Remove from tracking dict - THIS SHOULD BE THE LAST STEP
+            # Ensure it happens even if prior steps had minor non-fatal errors
             if role in self.agents:
-                logger.debug(f"stop_all_agents removing agent '{role}' from tracking.")
+                logger.info(f"stop_all_agents removing agent '{role}' from tracking dictionary.")
                 # Use pop to avoid KeyError if already removed somehow
-                self.agents.pop(role, None)
-            # --- End of stop_all_agents cleanup ---
-        logger.info("Finished stopping agents.")
+                removed_agent = self.agents.pop(role, None)
+                if removed_agent:
+                     logger.debug(f"Successfully removed agent '{role}'.")
+                else:
+                     logger.warning(f"Agent '{role}' was already removed before pop call in stop_all_agents.")
+            else:
+                 logger.warning(f"Agent '{role}' not found in dictionary during final removal in stop_all_agents.")
+            # --- End of stop_all_agents cleanup for this agent ---
+
+        # Final check after loop
+        if not self.agents:
+            logger.info("Finished stopping agents. Agent dictionary is now empty.")
+        else:
+            logger.warning(f"Finished stopping agents, but {len(self.agents)} agents remain: {list(self.agents.keys())}")
 
 # Patch for test compatibility: expose web_server_task for integration tests
 try:
