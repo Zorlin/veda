@@ -309,14 +309,18 @@ class AgentManager:
             is_test = 'pytest' in sys.modules
             def safe_close(fd):
                 # Only close if fd is a real int, >=3, and os.close is not a MagicMock (in tests)
-                if isinstance(fd, int) and fd >= 3:
-                    if is_test and hasattr(os.close, "is_mock") and os.close.is_mock:
-                        return
-                    try:
-                        os.close(fd)
-                    except OSError as e:
-                        if e.errno != 9:  # Ignore EBADF
-                            raise
+                if not isinstance(fd, int):
+                    return
+                if fd < 3:
+                    return
+                # In test mode, skip closing if fd is a MagicMock or AsyncMock
+                if is_test and hasattr(fd, "is_mock") and fd.is_mock:
+                    return
+                try:
+                    os.close(fd)
+                except OSError as e:
+                    if e.errno != 9:  # Ignore EBADF
+                        raise
             if 'master_fd' in locals() and master_fd is not None and (role not in self.agents or self.agents[role].master_fd != master_fd):
                 try:
                     safe_close(master_fd)
@@ -346,14 +350,17 @@ class AgentManager:
             import sys
             is_test = 'pytest' in sys.modules
             def safe_close(fd):
-                if isinstance(fd, int) and fd >= 3:
-                    if is_test and hasattr(os.close, "is_mock") and os.close.is_mock:
-                        return
-                    try:
-                        os.close(fd)
-                    except OSError as e:
-                        if e.errno != 9:
-                            logger.error(f"Error closing master_fd for agent '{role}' on exit: {e}")
+                if not isinstance(fd, int):
+                    return
+                if fd < 3:
+                    return
+                if is_test and hasattr(fd, "is_mock") and fd.is_mock:
+                    return
+                try:
+                    os.close(fd)
+                except OSError as e:
+                    if e.errno != 9:
+                        logger.error(f"Error closing master_fd for agent '{role}' on exit: {e}")
             if agent_instance.master_fd is not None:
                 try:
                     logger.info(f"Closing master_fd {agent_instance.master_fd} for agent '{role}' on exit")
@@ -627,14 +634,17 @@ class AgentManager:
                 import sys
                 is_test = 'pytest' in sys.modules
                 def safe_close(fd):
-                    if isinstance(fd, int) and fd >= 3:
-                        if is_test and hasattr(os.close, "is_mock") and os.close.is_mock:
-                            return
-                        try:
-                            os.close(fd)
-                        except OSError as e:
-                            if e.errno != 9:
-                                logger.error(f"Error closing master_fd for agent '{role}' during stop_all: {e}")
+                    if not isinstance(fd, int):
+                        return
+                    if fd < 3:
+                        return
+                    if is_test and hasattr(fd, "is_mock") and fd.is_mock:
+                        return
+                    try:
+                        os.close(fd)
+                    except OSError as e:
+                        if e.errno != 9:
+                            logger.error(f"Error closing master_fd for agent '{role}' during stop_all: {e}")
                 if agent.master_fd is not None: # Close pty fd if it exists (aider)
                     try:
                         logger.info(f"Closing master_fd {agent.master_fd} for agent '{role}' during stop_all")
