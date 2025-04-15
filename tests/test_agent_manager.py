@@ -95,19 +95,9 @@ async def test_agent_manager_initialization(agent_manager, temp_work_dir):
     assert agent_manager.config is not None
 
 @pytest.mark.asyncio
-async def test_spawn_aider_agent(temp_work_dir):
+async def test_spawn_aider_agent(agent_manager, mock_app):
     """Test spawning an agent that should use Aider."""
-    # Create a minimal test that uses the temp_work_dir fixture
-    mock_app = MagicMock()
-    mock_app.post_message = MagicMock()
-    
-    config = {
-        "aider_command": "aider",
-        "aider_model": "test-model",
-        "aider_test_command": "pytest",
-        "ollama_model": "test-ollama-model",
-        "ollama_api_url": "http://localhost:11434/api/generate",
-    }
+    # Use the agent_manager fixture which has proper cleanup
     
     # Create patches for all external dependencies
     with patch('agent_manager.pty.openpty', return_value=(3, 4)), \
@@ -116,8 +106,7 @@ async def test_spawn_aider_agent(temp_work_dir):
          patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_exec, \
          patch('agent_manager.asyncio.create_task') as mock_create_task, \
          patch('agent_manager.os.write'), \
-         patch('agent_manager.asyncio.sleep', new_callable=AsyncMock), \
-         patch('agent_manager.OllamaClient'):
+         patch('agent_manager.asyncio.sleep', new_callable=AsyncMock):
         
         # Configure subprocess mock
         mock_process = AsyncMock()
@@ -128,28 +117,22 @@ async def test_spawn_aider_agent(temp_work_dir):
         mock_task = AsyncMock()
         mock_create_task.return_value = mock_task
         
-        # Create agent manager with minimal dependencies
-        with patch('agent_manager.AgentManager.send_to_agent', new_callable=AsyncMock):
-            # Create the manager directly in the test
-            from agent_manager import AgentManager
-            manager = AgentManager(app=mock_app, config=config, work_dir=temp_work_dir)
-            
-            # Run the test using await instead of asyncio.run
-            await manager.spawn_agent(role="coder", initial_prompt="test")
+        # Temporarily patch send_to_agent to avoid actual sending
+        with patch.object(agent_manager, 'send_to_agent', new_callable=AsyncMock):
+            # Run the test
+            test_role = "coder"
+            await agent_manager.spawn_agent(role=test_role, initial_prompt="test")
             
             # Basic assertions
-            assert "coder" in manager.agents
-            agent = manager.agents["coder"]
-            assert agent.agent_type == "aider"
+            assert test_role in agent_manager.agents
+            agent_instance = agent_manager.agents[test_role]
+            assert agent_instance.agent_type == "aider"
             
             # Verify subprocess was called with aider
             mock_exec.assert_called_once()
             call_args = mock_exec.call_args[0]
             command_parts = call_args[0]
             assert command_parts[0] == "aider"
-            
-            # Clean up
-            await manager.stop_all_agents()
 
 @pytest.mark.asyncio
 async def test_spawn_ollama_agent(agent_manager, mock_app):
