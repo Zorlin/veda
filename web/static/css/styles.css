@@ -1,0 +1,248 @@
+/* Base styles */
+:root {
+    --primary-color: #3498db;
+    --secondary-color: #2ecc71;
+    --background-color: #f8f9fa;
+    --text-color: #333;
+    --border-color: #ddd;
+    --header-bg: #2c3e50;
+    --header-text: #ecf0f1;
+    --chat-bg: #fff;
+    --agent-tab-active: #3498db;
+    --agent-tab-inactive: #bdc3c7;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: var(--text-color);
+    background-color: var(--background-color);
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+header {
+    background-color: var(--header-bg);
+    color: var(--header-text);
+    padding: 20px;
+    text-align: center;
+    border-radius: 0 0 10px 10px;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    margin-bottom: 10px;
+}
+
+section {
+    background-color: var(--chat-bg);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+h2 {
+    margin-bottom: 15px;
+    color: var(--header-bg);
+}
+
+/* Project goal section */
+#project-goal .input-container {
+    display: flex;
+    flex-direction: column;
+}
+
+#goal-input {
+    min-height: 150px;
+    padding: 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    font-size: 16px;
+    margin-bottom: 15px;
+    resize: vertical;
+}
+
+button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #2980b9;
+}
+
+#submit-goal {
+    align-self: flex-end;
+}
+
+/* Agent tabs */
+.tab-header {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 20px;
+    overflow-x: auto;
+    padding-bottom: 5px;
+}
+
+.tab-button {
+    background-color: var(--agent-tab-inactive);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin-right: 5px;
+    border-radius: 5px 5px 0 0;
+    cursor: pointer;
+}
+
+.tab-button.active {
+    background-color: var(--agent-tab-active);
+}
+
+.agent-chat {
+    display: none;
+}
+
+.agent-chat.active {
+    display: block;
+}
+
+.chat-messages {
+    height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 15px;
+    background-color: #f9f9f9;
+}
+
+.message {
+    margin-bottom: 15px;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.user-message {
+    background-color: #e3f2fd;
+    margin-left: 20%;
+    border-radius: 10px 10px 0 10px;
+}
+
+.agent-message {
+    background-color: #f1f1f1;
+    margin-right: 20%;
+    border-radius: 10px 10px 10px 0;
+}
+
+.chat-input {
+    width: 100%;
+    padding: 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    font-size: 16px;
+    resize: vertical;
+    min-height: 80px;
+    margin-bottom: 15px;
+}
+
+.input-container {
+    display: flex;
+    flex-direction: column;
+}
+
+.send-button {
+    align-self: flex-end;
+}
+
+/* Agent controls */
+.agent-status, .agent-actions {
+    margin-bottom: 20px;
+}
+
+#status-list {
+    list-style: none;
+    margin-top: 10px;
+}
+
+#status-list li {
+    padding: 8px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+}
+
+#status-list .status-running {
+    color: var(--secondary-color);
+}
+
+#status-list .status-idle {
+    color: #e74c3c;
+}
+
+.agent-actions button {
+    margin-right: 10px;
+    margin-bottom: 10px;
+}
+
+#spawn-form {
+    margin-top: 15px;
+    padding: 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+}
+
+#spawn-form select {
+    padding: 8px;
+    margin-right: 10px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    padding: 20px;
+    color: #7f8c8d;
+    font-size: 14px;
+}
+
+/* Utility classes */
+.hidden {
+    display: none;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    body {
+        padding: 0 10px;
+    }
+    
+    .tab-button {
+        padding: 8px 15px;
+        font-size: 14px;
+    }
+    
+    .chat-messages {
+        height: 300px;
+    }
+    
+    .user-message, .agent-message {
+        margin-left: 5%;
+        margin-right: 5%;
+    }
+}
