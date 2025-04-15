@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import os # Added for fcntl constants
 import fcntl # Added for fcntl constants
+import logging # Import logging
 
 # Ensure src directory is in path for imports
 project_root = Path(__file__).parent.parent
@@ -14,6 +15,9 @@ sys.path.insert(0, str(src_path))
 # Now import from src
 from agent_manager import AgentManager, AgentInstance, AgentOutputMessage, AgentExitedMessage, LogMessage
 from ollama_client import OllamaClient # Assuming OllamaClient can be imported
+
+# Setup logger for the test module
+logger = logging.getLogger(__name__)
 
 # --- Fixtures ---
 
@@ -67,9 +71,9 @@ def temp_work_dir(tmp_path):
     work_dir.mkdir()
     return work_dir
 
-# Revert fixture to synchronous
+# Make fixture async to allow await in teardown
 @pytest.fixture
-def agent_manager(mock_app, base_config, temp_work_dir):
+async def agent_manager(mock_app, base_config, temp_work_dir): # Changed to async def
     """Provides an AgentManager instance with mocks."""
     # Patch OllamaClient before AgentManager instantiation if needed
     with patch('agent_manager.OllamaClient', autospec=True) as MockOllamaClient:
