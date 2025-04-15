@@ -308,16 +308,24 @@ class AgentManager:
             if 'master_fd' in locals() and master_fd is not None and (role not in self.agents or self.agents[role].master_fd != master_fd):
                  try:
                      if master_fd not in (0, 1, 2) and master_fd >= 3:
-                         os.close(master_fd)
-                 except OSError:
-                     pass # Ignore if already closed
+                         try:
+                             os.close(master_fd)
+                         except OSError as e:
+                             if e.errno != 9:  # Ignore EBADF
+                                 raise
+                 except Exception:
+                     pass # Ignore if already closed or invalid
             # Slave might be open if error occurred after pty.openpty but before exec
             if 'slave_fd' in locals() and slave_fd is not None:
                  try:
                      if slave_fd not in (0, 1, 2) and slave_fd >= 3:
-                         os.close(slave_fd)
-                 except OSError:
-                     pass # Ignore if already closed
+                         try:
+                             os.close(slave_fd)
+                         except OSError as e:
+                             if e.errno != 9:  # Ignore EBADF
+                                 raise
+                 except Exception:
+                     pass # Ignore if already closed or invalid
 
     async def _monitor_agent_exit(self, role: str, process: asyncio.subprocess.Process):
         """Waits for an Aider agent process to exit and posts a message."""
@@ -338,11 +346,13 @@ class AgentManager:
                 try:
                     logger.info(f"Closing master_fd {agent_instance.master_fd} for agent '{role}' on exit")
                     if agent_instance.master_fd not in (0, 1, 2) and agent_instance.master_fd >= 3:
-                        os.close(agent_instance.master_fd)
-                except OSError as e:
-                    # May already be closed by stop_all_agents, ignore EBADF
-                    if e.errno != 9: # errno 9 is EBADF (Bad file descriptor)
-                         logger.error(f"Error closing master_fd for agent '{role}' on exit: {e}")
+                        try:
+                            os.close(agent_instance.master_fd)
+                        except OSError as e:
+                            if e.errno != 9: # errno 9 is EBADF (Bad file descriptor)
+                                logger.error(f"Error closing master_fd for agent '{role}' on exit: {e}")
+                except Exception:
+                    pass # Ignore if already closed or invalid
             # Remove from tracking dict
             if role in self.agents:
                  del self.agents[role]
@@ -611,11 +621,14 @@ class AgentManager:
                     try:
                         logger.info(f"Closing master_fd {agent.master_fd} for agent '{role}' during stop_all")
                         if agent.master_fd not in (0, 1, 2) and agent.master_fd >= 3:
-                            os.close(agent.master_fd)
-                    except OSError as e:
-                         # Ignore EBADF as it might be closed by _monitor_agent_exit already
-                         if e.errno != 9:
-                             logger.error(f"Error closing master_fd for agent '{role}' during stop_all: {e}")
+                            try:
+                                os.close(agent.master_fd)
+                            except OSError as e:
+                                # Ignore EBADF as it might be closed by _monitor_agent_exit already
+                                if e.errno != 9:
+                                    logger.error(f"Error closing master_fd for agent '{role}' during stop_all: {e}")
+                    except Exception:
+                        pass # Ignore if already closed or invalid
                 # Remove from tracking dict
                 if role in self.agents:
                     del self.agents[role]
