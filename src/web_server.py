@@ -234,7 +234,6 @@ async def start_web_server(app, agent_manager, config):
 
             # Expose the running task for integration tests
             import asyncio
-            global web_server_task
             web_server_task = asyncio.current_task()
             try:
                 import builtins
