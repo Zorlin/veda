@@ -6,6 +6,7 @@ import sys
 import os # Added for fcntl constants
 import fcntl # Added for fcntl constants
 import logging # Import logging
+import signal # Import signal module
 
 # Ensure src directory is in path for imports
 project_root = Path(__file__).parent.parent
