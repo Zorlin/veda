@@ -115,6 +115,18 @@ class AgentManager:
         except Exception as e:
             # Ignore all exceptions when closing fds, especially during test teardown
             logger.debug(f"Ignored exception when closing fd {fd} in context {context}: {e}")
+            try:
+                import socket
+                if isinstance(fd, int):
+                    # Try to close as a socket if possible (for pytest-asyncio event loop teardown)
+                    try:
+                        s = socket.socket(fileno=fd)
+                        s.close()
+                        logger.debug(f"Also closed fd {fd} as socket in context {context}")
+                    except Exception as sock_e:
+                        logger.debug(f"Ignored exception closing fd {fd} as socket: {sock_e}")
+            except Exception:
+                pass
             return
 
 
