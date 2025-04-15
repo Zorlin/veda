@@ -225,63 +225,7 @@ class VedaApp(App[None]):
             self.input_widget.focus()
 
     # --- Custom Message Handlers ---
-    def on_log_message(self, message: LogMessage) -> None:
-        """Handles logging general status text to the main Veda log."""
-        if self.log_widget:
-            self.log_widget.write(message.text)
-        # For test compatibility: allow test to inspect log content
-        if hasattr(self.log_widget, "get_content") is False:
-            def get_content():
-                # Return the log lines as a list of strings
-                return [str(line) for line in getattr(self.log_widget, "_lines", [])]
-            self.log_widget.get_content = get_content
-
-    def on_agent_output_message(self, message: AgentOutputMessage) -> None:
-        """Handles output lines from agent subprocesses."""
-        tabs = self.query_one(TabbedContent)
-        tab_id = f"tab-{message.role}"
-        try:
-            # Try to find existing tab/log
-            log_widget = self.query_one(f"#{tab_id} RichLog", RichLog)
-        except Exception:
-            # Tab doesn't exist, create it
-            log_widget = RichLog(wrap=True, highlight=True, markup=True)
-            # Add a .title attribute for test compatibility
-            new_pane = TabPane(f"Agent: {message.role}", log_widget, id=tab_id)
-            new_pane.title = f"Agent: {message.role}"
-            tabs.add_pane(new_pane)
-            tabs.active = tab_id # Switch to the new tab
-            log_widget.write(f"--- Log for agent '{message.role}' ---")
-
-        # Write the line
-        log_widget.write(message.line)
-
-    def on_agent_exited_message(self, message: AgentExitedMessage) -> None:
-        """Handles agent process exit."""
-        log_line = f"Agent '{message.role}' exited with code {message.return_code}."
-        logger.info(log_line)
-        # Log to main log and agent's log if it exists
-        self.post_message(LogMessage(f"[yellow]{log_line}[/]"))
-        try:
-            agent_log = self.query_one(f"#tab-{message.role} RichLog", RichLog)
-            agent_log.write(f"[yellow]--- {log_line} ---[/]")
-            # For test compatibility: allow test to inspect log content
-            if hasattr(agent_log, "get_content") is False:
-                def get_content():
-                    return [str(line) for line in getattr(agent_log, "_lines", [])]
-                agent_log.get_content = get_content
-        except Exception:
-            pass # Agent tab might not exist if spawn failed
-
-    def on_clear_input(self, message: ClearInput) -> None:
-        """Handles clearing the input widget."""
-        if self.input_widget:
-            self.input_widget.clear()
-
-    def on_focus_input(self, message: FocusInput) -> None:
-        """Handles focusing the input widget."""
-        if self.input_widget:
-            self.input_widget.focus()
+    # (Handlers are above, unchanged)
     # --- End Custom Message Handlers ---
 
 
