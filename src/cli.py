@@ -14,7 +14,6 @@ sys.path.insert(0, str(project_root))
 from src.tui import VedaApp
 from src.agent_manager import AgentManager
 from src.config import load_config
-from src.web_server import create_web_app, start_web_server
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ def save_config(config):
         yaml.dump(config, f)
 
 async def start_command():
-    """Start the Veda service and web server."""
+    """Start the Veda service."""
     # Check if already running
     if os.path.exists(PID_FILE):
         with open(PID_FILE, 'r') as f:
@@ -54,14 +53,6 @@ async def start_command():
     
     agent_manager = AgentManager(app, config, work_dir)
     
-    # Create web app
-    web_app = create_web_app(agent_manager)
-    
-    # Start web server
-    web_server_task = asyncio.create_task(
-        start_web_server(web_app, agent_manager, config)
-    )
-    
     # Save PID
     with open(PID_FILE, 'w') as f:
         f.write(str(os.getpid()))
@@ -72,12 +63,6 @@ async def start_command():
     finally:
         # Clean up
         await agent_manager.stop_all_agents()
-        web_server_task.cancel()
-        
-        try:
-            await web_server_task
-        except asyncio.CancelledError:
-            pass
         
         if os.path.exists(PID_FILE):
             os.remove(PID_FILE)
@@ -189,32 +174,8 @@ async def status_command():
             
             # Display configuration
             print("\nConfiguration:")
-            print(f"  Web UI: http://{config.get('api', {}).get('host', 'localhost')}:{config.get('api', {}).get('port', 9900)}")
-            
             max_instances = config.get("agents", {}).get("max_instances", "auto")
             print(f"  Max Aider instances: {max_instances}")
-            
-            # Try to get agent status
-            try:
-                import aiohttp
-                import asyncio
-                
-                async def get_status():
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"http://{config.get('api', {}).get('host', 'localhost')}:{config.get('api', {}).get('port', 9900)}/api/status") as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                return data.get("agents", {})
-                            return {}
-                
-                status = asyncio.run(get_status())
-                
-                if status:
-                    print("\nAgent Status:")
-                    for agent, state in status.items():
-                        print(f"  {agent}: {state}")
-            except Exception as e:
-                print(f"\nCould not retrieve agent status: {e}")
             
         except OSError:
             print("Veda is not running (stale PID file found).")
@@ -227,15 +188,12 @@ async def help_command():
     print("Veda - AI-Powered Software Development")
     print("\nCommands:")
     print("  veda                  Display help and status information")
-    print("  veda start            Start the Veda service and web UI")
+    print("  veda start            Start the Veda service")
     print("  veda chat             Start a text-based chat session with Veda")
     print("  veda stop             Stop the Veda service")
     print("  veda status           Display Veda's status")
     print("  veda set instances <number|auto>  Set the maximum number of Aider instances")
     print("  veda help             Display this help information")
-    print("\nWeb UI:")
-    print("  The web interface is the primary way to interact with Veda.")
-    print("  By default, it's available at http://localhost:9900")
     print("\nDetaching:")
     print("  Press Ctrl+D during a chat session to detach while Veda continues working.")
     print("  Press Ctrl+C to end the session and stop Veda.")
