@@ -258,8 +258,8 @@ async def test_detach_and_background_operation():
         }
         work_dir = Path("/tmp")
         
-        with patch('src.agent_manager.os.openpty', return_value=(5, 6)), \
-             patch('src.agent_manager.os.close'):
+        with patch('os.openpty', return_value=(5, 6)), \
+             patch('os.close'):
             
             manager = AgentManager(mock_app, config, work_dir)
             
