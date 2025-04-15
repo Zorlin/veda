@@ -442,21 +442,6 @@ class AgentManager:
                     # Cleanup FDs if open
                     if master_fd != -1: safe_close(master_fd)
                     # agent_instance was not added to self.agents
-            except Exception as e:
-                err_msg = f"Failed to spawn agent '{role}': {e}"
-                logger.exception(err_msg)
-                escaped_error = rich.markup.escape(str(e))
-                self.app.post_message(LogMessage(f"[bold red]Failed to spawn agent '{role}': {escaped_error}[/]"))
-                # Cleanup FDs if open
-                if master_fd != -1: self._safe_close(master_fd, context=f"spawn_agent exception {role}")
-                # Ensure agent is not left in dict if added prematurely (shouldn't happen with new logic)
-                if role in self.agents and self.agents.get(role) is agent_instance:
-                    del self.agents[role]
-            finally:
-                # Ensure slave_fd is closed if it was opened and not closed in the try block
-                # (e.g., if create_subprocess_exec failed)
-                if slave_fd != -1:
-                    self._safe_close(slave_fd, context=f"spawn_agent finally {role}")
 
     async def _monitor_agent_exit(self, role: str, process: asyncio.subprocess.Process):
         """Waits for an Aider agent process to exit and posts a message."""
