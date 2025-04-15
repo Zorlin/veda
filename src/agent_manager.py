@@ -413,7 +413,8 @@ class AgentManager:
                                 slave_fd = -1
                             # Add the agent instance to self.agents for test visibility
                             agent_instance.process = process
-                            agent_instance.read_task = mock_read_task if "mock_read_task" in locals() else None
+                            # Use None for read_task in test/mock mode to avoid F821
+                            agent_instance.read_task = None
                             self.agents[role] = agent_instance
                             return
 
