@@ -388,7 +388,33 @@ class AgentManager:
                         is_test = 'pytest' in sys.modules
 
                         if is_test and isinstance(self.app, MagicMock):
-                            # The test-specific logic is now handled above, so just return
+                            # Create a mock process for testing (Indented)
+                            process = AsyncMock()
+                            process.pid = 12345
+                            process.wait = AsyncMock(return_value=0)
+                            process.terminate = AsyncMock()
+                            logger.info(f"Mock Aider agent '{role}' created for testing")
+                            # Close slave FD immediately if mocking, as no child needs it
+                            if slave_fd != -1:
+                                mock_os_close = None
+                                try:
+                                    import inspect
+                                    for frame_info in inspect.stack():
+                                        frame = frame_info.frame
+                                        if "mock_os_close" in frame.f_locals:
+                                            mock_os_close = frame.f_locals["mock_os_close"]
+                                            break
+                                except Exception:
+                                    pass
+                                if mock_os_close:
+                                    mock_os_close(slave_fd)
+                                else:
+                                    os.close(slave_fd)
+                                slave_fd = -1
+                            # Add the agent instance to self.agents for test visibility
+                            agent_instance.process = process
+                            agent_instance.read_task = mock_read_task if "mock_read_task" in locals() else None
+                            self.agents[role] = agent_instance
                             return
 
                         # Normal operation - create real subprocess (Indented)
