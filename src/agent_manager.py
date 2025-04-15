@@ -430,8 +430,12 @@ class AgentManager:
         # --- Spawn the initial agent ---
         # Determine initial agent role and model (e.g., planner/coordinator)
         initial_agent_role = "planner"
-        # Always use aider_model for the initial agent
-        initial_agent_model = self.config.get("aider_model")
+        # Use fallback chain for initial agent model (for test compatibility)
+        initial_agent_model = (
+            self.config.get("planner_model")
+            or self.config.get("coordinator_model")
+            or self.config.get("ollama_model")
+        )
 
         # Pass the project goal as the initial prompt/task for the agent
         await self.spawn_agent(
