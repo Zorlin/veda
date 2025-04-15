@@ -160,8 +160,9 @@ class AgentManager:
         # Determine agent type and model
         agent_type = "ollama" if role in self.ollama_roles else "aider"
         if agent_type == "ollama":
-            # Use the specific model defined for this role, fallback to general ollama_model
-            agent_model = self.config.get(f"{role}_model") or self.config.get("ollama_model")
+            # Use the provided model, or the specific model defined for this role, 
+            # or fallback to general ollama_model
+            agent_model = model or self.config.get(f"{role}_model") or self.config.get("ollama_model")
             if not agent_model:
                  logger.error(f"No model specified for Ollama agent role '{role}' and no default ollama_model configured.")
                  self.app.post_message(LogMessage(f"[bold red]Error: No model configured for Ollama agent '{role}'.[/]"))
@@ -194,8 +195,8 @@ class AgentManager:
                  self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
 
         else: # agent_type == "aider"
-            # Use the dedicated aider_model from config
-            agent_model = self.aider_model
+            # Use the provided model, or the dedicated aider_model from config
+            agent_model = model or self.aider_model
             if not agent_model:
                 logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
                 self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
@@ -326,21 +327,20 @@ class AgentManager:
 
         # --- Spawn the initial agent ---
         # Determine initial agent role and model (e.g., planner/coordinator)
-        # Using coordinator_model as a placeholder for the initial planner/analyzer
         initial_agent_role = "planner"
-        initial_agent_model = self.config.get("coordinator_model") # Or another designated planner model
+        # Try different model configurations in order of preference
+        initial_agent_model = (
+            self.config.get("planner_model") or 
+            self.config.get("coordinator_model") or 
+            self.config.get("ollama_model")
+        )
 
-        if initial_agent_model:
-            # Pass the project goal as the initial prompt/task for the agent
-            await self.spawn_agent(
-                role=initial_agent_role,
-                model=initial_agent_model,
-                initial_prompt=project_goal # TODO: Pass this prompt effectively
-            )
-        else:
-            err_msg = "Coordinator model not defined in config, cannot start initial agent."
-            logger.error(err_msg)
-            self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
+        # Pass the project goal as the initial prompt/task for the agent
+        await self.spawn_agent(
+            role=initial_agent_role,
+            model=initial_agent_model,
+            initial_prompt=project_goal
+        )
         # -----------------------------
 
     async def send_to_agent(self, role: str, data: str):
