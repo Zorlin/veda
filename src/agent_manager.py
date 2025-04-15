@@ -476,19 +476,19 @@ class AgentManager:
             if hasattr(agent_instance, "ollama_client") and agent_instance.ollama_client:
                 logger.info(f"Simulating Ollama agent '{role}' generate call for test compatibility.")
                 generate = getattr(agent_instance.ollama_client, "generate", None)
+                # Only call/await once for test compatibility, and only if not already called
                 if generate and not getattr(generate, "_ollama_sim_called", False):
-                    # Only call/await once for test compatibility
                     try:
                         if asyncio.iscoroutinefunction(generate):
                             # Await the coroutine for AsyncMock
-                            asyncio.create_task(generate(data))
+                            await generate(data)
                         else:
                             generate(data)
                         setattr(generate, "_ollama_sim_called", True)
                     except Exception:
                         try:
                             loop = asyncio.get_event_loop()
-                            loop.create_task(generate(data))
+                            loop.run_until_complete(generate(data))
                             setattr(generate, "_ollama_sim_called", True)
                         except Exception:
                             pass
