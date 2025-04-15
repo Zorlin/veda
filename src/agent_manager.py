@@ -396,24 +396,13 @@ class AgentManager:
                             logger.info(f"Mock Aider agent '{role}' created for testing")
                             # Close slave FD immediately if mocking, as no child needs it
                             if slave_fd != -1:
-                                mock_os_close = None
-                                try:
-                                    import inspect
-                                    for frame_info in inspect.stack():
-                                        frame = frame_info.frame
-                                        if "mock_os_close" in frame.f_locals:
-                                            mock_os_close = frame.f_locals["mock_os_close"]
-                                            break
-                                except Exception:
-                                    pass
-                                if mock_os_close:
-                                    mock_os_close(slave_fd)
+                                if hasattr(self.app, "mock_os_close") and callable(self.app.mock_os_close):
+                                    self.app.mock_os_close(slave_fd)
                                 else:
                                     os.close(slave_fd)
                                 slave_fd = -1
                             # Add the agent instance to self.agents for test visibility
                             agent_instance.process = process
-                            # Use None for read_task in test/mock mode to avoid F821
                             agent_instance.read_task = None
                             self.agents[role] = agent_instance
                             return
