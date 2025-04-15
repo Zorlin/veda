@@ -629,78 +629,77 @@ class AgentManager:
             try:
                 # --- Perform ALL cleanup for this specific agent ---
 
-                # 1. Cancel Monitor Task FIRST and await its completion/cancellation
-                if agent.monitor_task and not agent.monitor_task.done():
-                logger.debug(f"stop_all_agents cancelling monitor_task for agent '{role}'.")
-                agent.monitor_task.cancel()
-                try:
-                    # Wait for the task to finish cancellation
-                    logger.debug(f"Waiting for monitor_task cancellation for agent '{role}'...")
-                    await asyncio.wait_for(agent.monitor_task, timeout=0.5) # Increased timeout slightly
-                    logger.debug(f"Monitor_task for agent '{role}' finished cancellation.")
-                except asyncio.TimeoutError:
-                    logger.warning(f"Timeout waiting for monitor_task cancellation for agent '{role}'.")
-                except asyncio.CancelledError:
-                    logger.debug(f"Monitor_task for agent '{role}' confirmed cancelled.")
-                except Exception as e:
-                    logger.exception(f"Error awaiting cancelled monitor_task for agent '{role}': {e}")
+                    logger.debug(f"stop_all_agents cancelling monitor_task for agent '{role}'.")
+                    agent.monitor_task.cancel()
+                    try:
+                        # Wait for the task to finish cancellation
+                        logger.debug(f"Waiting for monitor_task cancellation for agent '{role}'...")
+                        await asyncio.wait_for(agent.monitor_task, timeout=0.5) # Increased timeout slightly
+                        logger.debug(f"Monitor_task for agent '{role}' finished cancellation.")
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Timeout waiting for monitor_task cancellation for agent '{role}'.")
+                    except asyncio.CancelledError:
+                        logger.debug(f"Monitor_task for agent '{role}' confirmed cancelled.")
+                    except Exception as e:
+                        logger.exception(f"Error awaiting cancelled monitor_task for agent '{role}': {e}")
 
                 # 2. Terminate/Kill Process (if Aider) - Proceed even if monitor task had issues
+                # This block needs to be indented under the main 'try'
                 try:
                     if agent.agent_type == "aider" and agent.process:
-                    pid = getattr(agent.process, 'pid', 'unknown')
-                    logger.info(f"Stopping Aider agent '{role}' (PID {pid})...")
+                        pid = getattr(agent.process, 'pid', 'unknown')
+                        logger.info(f"Stopping Aider agent '{role}' (PID {pid})...")
 
-                    # Check if we're in a test environment with a mock process
-                    is_test = 'pytest' in sys.modules
-                    if is_test and isinstance(agent.process, MagicMock):
-                        # For tests, just call terminate directly
-                        agent.process.terminate()
-                        logger.info(f"Mock Aider agent '{role}' terminated for tests.")
-                    elif getattr(agent.process, "returncode", None) is None: # Only terminate if running
-                        # Handle both AsyncMock and real process in tests
-                        if isinstance(agent.process.terminate, AsyncMock):
-                            await agent.process.terminate()
-                        else:
+                        # Check if we're in a test environment with a mock process
+                        is_test = 'pytest' in sys.modules
+                        if is_test and isinstance(agent.process, MagicMock):
+                            # For tests, just call terminate directly
                             agent.process.terminate()
-                        # Wait briefly for termination using wait_for
-                        logger.debug(f"Waiting for agent '{role}' process to terminate...")
-                        await asyncio.wait_for(agent.process.wait(), timeout=5.0)
-                        logger.info(f"Aider agent '{role}' terminated.")
-                    else:
-                         logger.info(f"Aider agent '{role}' already exited with code {getattr(agent.process, 'returncode', None)}.")
+                            logger.info(f"Mock Aider agent '{role}' terminated for tests.")
+                        elif getattr(agent.process, "returncode", None) is None: # Only terminate if running
+                            # Handle both AsyncMock and real process in tests
+                            if isinstance(agent.process.terminate, AsyncMock):
+                                await agent.process.terminate()
+                            else:
+                                agent.process.terminate()
+                            # Wait briefly for termination using wait_for
+                            logger.debug(f"Waiting for agent '{role}' process to terminate...")
+                            await asyncio.wait_for(agent.process.wait(), timeout=5.0)
+                            logger.info(f"Aider agent '{role}' terminated.")
+                        else:
+                             logger.info(f"Aider agent '{role}' already exited with code {getattr(agent.process, 'returncode', None)}.")
 
-                elif agent.agent_type == "ollama":
-                    # Ollama clients don't need explicit stopping currently
-                    logger.info(f"Stopping Ollama agent '{role}' (no process to terminate).")
-                    pass # No process to stop
+                    elif agent.agent_type == "ollama":
+                        # Ollama clients don't need explicit stopping currently
+                        logger.info(f"Stopping Ollama agent '{role}' (no process to terminate).")
+                        pass # No process to stop
 
-            except asyncio.TimeoutError:
-                if agent.agent_type == "aider" and agent.process:
-                    logger.warning(f"Aider agent '{role}' did not terminate gracefully, killing.")
-                    if getattr(agent.process, "returncode", None) is None:
-                         agent.process.kill()
-            except ProcessLookupError:
-                 logger.warning(f"Aider agent '{role}' process already exited.")
-            except Exception as e:
-                    # Catch errors during the stopping process itself
-                    logger.exception(f"Error during termination/kill for agent '{role}': {e}")
-
-                # 3. Cancel Read Task (if Aider)
-                if agent.read_task and not agent.read_task.done():
-                logger.debug(f"stop_all_agents cancelling read_task for agent '{role}'.")
-                agent.read_task.cancel()
-                # Await briefly
-                try:
-                    await asyncio.wait_for(agent.read_task, timeout=0.1)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    pass # Ignore errors
+                except asyncio.TimeoutError:
+                    if agent.agent_type == "aider" and agent.process:
+                        logger.warning(f"Aider agent '{role}' did not terminate gracefully, killing.")
+                        if getattr(agent.process, "returncode", None) is None:
+                             agent.process.kill()
+                except ProcessLookupError:
+                     logger.warning(f"Aider agent '{role}' process already exited.")
                 except Exception as e:
-                    logger.exception(f"Error awaiting cancelled read_task for agent '{role}': {e}")
+                        # Catch errors during the stopping process itself
+                        logger.exception(f"Error during termination/kill for agent '{role}': {e}")
 
-                # 4. Close Master FD (if Aider)
+                # 3. Cancel Read Task (if Aider) - Indent under main 'try'
+                if agent.read_task and not agent.read_task.done():
+                    logger.debug(f"stop_all_agents cancelling read_task for agent '{role}'.")
+                    agent.read_task.cancel()
+                    # Await briefly
+                    try:
+                        await asyncio.wait_for(agent.read_task, timeout=0.1)
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        pass # Ignore errors
+                    except Exception as e:
+                        logger.exception(f"Error awaiting cancelled read_task for agent '{role}': {e}")
+
+                # 4. Close Master FD (if Aider) - Indent under main 'try'
                 if agent.master_fd is not None:
-                logger.info(f"stop_all_agents closing master_fd {agent.master_fd} for agent '{role}'.")
+                    logger.info(f"stop_all_agents closing master_fd {agent.master_fd} for agent '{role}'.")
                     self._safe_close(agent.master_fd, context=f"stop_all_agents {role}")
                     agent.master_fd = None # Mark as closed
 
