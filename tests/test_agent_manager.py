@@ -85,9 +85,12 @@ def agent_manager(mock_app, base_config, temp_work_dir):
 
         yield manager # Use yield to allow cleanup
 
-        # Cleanup: Still disabled for now
-        # logger.warning("AgentManager fixture cleanup (stop_all_agents) temporarily disabled for testing.")
-        pass
+        # --- Fixture Teardown ---
+        # Ensure all agents are stopped after the test runs
+        # Use run_until_complete for fixture teardown with async code
+        # logger.debug("Running agent_manager fixture teardown: stopping all agents...")
+        asyncio.get_event_loop().run_until_complete(manager.stop_all_agents())
+        # logger.debug("Agent_manager fixture teardown complete.")
 
 # --- Test Cases ---
 
