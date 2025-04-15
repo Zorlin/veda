@@ -32,16 +32,14 @@ def mock_app():
         # If target is a coroutine, schedule it on the current loop
         # This is closer to how run_worker behaves (scheduling work)
         # but doesn't involve threads.
-        # Revert: Don't await the task here. Let it run in the background.
-        # Awaiting it seemed to cause issues, possibly with fixture teardown loops.
-        # This makes the mock less accurate but might avoid the immediate failure.
+        # Await the coroutine directly to ensure it completes for test assertions.
         if asyncio.iscoroutine(target):
-            asyncio.create_task(target) # Don't await
+            await target
         elif asyncio.iscoroutinefunction(target):
-            asyncio.create_task(target(*args)) # Don't await
+            await target(*args)
         else:
-            # This path might not be used if workers are always async
-            target(*args)
+            # Handle non-async targets if necessary
+            target(*args) # Assuming non-async target runs synchronously
     app.run_worker = mock_run_worker
     return app
 
@@ -293,25 +291,43 @@ async def test_initialize_project(agent_manager, temp_work_dir, mock_app):
     )
 
 @pytest.mark.asyncio
-@patch('agent_manager.os.write')
-async def test_send_to_aider_agent(mock_os_write, agent_manager):
-    """Test sending input to a running Aider agent."""
-    # Spawn a mock Aider agent first
+@patch('agent_manager.pty.openpty', return_value=(16, 17)) # Use distinct FDs
+@patch('agent_manager.fcntl.fcntl')
+@patch('agent_manager.os.close')
+@patch('agent_manager.asyncio.create_task')
+@patch('agent_manager.asyncio.sleep', new_callable=AsyncMock)
+@patch('agent_manager.os.write') # Keep this patch for the assertion
+async def test_send_to_aider_agent(mock_os_write, mock_sleep, mock_create_task, mock_os_close, mock_fcntl, mock_openpty, agent_manager):
+    """Test sending input to a running Aider agent (spawned via manager)."""
     test_role = "coder"
-    agent_manager.agents[test_role] = AgentInstance(
-        role=test_role,
-        agent_type="aider",
-        process=AsyncMock(spec=asyncio.subprocess.Process),
-        master_fd=10, # Use higher Mock file descriptor
-        read_task=AsyncMock(spec=asyncio.Task)
-    )
-
     input_data = "Implement this function"
+
+    # Mock tasks created by spawn_agent
+    mock_read_task_instance = AsyncMock(spec=asyncio.Task, name="ReadTaskSend")
+    mock_monitor_task_instance = AsyncMock(spec=asyncio.Task, name="MonitorTaskSend")
+    mock_create_task.side_effect = [mock_read_task_instance, mock_monitor_task_instance]
+
+    # Mock the process created by spawn_agent
+    mock_process = AsyncMock(spec=asyncio.subprocess.Process)
+    mock_process.pid = 3333
+    mock_process.returncode = None
+
+    # Spawn the agent using the manager
+    with patch('agent_manager.asyncio.create_subprocess_exec', return_value=mock_process):
+        # Spawn without initial prompt to isolate send_to_agent call
+        await agent_manager.spawn_agent(role=test_role)
+
+    # Ensure agent was created correctly
+    assert test_role in agent_manager.agents
+    agent_instance = agent_manager.agents[test_role]
+    assert agent_instance.master_fd == 16 # Check correct FD
+
+    # Call send_to_agent
     await agent_manager.send_to_agent(test_role, input_data)
 
     # Check that os.write was called on the correct fd with encoded data + newline
     expected_data = (input_data + '\n').encode('utf-8')
-    mock_os_write.assert_called_once_with(10, expected_data)
+    mock_os_write.assert_called_once_with(16, expected_data) # Assert on the correct FD
 
 @pytest.mark.asyncio
 async def test_send_to_ollama_agent(agent_manager, mock_app):
