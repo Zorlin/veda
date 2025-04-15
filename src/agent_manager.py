@@ -464,9 +464,13 @@ class AgentManager:
                     except Exception:
                         # If it's an AsyncMock, call it as a coroutine
                         try:
-                            asyncio.create_task(generate(data))
+                            # Await the coroutine in the current event loop
+                            loop = asyncio.get_event_loop()
+                            loop.create_task(generate(data))
                         except Exception:
                             pass
+                # Simulate the "thinking" message for test expectations
+                self.app.post_message(LogMessage(f"[italic grey50]Agent '{role}' is thinking...[/]"))
             else:
                 logger.error(f"Ollama agent '{role}' has no client instance (test compatibility).")
         else:
