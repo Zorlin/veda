@@ -94,9 +94,10 @@ async def test_agent_manager_initialization(agent_manager, temp_work_dir):
     assert agent_manager.app is not None
     assert agent_manager.config is not None
 
-def test_spawn_aider_agent():
+@pytest.mark.asyncio
+async def test_spawn_aider_agent(temp_work_dir):
     """Test spawning an agent that should use Aider."""
-    # Create a minimal test that doesn't depend on complex fixtures
+    # Create a minimal test that uses the temp_work_dir fixture
     mock_app = MagicMock()
     mock_app.post_message = MagicMock()
     
@@ -107,8 +108,6 @@ def test_spawn_aider_agent():
         "ollama_model": "test-ollama-model",
         "ollama_api_url": "http://localhost:11434/api/generate",
     }
-    
-    work_dir = Path("/tmp")
     
     # Create patches for all external dependencies
     with patch('agent_manager.pty.openpty', return_value=(3, 4)), \
@@ -133,10 +132,10 @@ def test_spawn_aider_agent():
         with patch('agent_manager.AgentManager.send_to_agent', new_callable=AsyncMock):
             # Create the manager directly in the test
             from agent_manager import AgentManager
-            manager = AgentManager(app=mock_app, config=config, work_dir=work_dir)
+            manager = AgentManager(app=mock_app, config=config, work_dir=temp_work_dir)
             
-            # Run the test synchronously
-            asyncio.run(manager.spawn_agent(role="coder", initial_prompt="test"))
+            # Run the test using await instead of asyncio.run
+            await manager.spawn_agent(role="coder", initial_prompt="test")
             
             # Basic assertions
             assert "coder" in manager.agents
@@ -148,6 +147,9 @@ def test_spawn_aider_agent():
             call_args = mock_exec.call_args[0]
             command_parts = call_args[0]
             assert command_parts[0] == "aider"
+            
+            # Clean up
+            await manager.stop_all_agents()
 
 @pytest.mark.asyncio
 async def test_spawn_ollama_agent(agent_manager, mock_app):
