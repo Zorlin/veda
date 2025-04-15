@@ -226,10 +226,11 @@ class AgentManager:
         # If this is a test and the role is in ollama_roles, create a mock Ollama agent for test compatibility
         if is_test and role in self.ollama_roles:
             # Simulate an Ollama agent for test compatibility
+            # Patch: do NOT use spec=OllamaClient, as it may be a Mock already (causing InvalidSpecError)
             agent_instance = AgentInstance(
                 role=role,
                 agent_type="ollama",
-                ollama_client=MagicMock(spec=OllamaClient)
+                ollama_client=MagicMock()
             )
             self.agents[role] = agent_instance
             logger.info(f"Mock Ollama agent '{role}' created for test compatibility.")
