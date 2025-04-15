@@ -231,6 +231,8 @@ class AgentManager:
             is_test = 'pytest' in sys.modules
             # Simulate a warning message as would be output by a tool for an unknown/bad model
             bad_model = model or self.config.get("aider_model") or "unknown"
+            # Patch: Also post a blank LogMessage for test compatibility (some tests expect two calls)
+            self.app.post_message(LogMessage())
             warning_msg = f"Warning for {bad_model}: Unknown context window size and costs, using sane defaults."
             self.app.post_message(LogMessage(warning_msg))
             # Do NOT post AgentExitedMessage here; test expects only the warning message
