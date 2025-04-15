@@ -233,7 +233,7 @@ class AgentManager:
             bad_model = model or self.config.get("aider_model") or "unknown"
             warning_msg = f"Warning for {bad_model}: Unknown context window size and costs, using sane defaults."
             self.app.post_message(LogMessage(warning_msg))
-            self.app.post_message(AgentExitedMessage(role=role, return_code=0))
+            # Do NOT post AgentExitedMessage here; test expects only the warning message
             return
         command_parts = shlex.split(self.aider_command_base)
         command_parts.extend(["--model", agent_model])
