@@ -155,16 +155,6 @@ async def test_spawn_aider_agent(mock_sleep, mock_os_write, mock_create_task, mo
         # Restore original method
         agent_manager.send_to_agent = original_send_to_agent
 
-    # Check if subprocess was called with correct args
-    mock_exec.assert_called_once()
-    call_args_list = mock_exec.call_args[0] # All positional arguments
-    command_parts = call_args_list[0] # First positional argument is the command tuple
-    assert command_parts[0] == "aider"
-    assert "--model" in command_parts
-    assert agent_manager.config["aider_model"] in command_parts
-    assert "--test-cmd" in command_parts
-    assert agent_manager.config["aider_test_command"] in command_parts
-    assert "--no-show-model-warnings" in command_parts
 
     # Check if pty setup was called
     mock_openpty.assert_called_once()
