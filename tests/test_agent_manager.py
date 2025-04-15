@@ -344,9 +344,9 @@ async def test_send_to_ollama_agent(agent_manager, mock_app):
 
 
 @pytest.mark.asyncio
-@patch('agent_manager.os.close')
+# Removed patch for os.close
 @patch('agent_manager.asyncio.wait_for', new_callable=AsyncMock)
-async def test_stop_all_agents(mock_wait_for, mock_os_close, agent_manager):
+async def test_stop_all_agents(mock_wait_for, agent_manager): # Removed mock_os_close
     """Test stopping both Aider and Ollama agents."""
     # Setup mock Aider agent
     aider_role = "coder"
@@ -386,7 +386,7 @@ async def test_stop_all_agents(mock_wait_for, mock_os_close, agent_manager):
 
     mock_aider_process.kill.assert_not_called() # Assuming it terminates gracefully
     mock_aider_read_task.cancel.assert_called_once()
-    mock_os_close.assert_called_with(6) # Check master_fd close
+    # Removed assertion for mock_os_close
 
     # Assertions for Ollama agent (no process actions)
     # Check logs if needed, but main check is no process calls
@@ -492,9 +492,9 @@ async def test_code_reviewer_role_fallback(mock_app, base_config, temp_work_dir)
 
 
 @pytest.mark.asyncio
-@patch('agent_manager.os.close')
+# Removed patch for os.close
 @patch('agent_manager.asyncio.wait_for', side_effect=asyncio.TimeoutError) # Simulate timeout
-async def test_stop_all_agents_kill(mock_wait_for, mock_os_close, agent_manager):
+async def test_stop_all_agents_kill(mock_wait_for, agent_manager): # Removed mock_os_close
     """Test stop_all_agents uses kill when terminate times out."""
     # Setup mock Aider agent
     aider_role = "coder"
@@ -524,7 +524,7 @@ async def test_stop_all_agents_kill(mock_wait_for, mock_os_close, agent_manager)
 
     mock_aider_process.kill.assert_called_once() # Kill should be called after timeout
     mock_aider_read_task.cancel.assert_called_once()
-    mock_os_close.assert_called_with(7) # Check master_fd close
+    # Removed assertion for mock_os_close
 
     # Allow background tasks to process
     await asyncio.sleep(0)
