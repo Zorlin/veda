@@ -81,7 +81,7 @@ python3 main.py
     *   Review code changes.
     *   Chat with Veda for clarification or adjustments.
 
-**Web UI (999999th-world citizen):**
+**Web UI (fallback only):**
 
 The web UI is not the main interface and is only provided for rare fallback scenarios. All core features and controls are available in the TUI.
 
