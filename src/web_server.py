@@ -215,7 +215,8 @@ async def start_web_server(app, agent_manager, config):
             logger.info(f"Mock web server started for tests at http://{host}:{port}")
 
             # Simulate running for tests
-            await asyncio.sleep(0.1)  # Short sleep for tests
+            import asyncio as _asyncio
+            await _asyncio.sleep(0.1)  # Short sleep for tests
         else:
             # Normal operation with real objects
             runner = web.AppRunner(app)
@@ -233,10 +234,11 @@ async def start_web_server(app, agent_manager, config):
             # Keep the server running
             while True:
                 await asyncio.sleep(1)  # Use shorter sleep for tests
-    except asyncio.CancelledError:
-        logger.info("Web server shutting down")
-        raise  # Re-raise the exception for tests to catch
     except Exception as e:
+        import asyncio as _asyncio
+        if isinstance(e, _asyncio.CancelledError):
+            logger.info("Web server shutting down")
+            raise  # Re-raise the exception for tests to catch
         logger.error(f"Error in web server: {e}")
         raise
     finally:
