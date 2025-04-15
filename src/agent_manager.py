@@ -85,7 +85,7 @@ class AgentManager:
         self.config = config
         self.work_dir = work_dir
         self.aider_command_base = config.get("aider_command", "aider")
-        self.aider_model = config.get("aider_model") # Model specifically for aider agents
+        self.aider_model = config.get("aider_model", "openrouter/openai/gpt-4.1") # Model specifically for aider agents
         self.test_command = config.get("aider_test_command")
         self.agents: Dict[str, AgentInstance] = {} # role -> AgentInstance
 
@@ -411,7 +411,7 @@ class AgentManager:
         initial_agent_model = (
             self.config.get("planner_model") or 
             self.config.get("coordinator_model") or 
-            self.config.get("ollama_model")
+            self.config.get("ollama_model", "gemma3:12b")
         )
 
         # Pass the project goal as the initial prompt/task for the agent

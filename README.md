@@ -47,6 +47,8 @@ For more details on Veda's orchestration philosophy, see [RULES.md](RULES.md).
     python -m pip install aider-install
     aider-install
     ```
+    By default, Veda will use the `openrouter/openai/gpt-4.1` model for Aider agents.
+*   **Ollama:** Veda uses Ollama for evaluation, handoff, and meta-reasoning. The default Ollama model is `gemma3:12b`.
 *   **OpenRouter API Key:** Aider will use models via OpenRouter. Set your API key as an environment variable:
     ```bash
     export OPENROUTER_API_KEY="your-api-key-here"
