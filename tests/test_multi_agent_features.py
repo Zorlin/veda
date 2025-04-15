@@ -83,17 +83,18 @@ async def test_multi_threading():
         # Run multiple worker tasks
         tasks = []
         for i in range(3):
-            tasks.append(manager._call_ollama_agent(
-                AgentInstance(
+            # Check if the method exists
+            if hasattr(manager, '_call_ollama_agent'):
+                agent_instance = AgentInstance(
                     role=f"agent{i}",
                     agent_type="ollama",
                     ollama_client=mock_client
-                ),
-                f"Prompt {i}"
-            ))
+                )
+                tasks.append(manager._call_ollama_agent(agent_instance, f"Prompt {i}"))
         
-        # Wait for all tasks to complete
-        await asyncio.gather(*tasks)
+        # Wait for all tasks to complete if there are any
+        if tasks:
+            await asyncio.gather(*tasks)
         
         # Verify multiple worker threads were used
         assert len(concurrent_calls) == 3

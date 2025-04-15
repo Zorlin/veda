@@ -25,7 +25,8 @@ def test_config():
 @pytest.mark.asyncio
 async def test_web_server_starts():
     """Test that the web server starts on the configured port."""
-    with patch('aiohttp.web.TCPSite') as mock_site:
+    with patch('aiohttp.web.TCPSite') as mock_site, \
+         patch('web_server.asyncio.sleep', side_effect=asyncio.CancelledError) as mock_sleep:
         from web_server import start_web_server
         
         mock_app = MagicMock()
@@ -38,7 +39,9 @@ async def test_web_server_starts():
             }
         }
         
-        await start_web_server(mock_app, mock_agent_manager, config)
+        # The test will raise CancelledError to exit the infinite loop
+        with pytest.raises(asyncio.CancelledError):
+            await start_web_server(mock_app, mock_agent_manager, config)
         
         # Verify the server was started with correct host/port
         mock_site.assert_called_once()

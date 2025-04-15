@@ -144,16 +144,21 @@ async def test_web_and_cli_integration(test_config, temp_work_dir):
         mock_app = MagicMock()
         agent_manager = AgentManager(mock_app, test_config, temp_work_dir)
         
-        # Start web server
-        web_app = create_web_app(agent_manager)
-        web_server_task = asyncio.create_task(
-            start_web_server(web_app, agent_manager, test_config)
-        )
-        
-        # Verify web server was started
-        await asyncio.sleep(0.1)  # Give the server time to start
-        MockTCPSite.assert_called_once()
-        mock_site.start.assert_called_once()
+        # Start web server with a patched sleep to avoid infinite loop
+        with patch('web_server.asyncio.sleep', side_effect=[None, asyncio.CancelledError]):
+            web_app = create_web_app(agent_manager)
+            web_server_task = asyncio.create_task(
+                start_web_server(web_app, agent_manager, test_config)
+            )
+            
+            # Verify web server was started
+            try:
+                await asyncio.wait_for(web_server_task, timeout=0.5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            
+            MockTCPSite.assert_called_once()
+            mock_site.start.assert_called_once()
         
         # Simulate web API request for project goal
         mock_request = MagicMock()
@@ -187,12 +192,13 @@ async def test_web_and_cli_integration(test_config, temp_work_dir):
         
         # Clean up
         await agent_manager.stop_all_agents()
-        web_server_task.cancel()
-        
-        try:
-            await web_server_task
-        except asyncio.CancelledError:
-            pass
+        if not web_server_task.done():
+            web_server_task.cancel()
+            
+            try:
+                await asyncio.wait_for(web_server_task, timeout=0.5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
 
 @pytest.mark.asyncio
 async def test_multi_agent_collaboration(test_config, temp_work_dir):
