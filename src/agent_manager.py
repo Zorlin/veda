@@ -616,18 +616,21 @@ class AgentManager:
         Stops all managed agent processes/clients gracefully.
         """
         logger.info(f"Stopping {len(self.agents)} agents...")
-        agent_roles = list(self.agents.keys()) # Get roles before iterating/deleting
+        agent_roles = list(self.agents.keys()) # Get roles before iterating/modifying
+        logger.info(f"Attempting to stop agents: {agent_roles}")
 
         for role in agent_roles:
-            agent = self.agents.get(role)
+            agent = self.agents.get(role) # Fetch agent instance safely
             if not agent:
+                logger.warning(f"Agent '{role}' already removed before stop attempt in loop.")
                 continue # Agent might have exited and been removed already
 
-            # --- Perform ALL cleanup here in stop_all_agents ---
-            logger.info(f"Initiating cleanup for agent '{role}' in stop_all_agents.")
+            logger.info(f"Stopping agent '{role}'...")
+            try:
+                # --- Perform ALL cleanup for this specific agent ---
 
-            # 1. Cancel Monitor Task FIRST and await its completion/cancellation
-            if agent.monitor_task and not agent.monitor_task.done():
+                # 1. Cancel Monitor Task FIRST and await its completion/cancellation
+                if agent.monitor_task and not agent.monitor_task.done():
                 logger.debug(f"stop_all_agents cancelling monitor_task for agent '{role}'.")
                 agent.monitor_task.cancel()
                 try:
@@ -642,11 +645,9 @@ class AgentManager:
                 except Exception as e:
                     logger.exception(f"Error awaiting cancelled monitor_task for agent '{role}': {e}")
 
-
-            # 2. Terminate/Kill Process (if Aider) - Proceed even if monitor task had issues
-            process_terminated_cleanly = False
-            try:
-                if agent.agent_type == "aider" and agent.process:
+                # 2. Terminate/Kill Process (if Aider) - Proceed even if monitor task had issues
+                try:
+                    if agent.agent_type == "aider" and agent.process:
                     pid = getattr(agent.process, 'pid', 'unknown')
                     logger.info(f"Stopping Aider agent '{role}' (PID {pid})...")
 
@@ -682,11 +683,11 @@ class AgentManager:
             except ProcessLookupError:
                  logger.warning(f"Aider agent '{role}' process already exited.")
             except Exception as e:
-                # Catch errors during the stopping process itself
-                logger.exception(f"Error during termination/kill for agent '{role}': {e}")
+                    # Catch errors during the stopping process itself
+                    logger.exception(f"Error during termination/kill for agent '{role}': {e}")
 
-            # 3. Cancel Read Task (if Aider)
-            if agent.read_task and not agent.read_task.done():
+                # 3. Cancel Read Task (if Aider)
+                if agent.read_task and not agent.read_task.done():
                 logger.debug(f"stop_all_agents cancelling read_task for agent '{role}'.")
                 agent.read_task.cancel()
                 # Await briefly
@@ -697,25 +698,30 @@ class AgentManager:
                 except Exception as e:
                     logger.exception(f"Error awaiting cancelled read_task for agent '{role}': {e}")
 
-            # 4. Close Master FD (if Aider)
-            if agent.master_fd is not None:
+                # 4. Close Master FD (if Aider)
+                if agent.master_fd is not None:
                 logger.info(f"stop_all_agents closing master_fd {agent.master_fd} for agent '{role}'.")
-                self._safe_close(agent.master_fd, context=f"stop_all_agents {role}")
-                agent.master_fd = None # Mark as closed
+                    self._safe_close(agent.master_fd, context=f"stop_all_agents {role}")
+                    agent.master_fd = None # Mark as closed
 
-            # 5. Remove from tracking dict - THIS SHOULD BE THE LAST STEP
-            # Ensure it happens even if prior steps had minor non-fatal errors
-            if role in self.agents:
-                logger.info(f"stop_all_agents removing agent '{role}' from tracking dictionary.")
-                # Use pop to avoid KeyError if already removed somehow
-                removed_agent = self.agents.pop(role, None)
-                if removed_agent:
-                     logger.debug(f"Successfully removed agent '{role}'.")
+            except Exception as cleanup_error:
+                 logger.exception(f"Error during cleanup steps for agent '{role}': {cleanup_error}")
+            finally:
+                # 5. Remove from tracking dict - *ALWAYS* attempt this in finally block
+                if role in self.agents:
+                    logger.info(f"stop_all_agents removing agent '{role}' from tracking dictionary (finally block).")
+                    removed_agent = self.agents.pop(role, None)
+                    if removed_agent:
+                        logger.debug(f"Successfully removed agent '{role}' via pop.")
+                    else:
+                        # This case should ideally not happen if the initial check passed,
+                        # but log it defensively.
+                        logger.warning(f"Agent '{role}' disappeared before pop in finally block.")
                 else:
-                     logger.warning(f"Agent '{role}' was already removed before pop call in stop_all_agents.")
-            else:
-                 logger.warning(f"Agent '{role}' not found in dictionary during final removal in stop_all_agents.")
-            # --- End of stop_all_agents cleanup for this agent ---
+                    # This means it was already gone before the finally block, possibly removed by monitor task
+                    # or a previous iteration if the roles list got stale (unlikely with list copy).
+                    logger.warning(f"Agent '{role}' not found in dictionary during final removal (finally block).")
+            # --- End of try...finally block for this agent's cleanup ---
 
         # Final check after loop
         if not self.agents:
