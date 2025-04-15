@@ -243,40 +243,40 @@ class AgentManager:
                 self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
                 return
 
-                # Construct the aider command
-                command_parts = shlex.split(self.aider_command_base)
-                command_parts.extend(["--model", agent_model])
-                if self.test_command:
-                     command_parts.extend(["--test-cmd", self.test_command])
-                # Add --no-show-model-warnings flag suggested by aider output
-                command_parts.append("--no-show-model-warnings")
+            # Construct the aider command
+            command_parts = shlex.split(self.aider_command_base)
+            command_parts.extend(["--model", agent_model])
+            if self.test_command:
+                command_parts.extend(["--test-cmd", self.test_command])
+            # Add --no-show-model-warnings flag suggested by aider output
+            command_parts.append("--no-show-model-warnings")
 
-                log_line = f"Spawning Aider agent '{role}' with model '{agent_model}'..."
-                logger.info(log_line)
-                self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
+            log_line = f"Spawning Aider agent '{role}' with model '{agent_model}'..."
+            logger.info(log_line)
+            self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
 
-                master_fd, slave_fd = -1, -1 # Initialize to invalid values
-                agent_instance = None # Initialize
-                process = None
-                read_task = None
-                monitor_task = None
+            master_fd, slave_fd = -1, -1 # Initialize to invalid values
+            agent_instance = None # Initialize
+            process = None
+            read_task = None
+            monitor_task = None
 
-                # Define safe_close locally for cleanup within this scope
-                def safe_close(fd):
-                    # Check for valid integer file descriptor
-                    if not isinstance(fd, int) or fd < 0:
-                        logger.debug(f"safe_close: Skipping non-integer or negative fd: {fd!r}")
-                        return
-                    try:
-                        logger.debug(f"safe_close: Closing fd {fd}")
-                        os.close(fd)
-                    except OSError as e:
-                        # Ignore EBADF (bad file descriptor, already closed)
-                        # Ignore EIO (Input/output error, sometimes happens with ptys)
-                        if e.errno not in (9, 5): # 9=EBADF, 5=EIO
-                            logger.warning(f"Error closing fd {fd} for agent '{role}': {e} (errno {e.errno})")
-                    except Exception as e:
-                         logger.warning(f"Unexpected error closing fd {fd} for agent '{role}': {e}")
+            # Define safe_close locally for cleanup within this scope
+            def safe_close(fd):
+                # Check for valid integer file descriptor
+                if not isinstance(fd, int) or fd < 0:
+                    logger.debug(f"safe_close: Skipping non-integer or negative fd: {fd!r}")
+                    return
+                try:
+                    logger.debug(f"safe_close: Closing fd {fd}")
+                    os.close(fd)
+                except OSError as e:
+                    # Ignore EBADF (bad file descriptor, already closed)
+                    # Ignore EIO (Input/output error, sometimes happens with ptys)
+                    if e.errno not in (9, 5): # 9=EBADF, 5=EIO
+                        logger.warning(f"Error closing fd {fd} for agent '{role}': {e} (errno {e.errno})")
+                except Exception as e:
+                    logger.warning(f"Unexpected error closing fd {fd} for agent '{role}': {e}")
 
             def _safe_close(self, fd, context=""):
                 """Safely close a file descriptor, logging context."""
