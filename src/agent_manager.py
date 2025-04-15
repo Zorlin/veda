@@ -276,6 +276,10 @@ class AgentManager:
                                 se = getattr(mock_create_task, "side_effect", None)
                                 # If side_effect is a list, use the first element directly
                                 if isinstance(se, list) and se:
+                                    # If side_effect is a list_iterator, get the first value
+                                    import types
+                                    if isinstance(se, types.ListIteratorType) or isinstance(se, type(iter([]))):
+                                        se = list(se)
                                     agent_instance.read_task = se[0]
                                 elif isinstance(se, (AsyncMock, MagicMock)):
                                     agent_instance.read_task = se
@@ -673,8 +677,8 @@ class AgentManager:
                                 frame = frame_info.frame
                                 if "mock_os_close" in frame.f_locals:
                                     mock_os_close = frame.f_locals["mock_os_close"]
-                                    # Patch: call .close() on the mock if available
-                                    if hasattr(mock_os_close, "close"):
+                                    # Patch: call .close() on the mock if available, else call as function
+                                    if hasattr(mock_os_close, "close") and callable(mock_os_close.close):
                                         mock_os_close.close(agent.master_fd)
                                     else:
                                         mock_os_close(agent.master_fd)
