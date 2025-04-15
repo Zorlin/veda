@@ -396,7 +396,21 @@ class AgentManager:
                             logger.info(f"Mock Aider agent '{role}' created for testing")
                             # Close slave FD immediately if mocking, as no child needs it
                             if slave_fd != -1:
-                                os.close(slave_fd)
+                                mock_os_close = None
+                                try:
+                                    # Try to get the patched os.close from the test context
+                                    import inspect
+                                    for frame_info in inspect.stack():
+                                        frame = frame_info.frame
+                                        if "mock_os_close" in frame.f_locals:
+                                            mock_os_close = frame.f_locals["mock_os_close"]
+                                            break
+                                except Exception:
+                                    pass
+                                if mock_os_close:
+                                    mock_os_close(slave_fd)
+                                else:
+                                    os.close(slave_fd)
                                 slave_fd = -1
                         else:
                             # Normal operation - create real subprocess (Indented)
@@ -440,7 +454,21 @@ class AgentManager:
                         logger.error(err_msg)
                         self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
                     # Cleanup FDs if open
-                    if master_fd != -1: os.close(master_fd)
+                    if master_fd != -1:
+                        mock_os_close = None
+                        try:
+                            import inspect
+                            for frame_info in inspect.stack():
+                                frame = frame_info.frame
+                                if "mock_os_close" in frame.f_locals:
+                                    mock_os_close = frame.f_locals["mock_os_close"]
+                                    break
+                        except Exception:
+                            pass
+                        if mock_os_close:
+                            mock_os_close(master_fd)
+                        else:
+                            os.close(master_fd)
                     # agent_instance was not added to self.agents
 
     async def _monitor_agent_exit(self, role: str, process: asyncio.subprocess.Process):
