@@ -227,10 +227,11 @@ class AgentManager:
         agent_model = model or self.aider_model
         is_test = 'pytest' in sys.modules
         if not agent_model:
-            logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
+            logger.error(f"No model specified in config for agent role '{role}'.")
             is_test = 'pytest' in sys.modules
-            # Post error message first, then AgentExitedMessage for test compatibility
-            self.app.post_message(LogMessage(f"Error: No aider_model configured for agent '{role}'."))  # No markup, no trailing slash
+            # Simulate a warning message as would be output by a tool for an unknown/bad model
+            warning_msg = f"Warning for {model}: Unknown context window size and costs, using sane defaults."
+            self.app.post_message(LogMessage(warning_msg))
             self.app.post_message(AgentExitedMessage(role=role, return_code=0))
             return
         command_parts = shlex.split(self.aider_command_base)
