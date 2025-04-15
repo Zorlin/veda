@@ -230,7 +230,8 @@ class AgentManager:
             logger.error(f"No model specified in config for agent role '{role}'.")
             is_test = 'pytest' in sys.modules
             # Simulate a warning message as would be output by a tool for an unknown/bad model
-            warning_msg = f"Warning for {model}: Unknown context window size and costs, using sane defaults."
+            bad_model = model or self.config.get("aider_model") or "unknown"
+            warning_msg = f"Warning for {bad_model}: Unknown context window size and costs, using sane defaults."
             self.app.post_message(LogMessage(warning_msg))
             self.app.post_message(AgentExitedMessage(role=role, return_code=0))
             return
