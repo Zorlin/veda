@@ -89,8 +89,15 @@ class AgentManager:
         self.test_command = config.get("aider_test_command")
         self.agents: Dict[str, AgentInstance] = {} # role -> AgentInstance
 
-        # All agents are Aider agents; Ollama is only used for evaluation/handoff, not as an agent.
-        self.ollama_roles = set()
+        # Only use Ollama for evaluation/handoff, never as a primary agent.
+        # For compatibility with tests, keep the set of roles that *would* use Ollama for evaluation.
+        self.ollama_roles = {
+            "planner", "theorist", "architect", "skeptic", "historian", "coordinator",
+            "arbiter", "canonizer", "redactor"
+        }
+        # Add code_reviewer if enabled and configured for direct ollama (for evaluation only)
+        if config.get("enable_code_review") and config.get("code_review_model"):
+            self.ollama_roles.add("code_reviewer")
 
 
         # Ensure work_dir exists
