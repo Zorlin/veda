@@ -645,7 +645,7 @@ class AgentManager:
 
                 # 2. Terminate/Kill Process (if Aider) - Proceed even if monitor task had issues
                 # This block needs to be indented under the main 'try' - Correcting indentation
-                try: # Indent this try block
+                try: # Correct indentation level
                     if agent.agent_type == "aider" and agent.process:
                         pid = getattr(agent.process, 'pid', 'unknown')
                         logger.info(f"Stopping Aider agent '{role}' (PID {pid})...")
@@ -683,10 +683,11 @@ class AgentManager:
                      logger.warning(f"Aider agent '{role}' process already exited.")
                 except Exception as e:
                         # Catch errors during the stopping process itself
+                        # Catch errors during the stopping process itself
                         logger.exception(f"Error during termination/kill for agent '{role}': {e}")
 
                 # 3. Cancel Read Task (if Aider) - Indent under main 'try' - Correcting indentation
-                if agent.read_task and not agent.read_task.done(): # Indent this if block
+                if agent.read_task and not agent.read_task.done(): # Correct indentation level
                     logger.debug(f"stop_all_agents cancelling read_task for agent '{role}'.")
                     agent.read_task.cancel()
                     # Await briefly
@@ -698,7 +699,7 @@ class AgentManager:
                         logger.exception(f"Error awaiting cancelled read_task for agent '{role}': {e}")
 
                 # 4. Close Master FD (if Aider) - Indent under main 'try' - Correcting indentation
-                if agent.master_fd is not None: # Indent this if block
+                if agent.master_fd is not None: # Correct indentation level
                     logger.info(f"stop_all_agents closing master_fd {agent.master_fd} for agent '{role}'.")
                     self._safe_close(agent.master_fd, context=f"stop_all_agents {role}")
                     agent.master_fd = None # Mark as closed
