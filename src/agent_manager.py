@@ -243,8 +243,10 @@ class AgentManager:
                 agent_instance.read_task = read_task # Assign task to instance
                 monitor_task = asyncio.create_task(self._monitor_agent_exit(role, process))
                 
-                # We don't need to store the monitor task in the agent instance
+                # Store the monitor task in a variable for testing purposes
+                # We don't need to store it in the agent instance
                 # as it will clean itself up when the process exits
+                self._last_monitor_task = monitor_task  # For testing access
 
                 # Send initial prompt if provided, after a short delay for aider to start
                 if initial_prompt:

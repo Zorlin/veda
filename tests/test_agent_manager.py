@@ -101,7 +101,8 @@ async def test_agent_manager_initialization(agent_manager, temp_work_dir):
 @patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock)
 @patch('agent_manager.asyncio.create_task')  # Mock create_task to avoid actual task creation
 @patch('agent_manager.os.write')  # Mock os.write for initial prompt
-async def test_spawn_aider_agent(mock_os_write, mock_create_task, mock_exec, mock_os_close, mock_fcntl, mock_openpty, agent_manager, mock_app):
+@patch('agent_manager.asyncio.sleep', new_callable=AsyncMock)  # Mock sleep to avoid delays
+async def test_spawn_aider_agent(mock_sleep, mock_os_write, mock_create_task, mock_exec, mock_os_close, mock_fcntl, mock_openpty, agent_manager, mock_app):
     """Test spawning an agent that should use Aider."""
     # Configure mocks
     mock_process = AsyncMock(spec=asyncio.subprocess.Process)
@@ -113,6 +114,9 @@ async def test_spawn_aider_agent(mock_os_write, mock_create_task, mock_exec, moc
     mock_task = AsyncMock(spec=asyncio.Task)
     mock_create_task.return_value = mock_task
     
+    # Set up agent_manager.send_to_agent as a mock to avoid actual sending
+    agent_manager.send_to_agent = AsyncMock()
+    
     # Role 'coder' is not in ollama_roles, should default to aider
     test_role = "coder"
     await agent_manager.spawn_agent(role=test_role, initial_prompt="Write hello world")
@@ -123,8 +127,17 @@ async def test_spawn_aider_agent(mock_os_write, mock_create_task, mock_exec, moc
     assert agent_instance.agent_type == "aider"
     assert agent_instance.process == mock_process
     assert agent_instance.master_fd == 3 # From mock_openpty
-    assert agent_instance.read_task is not None
+    assert agent_instance.read_task == mock_task
     assert agent_instance.ollama_client is None
+    
+    # Verify create_task was called twice (for read_task and monitor_task)
+    assert mock_create_task.call_count == 2
+    
+    # Verify sleep was called for the initial prompt delay
+    mock_sleep.assert_called_once()
+    
+    # Verify send_to_agent was called with the initial prompt
+    agent_manager.send_to_agent.assert_called_once_with(test_role, "Write hello world")
 
     # Check if subprocess was called with correct args
     mock_exec.assert_called_once()
