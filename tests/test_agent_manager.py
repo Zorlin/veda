@@ -118,12 +118,13 @@ async def test_spawn_aider_agent(mock_sleep, mock_os_write, mock_create_task, mo
     original_send_to_agent = agent_manager.send_to_agent
     agent_manager.send_to_agent = AsyncMock()
     
+    # Role 'coder' is not in ollama_roles, should default to aider
+    test_role = "coder"
+    
     try:
-        # Role 'coder' is not in ollama_roles, should default to aider
-        test_role = "coder"
         await agent_manager.spawn_agent(role=test_role, initial_prompt="Write hello world")
-
-        # Assertions
+        
+        # Assertions for agent creation
         assert test_role in agent_manager.agents
         agent_instance = agent_manager.agents[test_role]
         assert agent_instance.agent_type == "aider"
@@ -132,19 +133,17 @@ async def test_spawn_aider_agent(mock_sleep, mock_os_write, mock_create_task, mo
         assert agent_instance.read_task == mock_task
         assert agent_instance.ollama_client is None
         
-        # Verify create_task was called twice (for read_task and monitor_task)
+        # Verify task creation
         assert mock_create_task.call_count == 2
         
-        # Verify sleep was called for the initial prompt delay
+        # Verify initial prompt handling
         mock_sleep.assert_called_once()
-        
-        # Verify send_to_agent was called with the initial prompt
         agent_manager.send_to_agent.assert_called_once_with(test_role, "Write hello world")
         
-        # Check if subprocess was called with correct args
+        # Verify subprocess creation with correct args
         mock_exec.assert_called_once()
-        call_args_list = mock_exec.call_args[0] # All positional arguments
-        command_parts = call_args_list[0] # First positional argument is the command tuple
+        call_args_list = mock_exec.call_args[0]
+        command_parts = call_args_list[0]
         assert command_parts[0] == "aider"
         assert "--model" in command_parts
         assert agent_manager.config["aider_model"] in command_parts
@@ -152,13 +151,12 @@ async def test_spawn_aider_agent(mock_sleep, mock_os_write, mock_create_task, mo
         assert agent_manager.config["aider_test_command"] in command_parts
         assert "--no-show-model-warnings" in command_parts
         
-        # Check if pty setup was called
+        # Verify PTY setup
         mock_openpty.assert_called_once()
         mock_fcntl.assert_called_once_with(3, fcntl.F_SETFL, os.O_NONBLOCK)
-        mock_os_close.assert_called_once_with(4) # Slave FD should be closed
+        mock_os_close.assert_called_once_with(4)
         
-        # Check if monitor task was created (indirectly via checking agent instance)
-        # Check if reader task was created
+        # Verify task creation
         assert isinstance(agent_instance.read_task, asyncio.Task)
     finally:
         # Restore original method
