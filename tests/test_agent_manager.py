@@ -164,11 +164,6 @@ async def test_spawn_aider_agent(mock_sleep, mock_os_write, mock_create_task, mo
         # Restore original method
         agent_manager.send_to_agent = original_send_to_agent
 
-
-    # Check initial prompt sending (mocked send_to_agent)
-    # Need to patch send_to_agent or check os.write mock if not patching send_to_agent
-    # For now, assume spawn_agent calls send_to_agent correctly after delay
-
 @pytest.mark.asyncio
 async def test_spawn_ollama_agent(agent_manager, mock_app):
     """Test spawning an agent that should use Ollama."""
