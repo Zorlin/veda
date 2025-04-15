@@ -99,7 +99,8 @@ async def test_agent_manager_initialization(agent_manager, temp_work_dir):
 @patch('agent_manager.fcntl.fcntl') # Mock fcntl calls
 @patch('agent_manager.os.close') # Mock os.close
 @patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock)
-async def test_spawn_aider_agent(mock_exec, mock_os_close, mock_fcntl, mock_openpty, agent_manager, mock_app):
+@patch('agent_manager.asyncio.create_task')  # Mock create_task to avoid actual task creation
+async def test_spawn_aider_agent(mock_create_task, mock_exec, mock_os_close, mock_fcntl, mock_openpty, agent_manager, mock_app):
     """Test spawning an agent that should use Aider."""
     mock_process = AsyncMock(spec=asyncio.subprocess.Process)
     mock_process.pid = 1234
@@ -243,8 +244,13 @@ async def test_initialize_project(agent_manager, temp_work_dir, mock_app):
     mock_app.post_message.assert_any_call(LogMessage(f"Initial goal saved to {goal_file.name}"))
 
     # Check if the initial agent (planner) was spawned
-    # Check if coordinator_model exists in config, otherwise expect None
-    expected_model = agent_manager.config.get("coordinator_model")
+    # Get the expected model based on the fallback chain
+    expected_model = (
+        agent_manager.config.get("planner_model") or 
+        agent_manager.config.get("coordinator_model") or 
+        agent_manager.config.get("ollama_model")
+    )
+    
     agent_manager.spawn_agent.assert_called_once_with(
         role="planner",
         model=expected_model,
