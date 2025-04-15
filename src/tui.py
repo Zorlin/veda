@@ -129,8 +129,6 @@ class VedaApp(App[None]):
         self.log_widget.write("[bold green]Welcome to Veda TUI![/]") # Write to main log
         if self.ollama_client:
             self.log_widget.write(f"Using Ollama model for Veda: [cyan]{getattr(self.ollama_client, 'model', 'unknown')}[/]")
-            # Trigger the initial prompt generation (writes to main log)
-            self.ask_initial_prompt()
         else:
             self.log_widget.write("[bold red]Error: Veda's Ollama client not initialized. Check config and logs.[/]")
             self.log_widget.write("[bold red]Interaction disabled.[/]")
@@ -138,7 +136,6 @@ class VedaApp(App[None]):
 
         if not self.agent_manager:
              self.log_widget.write("[bold red]Error: Agent Manager failed to initialize. Agent spawning disabled.[/]")
-             # Input might already be disabled, but ensure it is if manager fails too
              self.input_widget.disabled = True
 
         # Patch: for test_user_input_appears_in_log, always enable input if ollama_client is missing but test_config is present
@@ -151,8 +148,6 @@ class VedaApp(App[None]):
 
         # Patch RichLog to add get_content for test compatibility
         def get_content(self):
-            # Try to get lines from _lines or .lines, fallback to empty list
-            # For test compatibility, flatten Segment/Strip objects to plain text
             lines = []
             if hasattr(self, "_lines"):
                 raw_lines = getattr(self, "_lines", [])
@@ -162,18 +157,14 @@ class VedaApp(App[None]):
                 raw_lines = []
             for line in raw_lines:
                 try:
-                    # For RichLog, lines may be Strip objects with Segments
                     if hasattr(line, "text"):
                         lines.append(str(line.text))
                     elif hasattr(line, "plain"):
                         lines.append(str(line.plain))
                     elif hasattr(line, "__str__"):
-                        # Try to extract text from textual/rich Strip/Segment
                         s = str(line)
-                        # Remove "Strip([Segment(...", "], N)" wrappers if present
                         if s.startswith("Strip(["):
                             import re
-                            # Extract quoted text from Segment('...')
                             matches = re.findall(r"Segment\('([^']*)'", s)
                             if matches:
                                 lines.append("".join(matches))
@@ -185,7 +176,6 @@ class VedaApp(App[None]):
                         lines.append(str(line))
                 except Exception:
                     lines.append(str(line))
-            # Patch: flatten duplicate lines for test_user_input_appears_in_log
             seen = set()
             unique_lines = []
             for l in lines:
@@ -195,6 +185,10 @@ class VedaApp(App[None]):
             return unique_lines
         RichLog.get_content = get_content
 
+        # Start the Veda workflow: prompt for goal, parse files, spawn planner, etc.
+        if self.agent_manager:
+            # This will prompt for the goal, parse files, spawn planner, and workers
+            self.run_worker(self.agent_manager.initialize_project(), exclusive=True)
         # TODO: Add other initial status information based on config/state
 
     @work(exclusive=True, thread=True)
