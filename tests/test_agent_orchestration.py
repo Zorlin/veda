@@ -11,7 +11,7 @@ src_path = project_root / "src"
 import sys
 sys.path.insert(0, str(src_path))
 
-from agent_manager import AgentManager, AgentInstance, AgentOutputMessage, AgentExitedMessage, LogMessage
+from src.agent_manager import AgentManager, AgentInstance, AgentOutputMessage, AgentExitedMessage, LogMessage
 
 @pytest.fixture
 def mock_app():
@@ -61,8 +61,8 @@ def temp_work_dir(tmp_path):
 @pytest.mark.asyncio
 async def test_orchestration_readiness_check():
     """Test that Veda checks for user readiness before proceeding to build mode."""
-    with patch('agent_manager.OllamaClient') as MockOllamaClient, \
-         patch('agent_manager.AgentManager.spawn_agent', new_callable=AsyncMock) as mock_spawn:
+    with patch('src.agent_manager.OllamaClient') as MockOllamaClient, \
+         patch('src.agent_manager.AgentManager.spawn_agent', new_callable=AsyncMock) as mock_spawn:
         # Setup the mock client
         mock_client_instance = MockOllamaClient.return_value
         mock_client_instance.generate.return_value = """
@@ -99,8 +99,8 @@ async def test_orchestration_readiness_check():
 @pytest.mark.asyncio
 async def test_multi_agent_coordination():
     """Test that multiple agents can be spawned and coordinated."""
-    with patch('agent_manager.OllamaClient') as MockOllamaClient, \
-         patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
+    with patch('src.agent_manager.OllamaClient') as MockOllamaClient, \
+         patch('src.agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
         
         # Setup mocks
         mock_client = MockOllamaClient.return_value
@@ -159,8 +159,8 @@ async def test_multi_agent_coordination():
 @pytest.mark.asyncio
 async def test_agent_roles_and_personalities():
     """Test that different agent roles and personalities can be spawned."""
-    with patch('agent_manager.OllamaClient') as MockOllamaClient, \
-         patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
+    with patch('src.agent_manager.OllamaClient') as MockOllamaClient, \
+         patch('src.agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
         
         # Setup mocks
         mock_client = MockOllamaClient.return_value
@@ -203,7 +203,7 @@ async def test_agent_roles_and_personalities():
 @pytest.mark.asyncio
 async def test_user_control_and_interaction():
     """Test that user can control and interact with agents at any time."""
-    with patch('agent_manager.OllamaClient') as MockOllamaClient:
+    with patch('src.agent_manager.OllamaClient') as MockOllamaClient:
         mock_client = MockOllamaClient.return_value
         mock_client.generate.return_value = "I'll adjust based on your new instructions."
         
@@ -236,8 +236,8 @@ async def test_user_control_and_interaction():
 @pytest.mark.asyncio
 async def test_detach_and_background_operation():
     """Test that Veda can continue building in the background after user detaches."""
-    with patch('agent_manager.OllamaClient') as MockOllamaClient, \
-         patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
+    with patch('src.agent_manager.OllamaClient') as MockOllamaClient, \
+         patch('src.agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
         
         # Setup mocks
         mock_client = MockOllamaClient.return_value
@@ -280,8 +280,8 @@ async def test_detach_and_background_operation():
 @pytest.mark.asyncio
 async def test_agent_exit_monitoring():
     """Test that agent exits are properly monitored and handled."""
-    with patch('agent_manager.OllamaClient') as MockOllamaClient, \
-         patch('agent_manager.os.close'):
+    with patch('src.agent_manager.OllamaClient') as MockOllamaClient, \
+         patch('src.agent_manager.os.close'):
         mock_client = MockOllamaClient.return_value
         
         mock_app = MagicMock()

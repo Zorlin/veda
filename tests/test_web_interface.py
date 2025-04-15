@@ -28,10 +28,10 @@ async def test_web_server_starts():
     """Test that the web server starts on the configured port."""
     with patch('aiohttp.web.AppRunner') as mock_runner_class, \
          patch('aiohttp.web.TCPSite') as mock_site_class, \
-         patch('web_server.asyncio.sleep', side_effect=asyncio.CancelledError), \
-         patch('web_server.asyncio.current_task') as mock_current_task, \
-         patch('web_server.sys.modules', {'pytest': True}):
-        from web_server import start_web_server
+         patch('src.web_server.asyncio.sleep', side_effect=asyncio.CancelledError), \
+         patch('src.web_server.asyncio.current_task') as mock_current_task, \
+         patch('src.web_server.sys.modules', {'pytest': True}):
+        from src.web_server import start_web_server
         
         # Setup mocks
         mock_app = MagicMock()
