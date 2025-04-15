@@ -114,11 +114,13 @@ class VedaApp(App[None]):
             self.ask_initial_prompt()
         else:
             self.log_widget.write("[bold red]Error: Veda's Ollama client not initialized. Check config and logs.[/]")
+            self.log_widget.write("[bold red]Interaction disabled.[/]")
+            self.input_widget.disabled = True # Disable input if Veda's client failed
 
         if not self.agent_manager:
              self.log_widget.write("[bold red]Error: Agent Manager failed to initialize. Agent spawning disabled.[/]")
-             self.log_widget.write("Interaction disabled.") # Correct indentation
-             self.input_widget.disabled = True # Disable input if client failed
+             # Input might already be disabled, but ensure it is if manager fails too
+             self.input_widget.disabled = True
 
         # TODO: Add other initial status information based on config/state
 

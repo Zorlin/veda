@@ -11,11 +11,19 @@ sys.path.insert(0, str(src_path))
 from textual.widgets import RichLog, Input, TabbedContent, TabPane # Import missing widgets
 from unittest.mock import patch # Add patch import
 
+sys.path.insert(0, str(src_path))
+
+from textual.widgets import RichLog, Input, TabbedContent, TabPane # Import missing widgets
+from unittest.mock import patch # Add patch import
+import pytest # Import pytest for fixture decorator
+
 from config import load_config
-from tui import VedaApp, AgentOutputMessage, AgentExitedMessage # Import messages
+from tui import VedaApp, AgentOutputMessage, AgentExitedMessage, LogMessage # Import messages
 
 
 # Load config once for tests
+# Note: This loads the *actual* config.yaml. Tests might be more robust
+# if they defined their own minimal config dicts or used a dedicated test config file.
 test_config_path = project_root / "config.yaml"
 try:
     test_config = load_config(test_config_path)
@@ -33,9 +41,28 @@ except Exception as e:
     print(f"Error loading config for tests: {e}")
     test_config = {} # Ensure config is a dict even on error
 
+# Define the fixture needed by multiple tests
+@pytest.fixture
+def test_config():
+    """Provides a configuration dictionary for TUI tests."""
+    # Load the actual config or provide a minimal dict
+    config_path = project_root / "config.yaml"
+    try:
+        return load_config(config_path)
+    except Exception:
+        # Fallback for safety
+        return {
+            "ollama_api_url": "http://mockhost:11434",
+            "ollama_model": "mock_model",
+            "ollama_request_timeout": 10,
+            "ollama_options": {},
+            "project_dir": ".",
+            "agent_manager": None, # Explicitly None if AgentManager fails
+        }
+
 
 @pytest.mark.asyncio
-async def test_app_starts_and_shows_welcome():
+async def test_app_starts_and_shows_welcome(test_config): # Add fixture dependency
     """Test if the app starts, displays welcome, and Ollama status."""
     app = VedaApp(config=test_config)
     async with app.run_test() as pilot:
@@ -79,14 +106,15 @@ async def test_user_input_appears_in_log():
 
         # Check if the input appears in the main log
         main_log_widget = pilot.app.query_one("#main-log", RichLog)
-        assert ">>> This is a test message" in main_log_widget.export_text(strip_styles=True)
+        log_content = main_log_widget.get_content()
+        assert ">>> This is a test message" in log_content
 
         # Check if the "thinking" message appeared (assuming Ollama client is mocked/available)
         # This might fail if the Ollama client init failed in the fixture
         if pilot.app.ollama_client:
-            assert "Thinking..." in main_log_widget.export_text(strip_styles=True)
+            assert "Thinking..." in log_content
             # Check if the (mocked) response appeared - Requires mocking OllamaClient in the fixture
-            # assert f"Veda ({test_config['ollama_model']}): Mock Ollama Response" in main_log_widget.export_text(strip_styles=True)
+            # assert f"Veda ({test_config['ollama_model']}): Mock Ollama Response" in log_content
 
         # Check if input was cleared (happens in the worker's finally block)
         input_widget = pilot.app.query_one(Input)
@@ -121,13 +149,13 @@ async def test_agent_tab_creation_and_output(test_config):
 
                 # Check if the log widget within the tab exists and contains the output
                 agent_log_widget = agent_tab_pane.query_one(RichLog)
-                log_text = agent_log_widget.export_text(strip_styles=True)
+                log_text = agent_log_widget.get_content()
                 assert f"--- Log for agent '{agent_role}' ---" in log_text
                 assert agent_line_1 in log_text
                 assert agent_line_2 in log_text
 
 @pytest.mark.asyncio
-async def test_agent_exit_message_handling(test_config):
+async def test_agent_exit_message_handling(test_config): # Add fixture dependency
     """Test that agent exit messages are logged correctly."""
     app = VedaApp(config=test_config)
     async with app.run_test() as pilot:
@@ -149,10 +177,10 @@ async def test_agent_exit_message_handling(test_config):
                 # Check agent log
                 agent_tab_pane = pilot.app.query_one(f"#tab-{agent_role}", TabPane)
                 agent_log = agent_tab_pane.query_one(RichLog)
-                assert f"--- Agent '{agent_role}' exited with code {exit_code} ---" in agent_log.export_text(strip_styles=True)
+                assert f"--- Agent '{agent_role}' exited with code {exit_code} ---" in agent_log.get_content() # Use get_content()
 
 @pytest.mark.asyncio
-async def test_quit_binding(test_config):
+async def test_quit_binding(test_config): # Add fixture dependency
     """Test the 'q' quit binding."""
     app = VedaApp(config=test_config)
     async with app.run_test() as pilot:
@@ -162,7 +190,7 @@ async def test_quit_binding(test_config):
         assert pilot.app._exit_renderables is not None # Internal check, might be brittle
 
 @pytest.mark.asyncio
-async def test_dark_mode_toggle(test_config):
+async def test_dark_mode_toggle(test_config): # Add fixture dependency
     """Test the 'd' dark mode toggle binding."""
     app = VedaApp(config=test_config)
     async with app.run_test() as pilot:
@@ -187,6 +215,6 @@ async def test_input_disabled_on_ollama_fail():
             log_widget = pilot.app.query_one("#main-log", RichLog)
 
             assert input_widget.disabled is True
-            log_text = log_widget.export_text(strip_styles=True)
+            log_text = log_widget.get_content()
             assert "Error: Veda's Ollama client not initialized" in log_text
             assert "Interaction disabled." in log_text

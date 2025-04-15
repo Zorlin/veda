@@ -21,7 +21,8 @@ from ollama_client import OllamaClient # Assuming OllamaClient can be imported
 def mock_app():
     """Provides a mock Textual App instance."""
     app = MagicMock()
-    app.post_message = AsyncMock()
+    # post_message is NOT async in Textual App
+    app.post_message = MagicMock()
     # Mock run_worker to execute the target function directly for simplicity in some tests
     # More complex tests might need a more sophisticated mock
     async def mock_run_worker(target, *args, **kwargs):
@@ -74,7 +75,14 @@ def agent_manager(mock_app, base_config, temp_work_dir):
         manager = AgentManager(app=mock_app, config=base_config, work_dir=temp_work_dir)
         # Store the mock class for later assertions if needed
         manager.MockOllamaClient = MockOllamaClient
-        yield manager # Use yield to allow cleanup if needed later
+
+        yield manager # Use yield to allow cleanup
+
+        # Cleanup: Ensure agents are stopped after test finishes
+        # Use run_sync to run the async stop function from the sync fixture finalizer
+        async def stop():
+             await manager.stop_all_agents()
+        asyncio.run(stop())
 
 # --- Test Cases ---
 
@@ -279,22 +287,14 @@ async def test_send_to_ollama_agent(agent_manager, mock_app):
     await agent_manager.send_to_agent(test_role, input_data)
 
     # Check that the worker was called via the app mock
-    # The mock_run_worker executes the worker function directly
-    # We need to assert that the worker function itself was called
-    # Patch the static worker method for this test
-    with patch.object(AgentManager, '_call_ollama_agent_worker', autospec=True) as mock_worker:
-        # Re-trigger the send which calls run_worker -> worker
-        await agent_manager.send_to_agent(test_role, input_data)
+    # The mock_run_worker executes the worker function directly.
+    # We can check if the ollama_client.generate was called within the worker.
+    mock_ollama_client.generate.assert_called_once_with(input_data)
 
-        # Assert the static worker method was called (via the mocked run_worker)
-        mock_worker.assert_called_once_with(
-            app=mock_app,
-            client=mock_ollama_client,
-            role=test_role,
-            prompt=input_data
-        )
     # Check that the "thinking" message was posted
     mock_app.post_message.assert_any_call(LogMessage(f"[italic grey50]Agent '{test_role}' is thinking...[/]"))
+    # Check that the response message was posted (by the worker via the mock app)
+    mock_app.post_message.assert_any_call(AgentOutputMessage(role=test_role, line="Mock Ollama Response"))
 
 
 @pytest.mark.asyncio
@@ -329,7 +329,10 @@ async def test_stop_all_agents(mock_wait_for, mock_os_close, agent_manager):
 
     # Assertions for Aider agent
     mock_aider_process.terminate.assert_called_once()
-    mock_wait_for.assert_called_once_with(mock_aider_process.wait(), timeout=5.0)
+    # Check that wait_for was called, but don't compare coroutine objects directly
+    mock_wait_for.assert_called_once()
+    assert mock_wait_for.call_args[1]['timeout'] == 5.0 # Check timeout kwarg
+    # We can't easily assert the exact coroutine object passed without more complex mocking
     mock_aider_process.kill.assert_not_called() # Assuming it terminates gracefully
     mock_aider_read_task.cancel.assert_called_once()
     mock_os_close.assert_called_with(6) # Check master_fd close
@@ -341,30 +344,36 @@ async def test_stop_all_agents(mock_wait_for, mock_os_close, agent_manager):
     assert len(agent_manager.agents) == 0
 
 @pytest.mark.asyncio
-async def test_spawn_agent_missing_model_config(agent_manager, mock_app, base_config):
+async def test_spawn_agent_missing_model_config(mock_app, base_config, temp_work_dir):
     """Test spawning agents when model config is missing."""
     # Test missing aider_model
-    original_aider_model = base_config.pop("aider_model", None)
+    config_no_aider = base_config.copy()
+    original_aider_model = config_no_aider.pop("aider_model", None)
+    manager_no_aider = AgentManager(app=mock_app, config=config_no_aider, work_dir=temp_work_dir)
     test_role_aider = "coder" # Uses aider
-    await agent_manager.spawn_agent(role=test_role_aider)
+    await manager_no_aider.spawn_agent(role=test_role_aider)
     mock_app.post_message.assert_any_call(
         LogMessage(f"[bold red]Error: No aider_model configured for agent '{test_role_aider}'.[/]")
     )
-    assert test_role_aider not in agent_manager.agents
-    if original_aider_model: base_config["aider_model"] = original_aider_model # Restore
+    assert test_role_aider not in manager_no_aider.agents
+    # No need to restore original_aider_model as we used a copy
 
     mock_app.post_message.reset_mock()
 
     # Test missing ollama_model (for a role that falls back)
-    original_ollama_model = base_config.pop("ollama_model", None)
+    config_no_ollama = base_config.copy()
+    original_ollama_model = config_no_ollama.pop("ollama_model", None)
     test_role_ollama = "skeptic" # Falls back to ollama_model
-    if f"{test_role_ollama}_model" in base_config: del base_config[f"{test_role_ollama}_model"]
-    await agent_manager.spawn_agent(role=test_role_ollama)
-    mock_app.post_message.assert_any_call(
-        LogMessage(f"[bold red]Error: No model configured for Ollama agent '{test_role_ollama}'.[/]")
-    )
-    assert test_role_ollama not in agent_manager.agents
-    if original_ollama_model: base_config["ollama_model"] = original_ollama_model # Restore
+    if f"{test_role_ollama}_model" in config_no_ollama: del config_no_ollama[f"{test_role_ollama}_model"]
+    # Need to patch OllamaClient for this specific instance
+    with patch('agent_manager.OllamaClient', autospec=True):
+        manager_no_ollama = AgentManager(app=mock_app, config=config_no_ollama, work_dir=temp_work_dir)
+        await manager_no_ollama.spawn_agent(role=test_role_ollama)
+        mock_app.post_message.assert_any_call(
+            LogMessage(f"[bold red]Error: No model configured for Ollama agent '{test_role_ollama}'.[/]")
+        )
+        assert test_role_ollama not in manager_no_ollama.agents
+    # No need to restore original_ollama_model
 
 @pytest.mark.asyncio
 async def test_code_reviewer_role_config(mock_app, base_config, temp_work_dir):

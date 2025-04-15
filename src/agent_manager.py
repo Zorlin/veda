@@ -171,8 +171,7 @@ class AgentManager:
             logger.info(log_line)
             self.app.post_message(LogMessage(f"[cyan]{log_line}[/]"))
             try:
-                # Import late to avoid circular dependency if OllamaClient uses AgentManager types
-                from ollama_client import OllamaClient
+                # Use the top-level imported OllamaClient
                 client = OllamaClient(
                     api_url=self.config.get("ollama_api_url"),
                     model=agent_model,
@@ -231,12 +230,18 @@ class AgentManager:
                 )
                 logger.info(f"Aider agent '{role}' spawned with PID {process.pid} using pty")
                 os.close(slave_fd)
-                read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
-                self.agents[role] = AgentInstance(
+                # Add agent instance BEFORE creating tasks that might fail or depend on it
+                agent_instance = AgentInstance(
                     role=role, agent_type=agent_type, process=process,
-                    master_fd=master_fd, read_task=read_task
+                    master_fd=master_fd # read_task added below
                 )
+                self.agents[role] = agent_instance
+
+                # Now create tasks
+                read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
+                agent_instance.read_task = read_task # Assign task to instance
                 asyncio.create_task(self._monitor_agent_exit(role, process))
+
                 # Send initial prompt if provided, after a short delay for aider to start
                 if initial_prompt:
                     await asyncio.sleep(1.0) # Give aider a moment to start up
@@ -352,14 +357,10 @@ class AgentManager:
                 logger.info(f"Sending prompt to Ollama agent '{role}': {data[:100]}...")
                 # Post a message indicating the agent is thinking
                 self.app.post_message(LogMessage(f"[italic grey50]Agent '{role}' is thinking...[/]"))
-                # Call the static worker method via the app instance
+                # Call the instance worker method via the app instance
+                # Pass necessary arguments (agent_instance, data)
                 self.app.run_worker(
-                    self._call_ollama_agent_worker(
-                        app=self.app,
-                        client=agent_instance.ollama_client,
-                        role=role,
-                        prompt=data
-                    ),
+                    self._call_ollama_agent(agent_instance, data),
                     exclusive=True
                 )
             else:
@@ -388,28 +389,28 @@ class AgentManager:
         else:
              logger.error(f"Unknown agent type '{agent_instance.agent_type}' for role '{role}'")
 
-    # Make this a static method as it's called by the App's run_worker
-    # It doesn't need 'self' (AgentManager instance)
-    @staticmethod
+    # Revert to instance method, called by run_worker
     @work(exclusive=True, thread=True)
-    def _call_ollama_agent_worker(app: App, client: OllamaClient, role: str, prompt: str):
+    def _call_ollama_agent(self, agent_instance: AgentInstance, prompt: str):
         """Worker thread function to call the Ollama client for a specific agent."""
+        role = agent_instance.role
+        client = agent_instance.ollama_client
         if not client:
-             logger.error(f"No Ollama client provided for agent '{role}' in worker.")
-             # Post error message back to the app
-             app.post_message(AgentOutputMessage(role=role, line="[bold red]Error: Ollama client missing in worker.[/]"))
+             logger.error(f"No Ollama client found for agent '{role}' in worker.")
+             # Use self.app here as it's an instance method again
+             self.app.post_message(AgentOutputMessage(role=role, line="[bold red]Error: Ollama client missing in worker.[/]"))
              return
 
         try:
             logger.info(f"Ollama worker started for agent '{role}'.")
             response = client.generate(prompt)
             # Post the response back to the UI, attributed to the agent
-            app.post_message(AgentOutputMessage(role=role, line=response))
+            self.app.post_message(AgentOutputMessage(role=role, line=response))
         except Exception as e:
             logger.exception(f"Error during Ollama call for agent '{role}':")
             escaped_error = rich.markup.escape(str(e))
             # Post error message attributed to the agent
-            app.post_message(AgentOutputMessage(role=role, line=f"[bold red]Error: {escaped_error}[/]"))
+            self.app.post_message(AgentOutputMessage(role=role, line=f"[bold red]Error: {escaped_error}[/]"))
         finally:
              # Maybe focus input or indicate completion? Depends on workflow.
              # For now, just log completion.
