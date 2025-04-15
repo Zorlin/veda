@@ -4,9 +4,9 @@ Veda aims to make software development accessible and efficient through an intel
 
 **Core Focus:**
 
-*   **User-Centric TUI:** Veda's primary goal is to provide an exceptionally intuitive terminal interface that simplifies software creation and management for users of all technical levels. The UI guides users, clearly communicates Veda's actions, and makes the development process transparent and controllable.
+*   **User-Centric TUI:** Veda's primary goal is to provide an exceptionally intuitive terminal interface that simplifies software creation and management for users of all technical levels. The TUI guides users, clearly communicates Veda's actions, and makes the development process transparent and controllable. The Web UI is a distant afterthought, provided only for edge cases and is not the main interface.
 *   **AI-Enhanced User Experience:** We are actively exploring how AI can be integrated *within* the UI to offer intelligent prompting assistance, suggest relevant tasks, and provide proactive guidance, making the interaction smoother and more effective.
-*   **Seamless Aider Integration:** Veda manages Aider instances in the background. The focus is on how Aider's work is presented, managed, and refined through the user-friendly web interface.
+*   **Seamless Aider Integration:** Veda manages Aider instances in the background. The focus is on how Aider's work is presented, managed, and refined through the TUI.
 
 Veda is not affiliated with Aider, but full credit to them for an excellent underlying coding engine.
 
@@ -15,10 +15,10 @@ Veda is not affiliated with Aider, but full credit to them for an excellent unde
 ## How it Works
 
 1.  **Setup:** Provide API keys (like OpenRouter), ensure Ollama is running locally (for Veda's internal reasoning), and install Aider.
-2.  **Interact via Web UI:** Launch Veda and open the web interface (default: http://localhost:9900).
-3.  **Define Your Goal:** Use the web UI to describe your project goals. Veda may engage in a dialogue (powered by its own LLM) to clarify requirements before starting.
+2.  **Interact via TUI:** Launch Veda and use the terminal interface (TUI) for all primary interactions. The TUI is the main way to describe your project goals, monitor progress, and control the orchestration. The web interface (default: http://localhost:9900) is available only as a fallback or for edge cases.
+3.  **Define Your Goal:** Use the TUI to describe your project goals. Veda may engage in a dialogue (powered by its own LLM) to clarify requirements before starting.
 4.  **Veda Orchestrates:** Veda manages Aider agents to execute the development tasks, translating your goals into code.
-5.  **Monitor & Refine:** Observe progress, review changes, and provide further instructions through the web UI. Veda aims to keep you informed and in control.
+5.  **Monitor & Refine:** Observe progress, review changes, and provide further instructions through the TUI. Veda aims to keep you informed and in control.
 
 ---
 
@@ -27,9 +27,9 @@ Veda is not affiliated with Aider, but full credit to them for an excellent unde
 Veda is designed to be a direct, action-oriented orchestrator. When you start Veda, it will ask for your project goal and then immediately begin working on it.
 
 **What to expect:**
-- When you start Veda, you'll be prompted to describe your project goal in a single input.
+- When you start Veda, you'll be prompted to describe your project goal in a single input (in the TUI).
 - Veda will immediately begin orchestrating agents to work on your project.
-- You can interact with Veda at any time to provide more information, pause, or change direction.
+- You can interact with Veda at any time via the TUI to provide more information, pause, or change direction.
 - Files mentioned in your messages will be automatically read and analyzed.
 - You can press Ctrl+D to detach from the interactive session; Veda will continue building in the background.
 
@@ -71,21 +71,21 @@ python3 main.py
     ```
     This launches the Veda background service and the web server.
 
-2.  **Open the Web Interface:**
-    Navigate to `http://localhost:9900` (or the configured address) in your web browser. This is the primary way to interact with Veda.
+2.  **(Optional) Open the Web Interface:**
+    The web interface is available at `http://localhost:9900` (or the configured address) for edge cases or fallback use only. The TUI is the main interface.
 
 3.  **Interact:**
-    Use the web UI to:
+    Use the TUI to:
     *   Define and refine project goals.
     *   Monitor the progress of AI agents.
     *   Review code changes.
     *   Chat with Veda for clarification or adjustments.
 
-**Command-Line (Secondary):**
+**Web UI (999999th-world citizen):**
 
-While the web UI is the main interface, some basic commands are available:
+The web UI is not the main interface and is only provided for rare fallback scenarios. All core features and controls are available in the TUI.
 
 *   `veda`: Display help and status information.
-*   `veda chat`: Engage in a text-based chat session with Veda (useful for quick interactions or if the web UI is unavailable).
+*   `veda chat`: Engage in a text-based chat session with Veda (in the TUI; web UI is fallback only).
 *   `veda set instances <number|auto>`: Manually override the number of Aider instances Veda manages (use with caution, 'auto' is recommended).
 *   `veda stop`: Stop the Veda service.
