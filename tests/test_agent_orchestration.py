@@ -123,8 +123,9 @@ async def test_multi_agent_coordination():
         }
         work_dir = Path("/tmp")
         
-        with patch('os.openpty', return_value=(5, 6)), \
-             patch('os.close'):
+        with patch('agent_manager.os.openpty', return_value=(5, 6)), \
+             patch('agent_manager.os.close'), \
+             patch('agent_manager.fcntl.fcntl'):
             
             manager = AgentManager(mock_app, config, work_dir)
             

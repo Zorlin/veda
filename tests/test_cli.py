@@ -24,7 +24,9 @@ async def test_cli_start_command():
     """Test that the CLI start command launches Veda correctly."""
     with patch('cli.VedaApp') as MockVedaApp, \
          patch('cli.AgentManager') as MockAgentManager, \
-         patch('cli.load_config') as mock_load_config:
+         patch('cli.load_config') as mock_load_config, \
+         patch('cli.create_web_app') as mock_create_web_app, \
+         patch('cli.start_web_server') as mock_start_web_server:
         
         # Setup mocks
         mock_app = MagicMock()
@@ -46,6 +48,10 @@ async def test_cli_start_command():
         # Verify app and agent manager were created
         MockVedaApp.assert_called_once()
         MockAgentManager.assert_called_once()
+        
+        # Verify web server was started
+        mock_create_web_app.assert_called_once()
+        mock_start_web_server.assert_called_once()
         
         # Verify app was run
         mock_app.run.assert_called_once()

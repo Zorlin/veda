@@ -45,7 +45,9 @@ def temp_work_dir(tmp_path):
 async def test_end_to_end_project_creation(test_config, temp_work_dir):
     """Test the complete flow of creating a project from a user goal."""
     with patch('agent_manager.OllamaClient') as MockOllamaClient, \
-         patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
+         patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess, \
+         patch('web_server.web.Application'), \
+         patch('web_server.web.TCPSite'):
         
         # Setup mocks
         mock_client = MockOllamaClient.return_value
@@ -64,7 +66,8 @@ async def test_end_to_end_project_creation(test_config, temp_work_dir):
         
         with patch('agent_manager.os.openpty', return_value=(5, 6)), \
              patch('agent_manager.os.close'), \
-             patch('agent_manager.os.write'):
+             patch('agent_manager.os.write'), \
+             patch('agent_manager.fcntl.fcntl'):
             
             agent_manager = AgentManager(mock_app, test_config, temp_work_dir)
             
@@ -115,9 +118,12 @@ async def test_end_to_end_project_creation(test_config, temp_work_dir):
             await agent_manager.stop_all_agents()
 
 @pytest.mark.asyncio
-async def test_cli_integration(test_config, temp_work_dir):
-    """Test that the CLI interface works correctly."""
-    with patch('agent_manager.OllamaClient') as MockOllamaClient:
+async def test_web_and_cli_integration(test_config, temp_work_dir):
+    """Test that the web interface and CLI work together correctly."""
+    with patch('agent_manager.OllamaClient') as MockOllamaClient, \
+         patch('web_server.web.Application') as MockWebApp, \
+         patch('web_server.web.TCPSite') as MockTCPSite, \
+         patch('aiohttp.web.json_response') as mock_json_response:
         
         # Setup mocks
         mock_client = MockOllamaClient.return_value
@@ -126,19 +132,43 @@ async def test_cli_integration(test_config, temp_work_dir):
         # Import necessary components
         from tui import VedaApp
         from agent_manager import AgentManager
+        from web_server import create_web_app, start_web_server, handle_project_goal, handle_chat_message
         
         # Create app and agent manager
         mock_app = MagicMock()
         agent_manager = AgentManager(mock_app, test_config, temp_work_dir)
         
-        # Initialize project with a goal
-        await agent_manager.initialize_project("Create a blog platform")
+        # Start web server with a patched sleep to avoid infinite loop
+        with patch('web_server.asyncio.sleep', side_effect=[None, asyncio.CancelledError]):
+            web_app = create_web_app(agent_manager)
+            web_server_task = asyncio.create_task(
+                start_web_server(web_app, agent_manager, test_config)
+            )
+            
+            # Verify web server was started
+            try:
+                await asyncio.wait_for(web_server_task, timeout=0.5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            
+            MockTCPSite.assert_called_once()
+            mock_site = MockTCPSite.return_value
+            mock_site.start.assert_called_once()
+        
+        # Simulate web API request for project goal
+        mock_request = MagicMock()
+        mock_request.json = AsyncMock(return_value={"goal": "Create a blog platform"})
+        
+        await handle_project_goal(mock_request, agent_manager)
         
         # Verify project was initialized
         mock_client.generate.assert_called_once()
         
         # Simulate CLI chat message
         await agent_manager.send_to_agent("veda", "Add a comment system to the blog")
+        
+        # Simulate web API chat message
+        mock_request.json = AsyncMock(return_value={"message": "Make it mobile responsive", "agent": "developer"})
         
         with patch('agent_manager.os.write') as mock_write:
             # Setup an agent
@@ -150,14 +180,20 @@ async def test_cli_integration(test_config, temp_work_dir):
                 read_task=MagicMock()
             )
             
-            # Send message to the agent
-            await agent_manager.send_to_agent("developer", "Make it mobile responsive")
+            await handle_chat_message(mock_request, agent_manager)
             
             # Verify message was sent to the agent
             mock_write.assert_called_once()
         
         # Clean up
         await agent_manager.stop_all_agents()
+        if not web_server_task.done():
+            web_server_task.cancel()
+            
+            try:
+                await asyncio.wait_for(web_server_task, timeout=0.5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
 
 @pytest.mark.asyncio
 async def test_multi_agent_collaboration(test_config, temp_work_dir):
@@ -179,7 +215,8 @@ async def test_multi_agent_collaboration(test_config, temp_work_dir):
         
         with patch('agent_manager.os.openpty', return_value=(5, 6)), \
              patch('agent_manager.os.close'), \
-             patch('agent_manager.os.write'):
+             patch('agent_manager.os.write'), \
+             patch('agent_manager.fcntl.fcntl'):
             
             agent_manager = AgentManager(mock_app, test_config, temp_work_dir)
             
