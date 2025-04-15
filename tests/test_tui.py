@@ -172,7 +172,7 @@ async def test_agent_exit_message_handling(test_config): # Add fixture dependenc
 
                 # Check main log
                 main_log = pilot.app.query_one("#main-log", RichLog)
-                assert f"Agent '{agent_role}' exited with code {exit_code}" in main_log.export_text(strip_styles=True)
+                assert f"Agent '{agent_role}' exited with code {exit_code}" in main_log.get_content() # Use get_content()
 
                 # Check agent log
                 agent_tab_pane = pilot.app.query_one(f"#tab-{agent_role}", TabPane)

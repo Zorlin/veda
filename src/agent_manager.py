@@ -45,9 +45,8 @@ class AgentExitedMessage(Message):
     return_code: Optional[int]
 # --- End Custom Messages ---
 
-# Forward declaration for type hinting
-class OllamaClient:
-    pass
+# Import OllamaClient at the top level
+from ollama_client import OllamaClient
 
 @dataclass
 class AgentInstance:
