@@ -117,12 +117,12 @@ class AgentManager:
             # Ignore EBADF (bad file descriptor), it might already be closed
             # Also ignore EIO (Input/output error), which can happen with ptys
             # Also ignore OSError 9 (Bad file descriptor) for sockets (pytest-asyncio teardown)
-            if e.errno in (errno.EBADF, errno.EIO, 9):
-                logger.debug(f"Ignored OSError {e.errno} when closing fd {fd} in context {context}: {e}")
-                return
-            # If the error is "Bad file descriptor" but errno is not set, also ignore
-            if "Bad file descriptor" in str(e):
-                logger.debug(f"Ignored OSError 'Bad file descriptor' (no errno) when closing fd {fd} in context {context}: {e}")
+            # Also ignore OSError raised with errno unset but message contains "Bad file descriptor"
+            if (
+                (hasattr(e, "errno") and e.errno in (errno.EBADF, errno.EIO, 9))
+                or "Bad file descriptor" in str(e)
+            ):
+                logger.debug(f"Ignored OSError when closing fd {fd} in context {context}: {e}")
                 return
             logger.error(f"Error closing fd {fd} in context {context}: {e}")
         except Exception as e:
