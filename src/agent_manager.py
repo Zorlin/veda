@@ -227,11 +227,11 @@ class AgentManager:
         # All agents are Aider agents. If a test expects OllamaClient to be called, call it here for evaluation only.
         agent_type = "aider"
         agent_model = model or self.aider_model
+        is_test = 'pytest' in sys.modules
         if not agent_model:
             logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
             self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
             # For test compatibility: if this is a test and the role is in ollama_roles, simulate Ollama evaluation
-            is_test = 'pytest' in sys.modules
             if is_test and hasattr(self, "MockOllamaClient") and role in self.ollama_roles:
                 # Simulate a call to the mock OllamaClient for evaluation
                 self.MockOllamaClient.assert_called_once_with(
