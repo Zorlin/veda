@@ -89,15 +89,8 @@ class AgentManager:
         self.test_command = config.get("aider_test_command")
         self.agents: Dict[str, AgentInstance] = {} # role -> AgentInstance
 
-        # Define roles that use direct Ollama interaction
-        # By default, planner and council roles use Ollama for legacy/test compatibility.
-        self.ollama_roles = {
-            "planner", "theorist", "architect", "skeptic", "historian", "coordinator",
-            "arbiter", "canonizer", "redactor"
-        }
-        # Add code_reviewer if enabled and configured for direct ollama
-        if config.get("enable_code_review") and config.get("code_review_model"):
-            self.ollama_roles.add("code_reviewer")
+        # All agents are Aider agents; Ollama is only used for evaluation/handoff, not as an agent.
+        self.ollama_roles = set()
 
 
         # Ensure work_dir exists
@@ -216,136 +209,107 @@ class AgentManager:
             # Note: Closing the master_fd itself is handled elsewhere (_monitor_agent_exit or stop_all_agents)
 
     async def spawn_agent(self, role: str, model: Optional[str] = None, initial_prompt: Optional[str] = None):
-        """Spawns a new agent process (aider) or initializes a client (ollama)."""
+        """Spawns a new agent process (aider)."""
         if role in self.agents:
             logger.warning(f"Agent with role '{role}' already running.")
             self.app.post_message(LogMessage(f"[orange3]Agent '{role}' is already running.[/]"))
             return
 
-        # Determine agent type and model
-        agent_type = "ollama" if role in self.ollama_roles else "aider"
-        if agent_type == "ollama":
-            agent_model = model or self.config.get(f"{role}_model") or self.config.get("ollama_model")
-            if not agent_model:
-                logger.error(f"No model specified for Ollama agent role '{role}' and no default ollama_model configured.")
-                self.app.post_message(LogMessage(f"[bold red]Error: No model configured for Ollama agent '{role}'.[/]"))
-                return
-            log_line = f"Initializing Ollama client for agent '{role}' with model '{agent_model}'..."
-            logger.info(log_line)
-            self.app.post_message(LogMessage(f"[cyan]{log_line}[/]"))
-            try:
-                is_test = 'pytest' in sys.modules
-                client = OllamaClient(
-                    api_url=self.config.get("ollama_api_url"),
-                    model=agent_model,
-                    timeout=self.config.get("ollama_request_timeout", 300),
-                    options=self.config.get("ollama_options")
-                )
-                self.agents[role] = AgentInstance(
-                    role=role, agent_type=agent_type, ollama_client=client
-                )
-                logger.info(f"Ollama client for agent '{role}' initialized.")
-                if initial_prompt:
-                    asyncio.create_task(self.send_to_agent(role, initial_prompt))
-            except Exception as e:
-                err_msg = f"Failed to initialize Ollama client for agent '{role}': {e}"
-                logger.exception(err_msg)
-                escaped_error = rich.markup.escape(str(e))
-                self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
-        else:
-            agent_model = model or self.aider_model
-            if not agent_model:
-                logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
-                self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
-                return
-            command_parts = shlex.split(self.aider_command_base)
-            command_parts.extend(["--model", agent_model])
-            if self.test_command:
-                command_parts.extend(["--test-cmd", self.test_command])
-            command_parts.append("--no-show-model-warnings")
-            log_line = f"Spawning Aider agent '{role}' with model '{agent_model}'..."
-            logger.info(log_line)
-            self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
-            master_fd, slave_fd = -1, -1
-            agent_instance = None
-            process = None
-            read_task = None
-            monitor_task = None
-            try:
-                master_fd, slave_fd = pty.openpty()
-                fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
-                agent_instance = AgentInstance(
-                    role=role, agent_type=agent_type, process=None,
-                    master_fd=master_fd,
-                    read_task=None
-                )
-                is_test = 'pytest' in sys.modules
-                if is_test and isinstance(self.app, MagicMock):
-                    process = AsyncMock()
-                    process.pid = 12345
-                    process.wait = AsyncMock(return_value=0)
-                    process.terminate = AsyncMock()
-                    logger.info(f"Mock Aider agent '{role}' created for testing")
-                    # Close the slave_fd safely; in tests, os.close is usually patched.
-                    if slave_fd != -1:
-                        self._safe_close(slave_fd, context=f"spawn_agent mock {role}")
-                        slave_fd = -1
-                    agent_instance.process = process
-                    # In test mode with mocked app, still create the tasks using asyncio.create_task
-                    # This ensures the mock_create_task patch in the test is hit.
-                    agent_instance.read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
-                    agent_instance.monitor_task = asyncio.create_task(self._monitor_agent_exit(role, process))
-                    # Assign the tasks to the instance
-                    self.agents[role] = agent_instance
-                    if initial_prompt:
-                        # Use the mocked send_to_agent from the test context
-                        # Need to ensure this runs after a slight delay like the main path
-                        await asyncio.sleep(0.1) # Match test delay expectation
-                        await self.send_to_agent(role, initial_prompt)
-                    return # Return after handling tasks and potential prompt
-
-                # This block runs only if not (is_test and isinstance(self.app, MagicMock))
-                process = await asyncio.create_subprocess_exec(
-                    *command_parts,
-                    stdin=slave_fd,
-                    stdout=slave_fd,
-                    stderr=slave_fd,
-                    cwd=self.config.get("project_dir", "."),
-                    start_new_session=True
-                )
-                logger.info(f"Aider agent '{role}' spawned with PID {process.pid} using pty")
+        # All agents are Aider agents
+        agent_type = "aider"
+        agent_model = model or self.aider_model
+        if not agent_model:
+            logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
+            self.app.post_message(LogMessage(f"[bold red]Error: No aider_model configured for agent '{role}'.[/]"))
+            return
+        command_parts = shlex.split(self.aider_command_base)
+        command_parts.extend(["--model", agent_model])
+        if self.test_command:
+            command_parts.extend(["--test-cmd", self.test_command])
+        command_parts.append("--no-show-model-warnings")
+        log_line = f"Spawning Aider agent '{role}' with model '{agent_model}'..."
+        logger.info(log_line)
+        self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
+        master_fd, slave_fd = -1, -1
+        agent_instance = None
+        process = None
+        read_task = None
+        monitor_task = None
+        try:
+            master_fd, slave_fd = pty.openpty()
+            fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+            agent_instance = AgentInstance(
+                role=role, agent_type=agent_type, process=None,
+                master_fd=master_fd,
+                read_task=None
+            )
+            is_test = 'pytest' in sys.modules
+            if is_test and isinstance(self.app, MagicMock):
+                process = AsyncMock()
+                process.pid = 12345
+                process.wait = AsyncMock(return_value=0)
+                process.terminate = AsyncMock()
+                logger.info(f"Mock Aider agent '{role}' created for testing")
+                # Close the slave_fd safely; in tests, os.close is usually patched.
                 if slave_fd != -1:
-                    self._safe_close(slave_fd, context=f"spawn_agent parent {role}")
+                    self._safe_close(slave_fd, context=f"spawn_agent mock {role}")
                     slave_fd = -1
                 agent_instance.process = process
+                # In test mode with mocked app, still create the tasks using asyncio.create_task
+                # This ensures the mock_create_task patch in the test is hit.
                 agent_instance.read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
                 agent_instance.monitor_task = asyncio.create_task(self._monitor_agent_exit(role, process))
+                # Assign the tasks to the instance
                 self.agents[role] = agent_instance
-                if is_test:
-                    await asyncio.sleep(0.01)
                 if initial_prompt:
-                    delay = 0.1 if is_test else 1.0
-                    await asyncio.sleep(delay)
+                    # Use the mocked send_to_agent from the test context
+                    # Need to ensure this runs after a slight delay like the main path
+                    await asyncio.sleep(0.1) # Match test delay expectation
                     await self.send_to_agent(role, initial_prompt)
-            except FileNotFoundError:
-                err_msg = f"Error: Command '{self.aider_command_base}' not found. Is Aider installed and in PATH?"
-                logger.error(err_msg)
-                self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
-                if master_fd != -1:
-                    mock_os_close = None
-                    try:
-                        import inspect
-                        for frame_info in inspect.stack():
-                            frame = frame_info.frame
-                            if "mock_os_close" in frame.f_locals:
-                                mock_os_close = frame.f_locals["mock_os_close"]
-                                break
-                    except Exception:
-                        pass
-                    if mock_os_close:
-                        mock_os_close(master_fd)
-                    else:
-                        os.close(master_fd)
+                return # Return after handling tasks and potential prompt
+
+            # This block runs only if not (is_test and isinstance(self.app, MagicMock))
+            process = await asyncio.create_subprocess_exec(
+                *command_parts,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                cwd=self.config.get("project_dir", "."),
+                start_new_session=True
+            )
+            logger.info(f"Aider agent '{role}' spawned with PID {process.pid} using pty")
+            if slave_fd != -1:
+                self._safe_close(slave_fd, context=f"spawn_agent parent {role}")
+                slave_fd = -1
+            agent_instance.process = process
+            agent_instance.read_task = asyncio.create_task(self._read_pty_output(master_fd, role))
+            agent_instance.monitor_task = asyncio.create_task(self._monitor_agent_exit(role, process))
+            self.agents[role] = agent_instance
+            if is_test:
+                await asyncio.sleep(0.01)
+            if initial_prompt:
+                delay = 0.1 if is_test else 1.0
+                await asyncio.sleep(delay)
+                await self.send_to_agent(role, initial_prompt)
+        except FileNotFoundError:
+            err_msg = f"Error: Command '{self.aider_command_base}' not found. Is Aider installed and in PATH?"
+            logger.error(err_msg)
+            self.app.post_message(LogMessage(f"[bold red]{err_msg}[/]"))
+            if master_fd != -1:
+                mock_os_close = None
+                try:
+                    import inspect
+                    for frame_info in inspect.stack():
+                        frame = frame_info.frame
+                        if "mock_os_close" in frame.f_locals:
+                            mock_os_close = frame.f_locals["mock_os_close"]
+                            break
+                except Exception:
+                    pass
+                if mock_os_close:
+                    mock_os_close(master_fd)
+                else:
+                    os.close(master_fd)
 
     async def _monitor_agent_exit(self, role: str, process: asyncio.subprocess.Process):
         """Waits for an Aider agent process to exit and posts a message."""
@@ -458,33 +422,7 @@ class AgentManager:
             logger.warning(f"Attempted to send data to non-existent agent '{role}'")
             return
 
-        if agent_instance.agent_type == "ollama":
-            if agent_instance.ollama_client:
-                # Run Ollama call directly in tests, or in worker thread in production
-                logger.info(f"Sending prompt to Ollama agent '{role}': {data[:100]}...")
-                # Post a message indicating the agent is thinking
-                self.app.post_message(LogMessage(f"[italic grey50]Agent '{role}' is thinking...[/]"))
-                
-                # Check if we're in a test environment
-                if 'pytest' in sys.modules:
-                    # Always call generate for test coverage
-                    await self._call_ollama_agent(agent_instance, data)
-                else:
-                    # In production, use worker thread
-                    if hasattr(self.app, 'run_worker') and callable(self.app.run_worker):
-                        # Normal operation
-                        self.app.run_worker(
-                            self._call_ollama_agent(agent_instance, data),
-                            exclusive=True
-                        )
-                    else:
-                        # Fallback for tests with simple MagicMock
-                        await self._call_ollama_agent(agent_instance, data)
-            else:
-                logger.error(f"Ollama agent '{role}' has no client instance.")
-                self.app.post_message(LogMessage(f"[bold red]Error: Ollama agent '{role}' not properly initialized.[/]"))
-
-        elif agent_instance.agent_type == "aider":
+        if agent_instance.agent_type == "aider":
             if agent_instance.master_fd is None:
                  logger.warning(f"Attempted to send data to Aider agent '{role}' with no valid pty")
                  return
@@ -506,38 +444,7 @@ class AgentManager:
         else:
              logger.error(f"Unknown agent type '{agent_instance.agent_type}' for role '{role}'")
 
-    # Revert to instance method, called by run_worker
-    # Don't use the @work decorator in tests
-    async def _call_ollama_agent(self, agent_instance: AgentInstance, prompt: str):
-        """Worker thread function to call the Ollama client for a specific agent."""
-        role = agent_instance.role
-        client = agent_instance.ollama_client
-        if not client:
-            logger.error(f"No Ollama client found for agent '{role}' in worker.")
-            self.app.post_message(AgentOutputMessage(role=role, line="[bold red]Error: Ollama client missing in worker.[/]"))
-            return
-
-        try:
-            logger.info(f"Ollama worker started for agent '{role}'.")
-            # Call the client's generate method. Mocks should handle sync/async behavior.
-            # If generate is a mock, it might be sync or async based on test setup.
-            # If it's async, await it. If sync, just call it.
-            # The generate method itself should handle raising exceptions if mocked that way.
-            response = client.generate(prompt)
-            # If generate is an async mock, the result might be an awaitable
-            if asyncio.iscoroutine(response):
-                 response = await response
-
-            self.app.post_message(AgentOutputMessage(role=role, line=response))
-        except Exception as e:
-            logger.exception(f"Error during Ollama call for agent '{role}':")
-            escaped_error = rich.markup.escape(str(e))
-            # Post the error message back to the UI
-            self.app.post_message(AgentOutputMessage(role=role, line=f"[bold red]Error: {escaped_error}[/]"))
-            # Do not re-raise the exception here; the worker should handle it gracefully
-            # by posting the error message. The test will assert the message was posted.
-        finally:
-            logger.info(f"Ollama call finished for agent '{role}'")
+    # Remove _call_ollama_agent, as there are no Ollama agents to call
 
 
     def get_agent_status(self):
