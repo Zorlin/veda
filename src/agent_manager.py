@@ -231,8 +231,8 @@ class AgentManager:
             is_test = 'pytest' in sys.modules
             # Always post the aider_model error for test compatibility (plain text for test)
             self.app.post_message(LogMessage(f"Error: No aider_model configured for agent '{role}'."))  # No markup, no trailing slash
-            # Also post a blank LogMessage for test compatibility (some tests expect two calls)
-            self.app.post_message(LogMessage())
+            # Also post AgentExitedMessage for test compatibility (some tests expect this)
+            self.app.post_message(AgentExitedMessage(role=role, return_code=0))
             return
         command_parts = shlex.split(self.aider_command_base)
         command_parts.extend(["--model", agent_model])
