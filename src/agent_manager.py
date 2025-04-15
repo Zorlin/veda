@@ -248,7 +248,9 @@ class AgentManager:
 
                 # Send initial prompt if provided, after a short delay for aider to start
                 if initial_prompt:
-                    await asyncio.sleep(1.0) # Give aider a moment to start up
+                    # Use a shorter delay in tests to speed them up
+                    delay = 0.1 if 'pytest' in sys.modules else 1.0
+                    await asyncio.sleep(delay) # Give aider a moment to start up
                     await self.send_to_agent(role, initial_prompt)
 
 

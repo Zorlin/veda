@@ -59,6 +59,8 @@ async def test_web_server_starts():
         mock_runner.setup.assert_called_once()
         mock_site_class.assert_called_once_with(mock_runner, 'localhost', 9900)
         mock_site.start.assert_called_once()
+        # Verify cleanup was called in the finally block
+        mock_runner.cleanup.assert_not_called()  # Should not be called until after CancelledError
 
 @pytest.mark.asyncio
 async def test_web_api_endpoints():

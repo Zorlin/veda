@@ -100,13 +100,19 @@ async def test_agent_manager_initialization(agent_manager, temp_work_dir):
 @patch('agent_manager.os.close') # Mock os.close
 @patch('agent_manager.asyncio.create_subprocess_exec', new_callable=AsyncMock)
 @patch('agent_manager.asyncio.create_task')  # Mock create_task to avoid actual task creation
-async def test_spawn_aider_agent(mock_create_task, mock_exec, mock_os_close, mock_fcntl, mock_openpty, agent_manager, mock_app):
+@patch('agent_manager.os.write')  # Mock os.write for initial prompt
+async def test_spawn_aider_agent(mock_os_write, mock_create_task, mock_exec, mock_os_close, mock_fcntl, mock_openpty, agent_manager, mock_app):
     """Test spawning an agent that should use Aider."""
+    # Configure mocks
     mock_process = AsyncMock(spec=asyncio.subprocess.Process)
     mock_process.pid = 1234
     mock_process.wait = AsyncMock(return_value=0) # Simulate process exiting cleanly later
     mock_exec.return_value = mock_process
-
+    
+    # Make create_task return a mock task
+    mock_task = AsyncMock(spec=asyncio.Task)
+    mock_create_task.return_value = mock_task
+    
     # Role 'coder' is not in ollama_roles, should default to aider
     test_role = "coder"
     await agent_manager.spawn_agent(role=test_role, initial_prompt="Write hello world")
