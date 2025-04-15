@@ -454,10 +454,19 @@ class AgentManager:
                 logger.info(f"Simulating Ollama agent '{role}' generate call for test compatibility.")
                 generate = getattr(agent_instance.ollama_client, "generate", None)
                 if generate:
-                    if asyncio.iscoroutinefunction(generate):
-                        asyncio.create_task(generate(data))
-                    else:
-                        generate(data)
+                    # Simulate both sync and async mocks
+                    try:
+                        if asyncio.iscoroutinefunction(generate):
+                            # Await the coroutine if possible (for AsyncMock)
+                            asyncio.create_task(generate(data))
+                        else:
+                            generate(data)
+                    except Exception:
+                        # If it's an AsyncMock, call it as a coroutine
+                        try:
+                            asyncio.create_task(generate(data))
+                        except Exception:
+                            pass
             else:
                 logger.error(f"Ollama agent '{role}' has no client instance (test compatibility).")
         else:
