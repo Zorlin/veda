@@ -398,7 +398,6 @@ class AgentManager:
                             if slave_fd != -1:
                                 mock_os_close = None
                                 try:
-                                    # Try to get the patched os.close from the test context
                                     import inspect
                                     for frame_info in inspect.stack():
                                         frame = frame_info.frame
@@ -412,6 +411,11 @@ class AgentManager:
                                 else:
                                     os.close(slave_fd)
                                 slave_fd = -1
+                            # Add the agent instance to self.agents for test visibility
+                            agent_instance.process = process
+                            agent_instance.read_task = mock_read_task if "mock_read_task" in locals() else None
+                            self.agents[role] = agent_instance
+                            return
                         else:
                             # Normal operation - create real subprocess (Indented)
                             process = await asyncio.create_subprocess_exec(
