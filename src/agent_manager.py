@@ -233,7 +233,7 @@ class AgentManager:
             bad_model = model or self.config.get("aider_model") or "unknown"
             # Patch: Also post a blank LogMessage for test compatibility (some tests expect two calls)
             self.app.post_message(LogMessage())
-            warning_msg = f"Model {bad_model}: Unknown context window size and costs, using sane defaults."
+            warning_msg = f"Warning for {bad_model}: Unknown context window size and costs, using sane defaults."
             self.app.post_message(LogMessage(warning_msg))
             # Do NOT post AgentExitedMessage here; test expects only the warning message
             return
