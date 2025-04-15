@@ -116,7 +116,8 @@ class AgentManager:
         except OSError as e:
             # Ignore EBADF (bad file descriptor), it might already be closed
             # Also ignore EIO (Input/output error), which can happen with ptys
-            if e.errno not in (errno.EBADF, errno.EIO):
+            # Also ignore OSError 9 (Bad file descriptor) for sockets (pytest-asyncio teardown)
+            if e.errno not in (errno.EBADF, errno.EIO, 9):
                 logger.error(f"Error closing fd {fd} in context {context}: {e}")
         except Exception as e:
             logger.exception(f"Unexpected error closing fd {fd} in context {context}: {e}")
