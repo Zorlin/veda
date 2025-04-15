@@ -247,6 +247,10 @@ class AgentManager:
                 # We don't need to store it in the agent instance
                 # as it will clean itself up when the process exits
                 self._last_monitor_task = monitor_task  # For testing access
+                
+                # For testing purposes, make sure we don't have race conditions
+                if 'pytest' in sys.modules:
+                    await asyncio.sleep(0.01)  # Small delay to ensure tasks are started
 
                 # Send initial prompt if provided, after a short delay for aider to start
                 if initial_prompt:

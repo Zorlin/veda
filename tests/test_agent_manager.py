@@ -115,29 +115,45 @@ async def test_spawn_aider_agent(mock_sleep, mock_os_write, mock_create_task, mo
     mock_create_task.return_value = mock_task
     
     # Set up agent_manager.send_to_agent as a mock to avoid actual sending
+    original_send_to_agent = agent_manager.send_to_agent
     agent_manager.send_to_agent = AsyncMock()
     
-    # Role 'coder' is not in ollama_roles, should default to aider
-    test_role = "coder"
-    await agent_manager.spawn_agent(role=test_role, initial_prompt="Write hello world")
+    try:
+        # Role 'coder' is not in ollama_roles, should default to aider
+        test_role = "coder"
+        await agent_manager.spawn_agent(role=test_role, initial_prompt="Write hello world")
 
-    # Assertions
-    assert test_role in agent_manager.agents
-    agent_instance = agent_manager.agents[test_role]
-    assert agent_instance.agent_type == "aider"
-    assert agent_instance.process == mock_process
-    assert agent_instance.master_fd == 3 # From mock_openpty
-    assert agent_instance.read_task == mock_task
-    assert agent_instance.ollama_client is None
-    
-    # Verify create_task was called twice (for read_task and monitor_task)
-    assert mock_create_task.call_count == 2
-    
-    # Verify sleep was called for the initial prompt delay
-    mock_sleep.assert_called_once()
-    
-    # Verify send_to_agent was called with the initial prompt
-    agent_manager.send_to_agent.assert_called_once_with(test_role, "Write hello world")
+        # Assertions
+        assert test_role in agent_manager.agents
+        agent_instance = agent_manager.agents[test_role]
+        assert agent_instance.agent_type == "aider"
+        assert agent_instance.process == mock_process
+        assert agent_instance.master_fd == 3 # From mock_openpty
+        assert agent_instance.read_task == mock_task
+        assert agent_instance.ollama_client is None
+        
+        # Verify create_task was called twice (for read_task and monitor_task)
+        assert mock_create_task.call_count == 2
+        
+        # Verify sleep was called for the initial prompt delay
+        mock_sleep.assert_called_once()
+        
+        # Verify send_to_agent was called with the initial prompt
+        agent_manager.send_to_agent.assert_called_once_with(test_role, "Write hello world")
+        
+        # Check if subprocess was called with correct args
+        mock_exec.assert_called_once()
+        call_args_list = mock_exec.call_args[0] # All positional arguments
+        command_parts = call_args_list[0] # First positional argument is the command tuple
+        assert command_parts[0] == "aider"
+        assert "--model" in command_parts
+        assert agent_manager.config["aider_model"] in command_parts
+        assert "--test-cmd" in command_parts
+        assert agent_manager.config["aider_test_command"] in command_parts
+        assert "--no-show-model-warnings" in command_parts
+    finally:
+        # Restore original method
+        agent_manager.send_to_agent = original_send_to_agent
 
     # Check if subprocess was called with correct args
     mock_exec.assert_called_once()
