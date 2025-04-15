@@ -438,7 +438,7 @@ async def test_spawn_agent_missing_model_config(mock_app, base_config, temp_work
     manager_no_aider = AgentManager(app=mock_app, config=config_no_aider, work_dir=temp_work_dir)
     test_role_aider = "coder" # Uses aider
     await manager_no_aider.spawn_agent(role=test_role_aider)
-    await asyncio.sleep(0.05) # Increased delay
+    await asyncio.sleep(0.15) # Further increased delay again
 
     # More robust check for the log message
     found_aider_error = False
@@ -462,7 +462,7 @@ async def test_spawn_agent_missing_model_config(mock_app, base_config, temp_work
     with patch('agent_manager.OllamaClient', autospec=True):
         manager_no_ollama = AgentManager(app=mock_app, config=config_no_ollama, work_dir=temp_work_dir)
         await manager_no_ollama.spawn_agent(role=test_role_ollama)
-        await asyncio.sleep(0.05) # Increased delay
+        await asyncio.sleep(0.15) # Further increased delay again
 
         # More robust check for the log message
         found_ollama_error = False
@@ -607,7 +607,7 @@ async def test_ollama_worker_exception(agent_manager, mock_app):
     # Check that generate was called (or awaited in this case)
     mock_ollama_client.generate.assert_awaited_once_with(input_data)
 
-    await asyncio.sleep(0.05) # Increased delay for message posting
+    await asyncio.sleep(0.15) # Further increased delay again for message posting
 
     # Check that an error message was posted back to the app
     error_message_found = False
