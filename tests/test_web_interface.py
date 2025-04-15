@@ -73,7 +73,7 @@ async def test_web_server_starts():
 async def test_web_api_endpoints():
     """Test that the web API endpoints are registered and respond correctly."""
     with patch('aiohttp.web.Application') as mock_app_class:
-        from web_server import create_web_app
+        from src.web_server import create_web_app
         
         mock_app = mock_app_class.return_value
         mock_agent_manager = MagicMock()
@@ -88,7 +88,7 @@ async def test_web_api_endpoints():
 async def test_web_chat_endpoint():
     """Test that the chat endpoint processes messages correctly."""
     with patch('aiohttp.web.json_response') as mock_json_response:
-        from web_server import handle_chat_message
+        from src.web_server import handle_chat_message
         
         mock_request = MagicMock()
         mock_request.json = AsyncMock(return_value={"message": "Build a web app"})
@@ -107,7 +107,7 @@ async def test_web_chat_endpoint():
 async def test_web_project_goal_submission():
     """Test that project goals can be submitted via the web interface."""
     with patch('aiohttp.web.json_response') as mock_json_response:
-        from web_server import handle_project_goal
+        from src.web_server import handle_project_goal
         
         mock_request = MagicMock()
         mock_request.json = AsyncMock(return_value={"goal": "Create a REST API"})
@@ -126,7 +126,7 @@ async def test_web_project_goal_submission():
 async def test_web_agent_status_endpoint():
     """Test that agent status can be retrieved via the web interface."""
     with patch('aiohttp.web.json_response') as mock_json_response:
-        from web_server import handle_agent_status
+        from src.web_server import handle_agent_status
         
         mock_request = MagicMock()
         
@@ -147,7 +147,7 @@ async def test_web_agent_status_endpoint():
 async def test_web_static_files():
     """Test that static files (HTML, CSS, JS) are served correctly."""
     with patch('aiohttp.web.Application') as mock_app_class:
-        from web_server import create_web_app
+        from src.web_server import create_web_app
         
         mock_app = mock_app_class.return_value
         mock_agent_manager = MagicMock()

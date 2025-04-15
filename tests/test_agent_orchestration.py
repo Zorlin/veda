@@ -142,6 +142,7 @@ async def test_multi_agent_coordination():
             
             # Test agent handoff
             handoff_file = handoffs_dir / "architect_to_developer.json"
+            handoffs_dir.mkdir(parents=True, exist_ok=True)
             
             # Simulate architect creating handoff file
             with open(handoff_file, 'w') as f:

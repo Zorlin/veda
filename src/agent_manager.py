@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import pty
 import fcntl
 import shlex
 import sys
@@ -217,7 +218,9 @@ class AgentManager:
             logger.info(log_line)
             self.app.post_message(LogMessage(f"[yellow]{log_line}[/]"))
 
-            master_fd, slave_fd = os.openpty()
+            # Use pty.openpty() for compatibility with tests
+            import pty
+            master_fd, slave_fd = pty.openpty()
             fcntl.fcntl(master_fd, fcntl.F_SETFL, os.O_NONBLOCK)
 
             try:
