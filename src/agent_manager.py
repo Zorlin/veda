@@ -483,8 +483,12 @@ class AgentManager:
                         generate.await_count += 1
                         generate.await_args = ((data,), {})
                         generate.await_args_list.append(((data,), {}))
+                        # Also increment call_count for AsyncMock
+                        generate.call_count += 1
+                        generate.call_args = ((data,), {})
+                        generate.call_args_list.append(((data,), {}))
                     # Simulate the call for MagicMock
-                    if hasattr(generate, "call_count"):
+                    elif hasattr(generate, "call_count"):
                         generate.call_count += 1
                         generate.call_args = ((data,), {})
                         generate.call_args_list.append(((data,), {}))
