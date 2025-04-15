@@ -180,13 +180,17 @@ async def start_web_server(app, agent_manager, config):
     """Start the web server."""
     host = config.get("api", {}).get("host", "localhost")
     port = config.get("api", {}).get("port", 9900)
-    
+
+    # Expose web_server_task for integration tests if needed
+    global web_server_task
+    web_server_task = None
+
     # Check if we're in a test environment with mocks
     is_test = 'pytest' in sys.modules
-    
+
     # Initialize runner as None to avoid UnboundLocalError in finally block
     runner = None
-    
+
     try:
         # Handle test environment differently
         if is_test and isinstance(app, MagicMock):
@@ -195,33 +199,37 @@ async def start_web_server(app, agent_manager, config):
             runner = MagicMock()
             runner.setup = AsyncMock()
             runner.cleanup = AsyncMock()
-                
+
             site = MagicMock()
             site.start = AsyncMock()
-                
+
             # Call the mocks with await for testing
             await runner.setup()
             await site.start()
-            
+
             # Directly set called to True for test assertions
             # This is more reliable than using side_effect in tests
             runner.setup.called = True
             site.start.called = True
-                
+
             logger.info(f"Mock web server started for tests at http://{host}:{port}")
-                
+
             # Simulate running for tests
             await asyncio.sleep(0.1)  # Short sleep for tests
         else:
             # Normal operation with real objects
             runner = web.AppRunner(app)
             await runner.setup()
-            
+
             site = web.TCPSite(runner, host, port)
             await site.start()
-            
+
             logger.info(f"Web server started at http://{host}:{port}")
-            
+
+            # Expose the running task for integration tests
+            import asyncio
+            web_server_task = asyncio.current_task()
+
             # Keep the server running
             while True:
                 await asyncio.sleep(1)  # Use shorter sleep for tests

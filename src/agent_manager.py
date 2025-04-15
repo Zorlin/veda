@@ -567,7 +567,7 @@ class AgentManager:
                 
                 # Check if we're in a test environment
                 if 'pytest' in sys.modules:
-                    # Call directly in tests to avoid worker issues
+                    # Always call generate for test coverage
                     await self._call_ollama_agent(agent_instance, data)
                 else:
                     # In production, use worker thread
@@ -651,8 +651,12 @@ class AgentManager:
         """Get the status of all agents."""
         status = {}
         for role, agent in self.agents.items():
-            if agent.process is None and agent.agent_type == "aider":
-                status[role] = "idle"
+            # For aider: running if process exists and not exited, else idle
+            if agent.agent_type == "aider":
+                if agent.process is not None and getattr(agent.process, "returncode", None) is None:
+                    status[role] = "running"
+                else:
+                    status[role] = "idle"
             else:
                 status[role] = "running"
         return status
@@ -732,7 +736,7 @@ class AgentManager:
 
             try:
                 if agent.agent_type == "aider" and agent.process:
-                    logger.info(f"Terminating Aider agent '{role}' (PID {agent.process.pid})...")
+                    logger.info(f"Terminating Aider agent '{role}' (PID {getattr(agent.process, 'pid', 'unknown')})...")
                     
                     # Check if we're in a test environment with a mock process
                     is_test = 'pytest' in sys.modules
@@ -740,7 +744,7 @@ class AgentManager:
                         # For tests, just call terminate directly
                         agent.process.terminate()
                         logger.info(f"Mock Aider agent '{role}' terminated for tests.")
-                    elif agent.process.returncode is None: # Only terminate if running
+                    elif getattr(agent.process, "returncode", None) is None: # Only terminate if running
                         # Handle both AsyncMock and real process in tests
                         if isinstance(agent.process.terminate, AsyncMock):
                             await agent.process.terminate()
@@ -750,7 +754,7 @@ class AgentManager:
                         await asyncio.wait_for(agent.process.wait(), timeout=5.0)
                         logger.info(f"Aider agent '{role}' terminated.")
                     else:
-                         logger.info(f"Aider agent '{role}' already exited with code {agent.process.returncode}.")
+                         logger.info(f"Aider agent '{role}' already exited with code {getattr(agent.process, 'returncode', None)}.")
 
                 elif agent.agent_type == "ollama":
                     # Ollama clients don't need explicit stopping currently
@@ -760,7 +764,7 @@ class AgentManager:
             except asyncio.TimeoutError:
                 if agent.agent_type == "aider" and agent.process:
                     logger.warning(f"Aider agent '{role}' did not terminate gracefully, killing.")
-                    if agent.process.returncode is None:
+                    if getattr(agent.process, "returncode", None) is None:
                          agent.process.kill()
             except ProcessLookupError:
                  logger.warning(f"Aider agent '{role}' process already exited.")
