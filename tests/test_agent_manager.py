@@ -121,23 +121,23 @@ async def test_spawn_aider_agent(mock_sleep, mock_os_write, mock_create_task, mo
     # Role 'coder' is not in ollama_roles, should default to aider
     test_role = "coder"
     
-    try:
-        # Spawn the agent with minimal test setup
-        await agent_manager.spawn_agent(role=test_role, initial_prompt="Write hello world")
-        
-        # Basic assertions - just check if agent was created
-        assert test_role in agent_manager.agents
-        agent_instance = agent_manager.agents[test_role]
-        assert agent_instance.agent_type == "aider"
-        
-        # Verify subprocess was called with aider
-        mock_exec.assert_called_once()
-        call_args = mock_exec.call_args[0]
-        command_parts = call_args[0]
-        assert command_parts[0] == "aider"
-    finally:
-        # Always restore original method
-        agent_manager.send_to_agent = original_send_to_agent
+    # Skip the try/finally block to avoid potential issues
+    # Spawn the agent with minimal test setup
+    await agent_manager.spawn_agent(role=test_role, initial_prompt="Write hello world")
+    
+    # Basic assertions - just check if agent was created
+    assert test_role in agent_manager.agents
+    agent_instance = agent_manager.agents[test_role]
+    assert agent_instance.agent_type == "aider"
+    
+    # Verify subprocess was called with aider
+    mock_exec.assert_called_once()
+    call_args = mock_exec.call_args[0]
+    command_parts = call_args[0]
+    assert command_parts[0] == "aider"
+    
+    # Restore original method at the end
+    agent_manager.send_to_agent = original_send_to_agent
 
 @pytest.mark.asyncio
 async def test_spawn_ollama_agent(agent_manager, mock_app):
