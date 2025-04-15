@@ -344,52 +344,78 @@ async def test_send_to_ollama_agent(agent_manager, mock_app):
 
 
 @pytest.mark.asyncio
-# Removed patch for os.close
-@patch('agent_manager.asyncio.wait_for', new_callable=AsyncMock)
-async def test_stop_all_agents(mock_wait_for, agent_manager): # Removed mock_os_close
-    """Test stopping both Aider and Ollama agents."""
-    # Setup mock Aider agent
+@patch('agent_manager.pty.openpty', return_value=(3, 4)) # Mock pty for aider
+@patch('agent_manager.fcntl.fcntl') # Mock fcntl for aider
+@patch('agent_manager.os.close') # Mock os.close for aider slave fd
+@patch('agent_manager.asyncio.create_task', return_value=AsyncMock(spec=asyncio.Task)) # Mock task creation
+@patch('agent_manager.asyncio.sleep', new_callable=AsyncMock) # Mock sleep in spawn
+@patch('agent_manager.os.write') # Mock os.write for send_to_agent
+@patch('agent_manager.asyncio.wait_for', new_callable=AsyncMock) # Mock wait_for in stop_all_agents
+async def test_stop_all_agents(mock_wait_for, mock_os_write, mock_sleep, mock_create_task, mock_os_close_slave, mock_fcntl, mock_openpty, agent_manager):
+    """Test stopping both Aider and Ollama agents created via spawn_agent."""
     aider_role = "coder"
-    mock_aider_process = AsyncMock(spec=asyncio.subprocess.Process)
-    mock_aider_process.pid = 1111
-    mock_aider_process.returncode = None # Indicate it's running
-    mock_aider_process.terminate = MagicMock()
-    mock_aider_process.kill = MagicMock()
-    # Make wait a simple MagicMock returning 0, not an AsyncMock
-    mock_aider_process.wait = MagicMock(return_value=0)
-    mock_aider_read_task = AsyncMock(spec=asyncio.Task)
-    mock_aider_read_task.cancel = MagicMock()
-    agent_manager.agents[aider_role] = AgentInstance(
-        role=aider_role, agent_type="aider", process=mock_aider_process,
-        master_fd=6, read_task=mock_aider_read_task
-    )
-
-    # Setup mock Ollama agent
     ollama_role = "planner"
-    mock_ollama_client = MagicMock(spec=OllamaClient)
-    agent_manager.agents[ollama_role] = AgentInstance(
-        role=ollama_role, agent_type="ollama", ollama_client=mock_ollama_client
-    )
 
+    # Spawn agents using the manager's method
+    # Need to capture the mocks created *within* spawn_agent if possible,
+    # or rely on accessing them via agent_manager.agents after spawn.
+    # The create_task mock needs to return distinct mocks for read/monitor if needed later.
+    mock_read_task_instance = AsyncMock(spec=asyncio.Task, name="ReadTask")
+    mock_monitor_task_instance = AsyncMock(spec=asyncio.Task, name="MonitorTask")
+    mock_create_task.side_effect = [mock_read_task_instance, mock_monitor_task_instance, # For Aider
+                                     # No tasks created for Ollama spawn directly
+                                    ]
+
+    # Mock the internal process mock created by spawn_agent
+    mock_process = AsyncMock(spec=asyncio.subprocess.Process)
+    mock_process.pid = 1111
+    mock_process.returncode = None
+    mock_process.terminate = MagicMock()
+    mock_process.kill = MagicMock()
+    mock_process.wait = MagicMock(return_value=0) # Simulate successful wait
+
+    # Patch the subprocess creation within spawn_agent to return our mock_process
+    with patch('agent_manager.asyncio.create_subprocess_exec', return_value=mock_process):
+        await agent_manager.spawn_agent(role=aider_role)
+        await agent_manager.spawn_agent(role=ollama_role) # Ollama doesn't create subprocess
+
+    assert aider_role in agent_manager.agents
+    assert ollama_role in agent_manager.agents
     assert len(agent_manager.agents) == 2
 
+    # Retrieve the actual agent instances
+    aider_instance = agent_manager.agents[aider_role]
+    ollama_instance = agent_manager.agents[ollama_role] # Not used in assertions below, but good practice
+
+    # Ensure the mocks are correctly assigned (optional sanity check)
+    assert aider_instance.process is mock_process
+    assert aider_instance.read_task is mock_read_task_instance
+
+    # --- Call stop_all_agents ---
     await agent_manager.stop_all_agents()
 
-    # Assertions for Aider agent
-    mock_aider_process.terminate.assert_called_once()
-    # Check that wait_for was called with the process's wait coroutine and timeout
-    # We access the coroutine object passed as the first positional argument
+    # --- Assertions ---
+    # Aider agent assertions
+    mock_process.terminate.assert_called_once()
+    # Check wait_for call
     assert mock_wait_for.call_count == 1
     call_args, call_kwargs = mock_wait_for.call_args
-    assert call_args[0] == mock_aider_process.wait() # Check the coroutine object
+    assert call_args[0] == mock_process.wait() # Check the coroutine object
     assert call_kwargs['timeout'] == 5.0 # Check timeout kwarg
 
-    mock_aider_process.kill.assert_not_called() # Assuming it terminates gracefully
-    mock_aider_read_task.cancel.assert_called_once()
-    # Removed assertion for mock_os_close
+    mock_process.kill.assert_not_called() # Should terminate gracefully
+    mock_read_task_instance.cancel.assert_called_once() # Check cancellation on the correct task mock
 
-    # Assertions for Ollama agent (no process actions)
-    # Check logs if needed, but main check is no process calls
+    # Check _safe_close was called on the correct master_fd (mocked as 3)
+    # We mocked os.close directly, let's check calls on it.
+    # It should be called once for the slave FD (4) during spawn,
+    # and once for the master FD (3) during stop.
+    # Need to adjust mock name if os.close is patched multiple times.
+    # Let's rename the spawn mock: mock_os_close_slave
+    mock_os_close_slave.assert_any_call(4) # Slave FD closed during spawn
+    mock_os_close_slave.assert_any_call(3) # Master FD closed during stop
+
+    # Ollama agent: No process/task actions expected during stop
 
     # Check agents dictionary is cleared
     # Allow background tasks (like monitor tasks potentially posting messages) to process
@@ -492,42 +518,62 @@ async def test_code_reviewer_role_fallback(mock_app, base_config, temp_work_dir)
 
 
 @pytest.mark.asyncio
-# Removed patch for os.close
-@patch('agent_manager.asyncio.wait_for', side_effect=asyncio.TimeoutError) # Simulate timeout
-async def test_stop_all_agents_kill(mock_wait_for, agent_manager): # Removed mock_os_close
+@patch('agent_manager.pty.openpty', return_value=(5, 6)) # Use different FDs
+@patch('agent_manager.fcntl.fcntl')
+@patch('agent_manager.os.close')
+@patch('agent_manager.asyncio.create_task', return_value=AsyncMock(spec=asyncio.Task))
+@patch('agent_manager.asyncio.sleep', new_callable=AsyncMock)
+@patch('agent_manager.os.write')
+@patch('agent_manager.asyncio.wait_for', side_effect=asyncio.TimeoutError) # Simulate timeout *during stop*
+async def test_stop_all_agents_kill(mock_wait_for_timeout, mock_os_write, mock_sleep, mock_create_task, mock_os_close_slave, mock_fcntl, mock_openpty, agent_manager):
     """Test stop_all_agents uses kill when terminate times out."""
-    # Setup mock Aider agent
     aider_role = "coder"
-    mock_aider_process = AsyncMock(spec=asyncio.subprocess.Process)
-    mock_aider_process.pid = 2222
-    mock_aider_process.returncode = None # Indicate it's running
-    mock_aider_process.terminate = MagicMock()
-    mock_aider_process.kill = MagicMock() # This should be called now
-    # Make wait a simple MagicMock, not an AsyncMock
-    mock_aider_process.wait = MagicMock(return_value=0) # Return value doesn't matter as wait_for raises TimeoutError
-    mock_aider_read_task = AsyncMock(spec=asyncio.Task)
-    mock_aider_read_task.cancel = MagicMock()
-    agent_manager.agents[aider_role] = AgentInstance(
-        role=aider_role, agent_type="aider", process=mock_aider_process,
-        master_fd=7, read_task=mock_aider_read_task
-    )
 
+    # Mock task creation
+    mock_read_task_instance = AsyncMock(spec=asyncio.Task, name="ReadTaskKill")
+    mock_monitor_task_instance = AsyncMock(spec=asyncio.Task, name="MonitorTaskKill")
+    mock_create_task.side_effect = [mock_read_task_instance, mock_monitor_task_instance]
+
+    # Mock the internal process mock created by spawn_agent
+    mock_process = AsyncMock(spec=asyncio.subprocess.Process)
+    mock_process.pid = 2222
+    mock_process.returncode = None
+    mock_process.terminate = MagicMock()
+    mock_process.kill = MagicMock() # This should be called
+    # wait() will be awaited by wait_for, which will raise TimeoutError
+    mock_process.wait = AsyncMock() # Needs to be awaitable for wait_for
+
+    # Patch the subprocess creation within spawn_agent
+    with patch('agent_manager.asyncio.create_subprocess_exec', return_value=mock_process):
+        await agent_manager.spawn_agent(role=aider_role)
+
+    assert aider_role in agent_manager.agents
+    aider_instance = agent_manager.agents[aider_role]
+    assert aider_instance.process is mock_process
+    assert aider_instance.read_task is mock_read_task_instance
+
+    # --- Call stop_all_agents ---
     await agent_manager.stop_all_agents()
 
-    # Assertions for Aider agent
-    mock_aider_process.terminate.assert_called_once()
-    # Check that wait_for was called with the process's wait coroutine and timeout
-    assert mock_wait_for.call_count == 1
-    call_args, call_kwargs = mock_wait_for.call_args
-    assert call_args[0] == mock_aider_process.wait() # Check the coroutine object
-    assert call_kwargs['timeout'] == 5.0 # Check timeout kwarg
+    # --- Assertions ---
+    mock_process.terminate.assert_called_once()
+    # Check wait_for call (it will raise TimeoutError due to side_effect)
+    assert mock_wait_for_timeout.call_count == 1
+    call_args, call_kwargs = mock_wait_for_timeout.call_args
+    # Cannot easily assert call_args[0] == mock_process.wait() because wait is now AsyncMock
+    # Let's check the awaitable type and timeout
+    assert asyncio.iscoroutine(call_args[0]) or isinstance(call_args[0], asyncio.Future) # Check it's awaitable
+    assert call_kwargs['timeout'] == 5.0
 
-    mock_aider_process.kill.assert_called_once() # Kill should be called after timeout
-    mock_aider_read_task.cancel.assert_called_once()
-    # Removed assertion for mock_os_close
+    mock_process.kill.assert_called_once() # Kill should be called after timeout
+    mock_read_task_instance.cancel.assert_called_once()
 
-    # Allow background tasks to process
-    await asyncio.sleep(0)
+    # Check _safe_close was called on the correct master_fd (mocked as 5)
+    mock_os_close_slave.assert_any_call(6) # Slave FD closed during spawn
+    mock_os_close_slave.assert_any_call(5) # Master FD closed during stop
+
+    # Allow background tasks to potentially process the exit
+    await asyncio.sleep(0.01) # Increased sleep slightly
 
     assert len(agent_manager.agents) == 0 # Agent should still be removed
 
