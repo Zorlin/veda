@@ -232,7 +232,6 @@ class AgentManager:
             # Simulate a warning message as would be output by a tool for an unknown/bad model
             bad_model = model or self.config.get("aider_model") or "unknown"
             warning_msg = f"Warning for {bad_model}: Unknown context window size and costs, using sane defaults."
-            self.app.post_message(LogMessage())
             self.app.post_message(LogMessage(warning_msg))
             self.app.post_message(AgentExitedMessage(role=role, return_code=0))
             return
