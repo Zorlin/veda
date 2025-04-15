@@ -123,7 +123,8 @@ class AgentManager:
             ):
                 logger.debug(f"Ignored OSError when closing fd {fd} in context {context}: {e}")
                 return
-            logger.error(f"Error closing fd {fd} in context {context}: {e}")
+            # If we get here, re-raise so pytest will show the error
+            raise
         except Exception as e:
             logger.exception(f"Unexpected error closing fd {fd} in context {context}: {e}")
 
