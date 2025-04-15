@@ -598,10 +598,21 @@ class AgentManager:
         try:
             logger.info(f"Ollama worker started for agent '{role}'.")
             # If the generate method is an AsyncMock (as in some tests), await it
-            if hasattr(client.generate, "__call__") and getattr(client.generate, "_is_coroutine", False):
-                response = await client.generate(prompt)
+            gen = client.generate
+            # Handle AsyncMock, coroutine, or normal function
+            if hasattr(gen, "__call__"):
+                # If it's a MagicMock or AsyncMock, check if it's a coroutinefunction
+                if getattr(gen, "_is_coroutine", False):
+                    # If it's an AsyncMock, but returns a non-awaitable (e.g. str), just call it
+                    result = gen(prompt)
+                    if asyncio.iscoroutine(result):
+                        response = await result
+                    else:
+                        response = result
+                else:
+                    response = gen(prompt)
             else:
-                response = client.generate(prompt)
+                response = gen(prompt)
             self.app.post_message(AgentOutputMessage(role=role, line=response))
         except Exception as e:
             logger.exception(f"Error during Ollama call for agent '{role}':")
