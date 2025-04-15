@@ -172,7 +172,8 @@ async def test_cli_detach_handling():
         MockAgentManager.return_value = mock_agent_manager
         
         # Add handle_user_detach method if it exists
-        if hasattr(AgentManager, 'handle_user_detach'):
+        # Check the mock agent manager instance instead of the class
+        if hasattr(mock_agent_manager, 'handle_user_detach'):
             mock_agent_manager.handle_user_detach = AsyncMock()
         
         mock_load_config.return_value = {}

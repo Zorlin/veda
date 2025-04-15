@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 
+# Import the classes we need
+from agent_manager import AgentManager, AgentInstance
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
@@ -57,7 +60,6 @@ async def test_end_to_end_project_creation(test_config, temp_work_dir):
         
         # Import necessary components
         from tui import VedaApp
-        from agent_manager import AgentManager
         
         # Create app and agent manager
         mock_app = MagicMock()
