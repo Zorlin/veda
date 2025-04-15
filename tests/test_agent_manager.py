@@ -477,6 +477,7 @@ async def test_stop_all_agents(mock_os_write, mock_sleep, mock_create_task, mock
     # Setup is done above by spawning agents.
     # This test implicitly passes if the fixture teardown runs without error
     # and the assertion within the teardown (len(agents)==0) passes.
+    pass
 
 @pytest.mark.asyncio
 async def test_spawn_agent_missing_model_config(mock_app, base_config, temp_work_dir):
@@ -632,6 +633,7 @@ async def test_stop_all_agents_kill(mock_os_write, mock_sleep, mock_create_task,
     # Setup is done above by spawning the agent with a wait that times out.
     # This test implicitly passes if the fixture teardown runs without error
     # and the assertion within the teardown (len(agents)==0) passes.
+    pass
 
 @pytest.mark.asyncio
 async def test_ollama_worker_exception(agent_manager, mock_app):
