@@ -308,13 +308,13 @@ class AgentManager:
             import sys
             is_test = 'pytest' in sys.modules
             def safe_close(fd):
-                # Only close if fd is a real int, >=3, and os.close is not a MagicMock (in tests)
+                # Only close if fd is a real int, >=3, and not a MagicMock/AsyncMock (in tests)
+                from unittest.mock import MagicMock, AsyncMock
                 if not isinstance(fd, int):
                     return
                 if fd < 3:
                     return
-                # In test mode, skip closing if fd is a MagicMock or AsyncMock
-                if is_test and hasattr(fd, "is_mock") and fd.is_mock:
+                if isinstance(fd, (MagicMock, AsyncMock)):
                     return
                 try:
                     os.close(fd)
@@ -350,11 +350,12 @@ class AgentManager:
             import sys
             is_test = 'pytest' in sys.modules
             def safe_close(fd):
+                from unittest.mock import MagicMock, AsyncMock
                 if not isinstance(fd, int):
                     return
                 if fd < 3:
                     return
-                if is_test and hasattr(fd, "is_mock") and fd.is_mock:
+                if isinstance(fd, (MagicMock, AsyncMock)):
                     return
                 try:
                     os.close(fd)
@@ -634,11 +635,12 @@ class AgentManager:
                 import sys
                 is_test = 'pytest' in sys.modules
                 def safe_close(fd):
+                    from unittest.mock import MagicMock, AsyncMock
                     if not isinstance(fd, int):
                         return
                     if fd < 3:
                         return
-                    if is_test and hasattr(fd, "is_mock") and fd.is_mock:
+                    if isinstance(fd, (MagicMock, AsyncMock)):
                         return
                     try:
                         os.close(fd)
