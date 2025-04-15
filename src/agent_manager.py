@@ -123,21 +123,6 @@ class AgentManager:
             ):
                 logger.debug(f"Ignored OSError when closing fd {fd} in context {context}: {e}")
                 return
-            try:
-                import socket
-                if isinstance(fd, int) and fd >= 0:
-                    # Try to close as a socket, ignore OSError 9
-                    try:
-                        s = socket.socket(fileno=fd)
-                        s.close()
-                        logger.debug(f"Closed fd {fd} as socket in context {context}")
-                        return
-                    except OSError as sock_e:
-                        if sock_e.errno == 9 or "Bad file descriptor" in str(sock_e):
-                            logger.debug(f"Ignored OSError when closing fd {fd} as socket in context {context}: {sock_e}")
-                            return
-            except Exception:
-                pass
             logger.error(f"Error closing fd {fd} in context {context}: {e}")
         except Exception as e:
             logger.exception(f"Unexpected error closing fd {fd} in context {context}: {e}")
