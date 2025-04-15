@@ -230,7 +230,7 @@ class AgentManager:
             logger.error(f"No aider_model specified in config for Aider agent role '{role}'.")
             is_test = 'pytest' in sys.modules
             # Always post the aider_model error for test compatibility (plain text for test)
-            self.app.post_message(LogMessage(f"Error: No aider_model configured for agent '{role}'."))
+            self.app.post_message(LogMessage(f"Error: No aider_model configured for agent '{role}'."))  # No markup, no trailing slash
             return
         command_parts = shlex.split(self.aider_command_base)
         command_parts.extend(["--model", agent_model])
