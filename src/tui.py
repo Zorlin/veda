@@ -1,4 +1,5 @@
 import logging
+from rich.text import Text
 import rich.markup # Import for escaping
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
