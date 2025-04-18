@@ -113,3 +113,139 @@ Based on the README.md, Veda aims to:
 - Support for collaborative development with multiple users
 - Advanced visualization of agent activities and dependencies
 - Customizable agent personalities and specializations
+# Veda Implementation Plan
+
+## Overview
+This document outlines the implementation plan for Veda, a meta-agent system that orchestrates AI agents (primarily using Aider) to assist with software development through an intuitive terminal user interface (TUI).
+
+## Project Goals
+Based on the README.md, Veda aims to:
+1. Provide a user-centric Terminal User Interface (TUI) as the primary interaction method
+2. Enhance user experience through AI integration within the UI
+3. Seamlessly integrate with Aider for code generation and management
+4. Orchestrate multiple AI agents working in parallel
+5. Maintain user control throughout the development process
+
+## Implementation Timeline
+
+### Phase 1: Core Infrastructure (Weeks 1-2)
+- [ ] Set up project structure and dependencies
+- [ ] Implement basic TUI framework using Textual
+- [ ] Create agent manager for orchestrating Aider instances
+- [ ] Develop configuration management system
+- [ ] Implement basic logging and error handling
+
+### Phase 2: Agent Orchestration (Weeks 3-4)
+- [ ] Implement goal parsing and file awareness
+- [ ] Develop planning phase using Ollama (DeepCoder:14B)
+- [ ] Create worker spawning mechanism for Aider agents
+- [ ] Implement GPU queue management
+- [ ] Develop inter-agent communication protocol
+
+### Phase 3: User Interface (Weeks 5-6)
+- [ ] Implement terminal-like tabs for each worker
+- [ ] Create home screen with agent overview
+- [ ] Develop broadcast functionality to all workers
+- [ ] Implement user input handling and command processing
+- [ ] Add progress visualization and status reporting
+
+### Phase 4: Integration & Testing (Weeks 7-8)
+- [ ] Integrate all components
+- [ ] Implement comprehensive error handling
+- [ ] Develop automated testing suite
+- [ ] Perform user acceptance testing
+- [ ] Optimize performance and resource usage
+
+## Technical Architecture
+
+### Core Components
+1. **TUI Layer**
+   - Terminal-based user interface using Textual
+   - Multiple tabs for different workers
+   - Status display and command input
+
+2. **Agent Manager**
+   - Spawns and manages Aider instances
+   - Handles inter-agent communication
+   - Manages GPU resource allocation
+
+3. **Planning System**
+   - Parses user goals
+   - Generates technical plans using Ollama
+   - Breaks down tasks for worker assignment
+
+4. **File Management**
+   - Tracks file changes across workers
+   - Prevents conflicts between agents
+   - Manages file dependencies
+
+5. **Communication Protocol**
+   - JSON-based message format
+   - Structured logging
+   - Status reporting
+
+## Data Schemas
+
+### goal.prompt
+```json
+{
+  "goal": "Add FastAPI login routes with session persistence",
+  "mentioned_files": ["app/main.py", "auth/session.py"]
+}
+```
+
+### goal.plan.json
+```json
+{
+  "strategy": "Add authentication routes, create session store, update middleware.",
+  "tasks": [
+    { "file": "auth/session.py", "action": "add SQLite-backed session store" },
+    { "file": "app/main.py", "action": "add login/logout routes" }
+  ]
+}
+```
+
+### workflows/worker-N.json
+```json
+{
+  "worker": "worker-N",
+  "status": "editing",
+  "file": "x.py",
+  "summary": "added API route for login",
+  "dependencies": ["y.py"]
+}
+```
+
+## Dependencies
+- Python 3.10+
+- Git
+- Ollama (for internal chat and coordination)
+- Aider (as the primary coding engine)
+- Textual (for TUI implementation)
+- OpenRouter API (for accessing advanced models)
+
+## Risk Assessment
+
+### Technical Risks
+- GPU resource contention
+- Model API rate limits or downtime
+- File conflicts between agents
+
+### Mitigation Strategies
+- Implement queue management for GPU resources
+- Add fallback mechanisms for API failures
+- Develop conflict resolution protocols for file changes
+
+## Success Criteria
+1. Users can define project goals through the TUI
+2. Veda successfully orchestrates multiple Aider agents
+3. Agents can work in parallel without conflicts
+4. Users maintain control throughout the development process
+5. The system produces high-quality, working code
+
+## Future Enhancements
+- Enhanced AI assistance within the TUI
+- Improved project visualization
+- Integration with additional coding tools
+- Support for more complex project structures
+- Performance optimizations for larger codebases
