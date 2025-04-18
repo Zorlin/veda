@@ -273,5 +273,13 @@ async def main():
         print(f"Unknown command: {command}")
         await help_command()
 
+def run():
+    """Console‐script entry point for Veda."""
+    try:
+        import asyncio
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    run()

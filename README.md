@@ -193,11 +193,12 @@ For more details on Veda's orchestration philosophy, see [RULES.md](RULES.md).
 
 ## How to Install
 
-Install Veda.
-```
-git clone https://github.com/zorlin/veda
+Clone the repository and install Veda:
+
+```bash
+git clone https://github.com/zorlin/veda.git
 cd veda
-python3 main.py
+pip install --editable .
 ```
 
 
