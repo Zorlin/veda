@@ -71,46 +71,74 @@ Based on the README.md, Veda aims to:
    - Change tracking and version control integration
    - File dependency management
 
+## Detailed Workflow Implementation
+
+### 1. User Goal Prompting
+- When Veda starts, it prompts the user for their project goal
+- Any mentioned filenames are automatically read and analyzed
+- The goal is parsed into a structured `goal.prompt` JSON document
+- Implementation tasks:
+  - Create prompt mechanism in TUI
+  - Develop file mention detection
+  - Implement JSON structure generation
+
+### 2. File Awareness / Context Injection
+- Files mentioned in the prompt are loaded automatically
+- File contents are stored alongside the goal in a JSON document
+- Implementation tasks:
+  - Create file reading functionality
+  - Develop content storage mechanism
+  - Implement context injection for agents
+
+### 3. Planning Phase (Ollama: DeepCoder:14B)
+- A Planner process using DeepCoder:14B via Ollama is spawned
+- The planner reads the goal and attached files
+- It produces a technical plan as `goal.plan.json`
+- Implementation tasks:
+  - Integrate with Ollama API
+  - Create planning prompt templates
+  - Implement JSON plan parsing and validation
+
+### 4. Aider Worker Spawning
+- Up to 4 parallel Aider agents are spawned based on the plan
+- Each worker handles a subset of tasks from the plan
+- Workers write status to `workflows/<worker-name>.json`
+- Implementation tasks:
+  - Create worker management system
+  - Implement task distribution logic
+  - Develop worker status tracking
+
+### 5. Aider Response UX (Gemma3:12B)
+- Workers use Gemma3:12B to handle Aider prompts
+- Prompts are cached and answered automatically
+- Implementation tasks:
+  - Implement prompt caching mechanism
+  - Create automatic response handling
+  - Develop silent continuation logic
+
+### 6. User Interaction (TUI)
+- Textual TUI provides tabs for each worker
+- Home screen shows overview of all agents
+- Broadcast messaging allows sending notes to all workers
+- Implementation tasks:
+  - Create tabbed interface with Terminal widget
+  - Implement agent overview screen
+  - Develop broadcast messaging functionality
+
+### 7. GPU Queue Management
+- Only one Ollama GPU job runs at a time
+- A queue manages GPU access for all workers
+- Implementation tasks:
+  - Create GPU job queue
+  - Implement worker waiting mechanism
+  - Develop priority system for GPU access
+
 ## Technical Dependencies
 - Python 3.10+
 - Git
 - Ollama (for internal chat and coordination)
 - Aider (as the primary coding engine)
 - OpenRouter API (for accessing advanced models)
-
-## Workflow Implementation
-1. **User Goal Prompting**
-   - Prompt user for natural-language goal
-   - Parse mentioned files
-   - Structure into goal.prompt
-
-2. **File Awareness / Context Injection**
-   - Load mentioned files automatically
-   - Store file contents alongside goal
-
-3. **Planning Phase**
-   - Use DeepCoder:14B via Ollama
-   - Generate technical plan as JSON
-
-4. **Aider Worker Spawning**
-   - Spawn up to 4 parallel Aider agents
-   - Assign tasks based on plan
-   - Track progress in workflow JSON files
-
-5. **Aider Response UX**
-   - Use Gemma3:12B for answering prompts
-   - Cache prompts for efficiency
-   - Continue silently when appropriate
-
-6. **User Interaction**
-   - Provide terminal-like tabs for each worker
-   - Enable chat and command functionality
-   - Display agent overview on home screen
-
-7. **GPU Queue Management**
-   - Ensure only one Ollama GPU job runs at a time
-   - Maintain queue for GPU-bound jobs
-   - Have workers wait for GPU availability
 
 ## JSON Schema Layouts
 
@@ -142,6 +170,16 @@ Based on the README.md, Veda aims to:
   "dependencies": ["dependent_file.py"]
 }
 ```
+
+## Implementation Timeline and Milestones
+
+| Milestone | Timeline | Deliverables |
+|-----------|----------|--------------|
+| **Core Infrastructure** | Weeks 1-2 | Basic TUI, Agent Manager, Config System |
+| **Agent Orchestration** | Weeks 3-4 | Goal Parsing, Planning, Worker Spawning |
+| **UI Enhancement** | Weeks 5-6 | Tabbed Interface, Home Screen, Broadcast |
+| **Integration** | Weeks 7-8 | File Reading, JSON Schema, Workflow Structure |
+| **Testing & Refinement** | Weeks 9-10 | Test Suite, Documentation, Optimization |
 
 ## Risk Assessment
 
