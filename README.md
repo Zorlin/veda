@@ -1,4 +1,140 @@
-# Veda: AI-Powered Software Development via an Intuitive Web UI
+Awesome. Let’s write up the **ideal Veda workflow** as a clean, structured design—based on your notes—while respecting your principles (JSON, composability, GPU constraint, TUI control, etc.).
+
+---
+
+## 🌐 **Veda: Ideal Workflow (v1)**
+
+Veda acts as a **meta-agent system**, guiding your local AI agents (Planner + Aider workers) through a structured and introspectable loop with a focus on **task clarity**, **agent coordination**, and **user control**.
+
+---
+
+### 🧠 1. **User Goal Prompting**
+```plaintext
+> Veda: What do you want to build?
+```
+- Veda starts by prompting the user for a natural-language **goal**.
+- Any filenames mentioned are automatically read (as long as they are in the current directory or below).
+- Veda parses this into a structured `goal.prompt`.
+
+📁 Example output:
+```json
+{
+  "goal": "I want to add login and session persistence using FastAPI and SQLite. You can look at app/main.py and auth/session.py."
+}
+```
+
+---
+
+### 📖 2. **File Awareness / Context Injection**
+- Files mentioned in the prompt are loaded immediately (no `open()` required).
+- File contents are stored in a JSON document alongside the goal:
+```json
+{
+  "read_files": {
+    "app/main.py": "...",
+    "auth/session.py": "..."
+  }
+}
+```
+
+---
+
+### 🧠 3. **Planning Phase (Ollama: DeepCoder:14B)**
+- Once Veda confirms the goal is actionable, it spawns a **Planner process**:
+  - Uses **DeepCoder:14B** via Ollama.
+  - Reads `goal.prompt` and attached files.
+  - Writes a **technical plan** as JSON: `goal.plan.json`
+
+📁 Example:
+```json
+{
+  "strategy": "Add authentication routes, create session store, update middleware.",
+  "tasks": [
+    { "file": "auth/session.py", "action": "add SQLite-backed session store" },
+    { "file": "app/main.py", "action": "add login/logout routes" }
+  ]
+}
+```
+
+---
+
+### ⚙️ 4. **Aider Worker Spawning**
+- Veda spawns up to **4 parallel Aider agents**, each:
+  - Uses `--yes --cache-prompts`
+  - Takes the plan and a subset of the tasks.
+  - Writes logs into `workflows/<worker-name>.json` in this format:
+```json
+{
+  "worker": "worker-1",
+  "status": "editing",
+  "file": "auth/session.py",
+  "summary": "Implemented session storage using sqlite3",
+  "dependencies": ["app/main.py"]
+}
+```
+- Workers can read logs from other agents to avoid collisions.
+
+---
+
+### 🧠 5. **Aider Response UX (Gemma3:12B)**
+- Workers internally use **Gemma3:12B** to answer Aider prompts or questions.
+- If a prompt needs answering, they:
+  - Cache it
+  - Answer automatically
+  - Silently continue
+
+---
+
+### 🖥️ 6. **User Interaction (TUI)**
+- Textual TUI allows:
+  - ⌨️ Terminal-like tabs for each worker (`Terminal` widget)
+    - Supports chatting, sending commands, or Ctrl-C to interrupt
+  - 🏠 Home screen with:
+    - Overview of all agents
+    - “Broadcast note to all” (sends new goal/note to all workers)
+
+---
+
+### 🎩 7. **GPU Queue Management**
+- Only **one Ollama GPU job runs at a time**
+  - Veda maintains a polite queue for Ollama-bound jobs.
+  - Workers wait until the GPU is available.
+
+---
+
+### 🧬 Summary JSON Schema Layouts
+
+#### `goal.prompt`:
+```json
+{
+  "goal": "Add FastAPI login routes with session persistence",
+  "mentioned_files": ["app/main.py", "auth/session.py"]
+}
+```
+
+#### `goal.plan.json`:
+```json
+{
+  "strategy": "...",
+  "tasks": [
+    { "file": "x.py", "action": "..." }
+  ]
+}
+```
+
+#### `workflows/worker-N.json`:
+```json
+{
+  "worker": "worker-N",
+  "status": "editing",
+  "file": "x.py",
+  "summary": "added API route for login",
+  "dependencies": ["y.py"]
+}
+```
+
+# Veda: Software Development That Doesn't Sleep
+
 
 Veda aims to make software development accessible and efficient through an intelligent, user-friendly web interface. It orchestrates AI agents, primarily using Aider as its coding engine, to build and manage your projects based on your guidance.
 
