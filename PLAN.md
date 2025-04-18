@@ -48,12 +48,69 @@ Based on the README.md, Veda aims to:
 - [ ] Optimize performance
 - [ ] Document code and create user guide
 
+## Technical Architecture
+
+### Core Components
+1. **TUI Layer**
+   - Terminal-based user interface using Textual
+   - Multiple tabs for different agents
+   - Status displays and command input
+
+2. **Agent Manager**
+   - Spawns and manages Aider instances
+   - Handles inter-agent communication
+   - Manages GPU resource allocation
+
+3. **Planning System**
+   - Parses user goals
+   - Creates structured plans using LLM
+   - Breaks down tasks for worker agents
+
+4. **File Management**
+   - Automatic file reading for context
+   - Change tracking and version control integration
+   - File dependency management
+
 ## Technical Dependencies
 - Python 3.10+
 - Git
 - Ollama (for internal chat and coordination)
 - Aider (as the primary coding engine)
 - OpenRouter API (for accessing advanced models)
+
+## Workflow Implementation
+1. **User Goal Prompting**
+   - Prompt user for natural-language goal
+   - Parse mentioned files
+   - Structure into goal.prompt
+
+2. **File Awareness / Context Injection**
+   - Load mentioned files automatically
+   - Store file contents alongside goal
+
+3. **Planning Phase**
+   - Use DeepCoder:14B via Ollama
+   - Generate technical plan as JSON
+
+4. **Aider Worker Spawning**
+   - Spawn up to 4 parallel Aider agents
+   - Assign tasks based on plan
+   - Track progress in workflow JSON files
+
+5. **Aider Response UX**
+   - Use Gemma3:12B for answering prompts
+   - Cache prompts for efficiency
+   - Continue silently when appropriate
+
+6. **User Interaction**
+   - Provide terminal-like tabs for each worker
+   - Enable chat and command functionality
+   - Display agent overview on home screen
+
+7. **GPU Queue Management**
+   - Ensure only one Ollama GPU job runs at a time
+   - Maintain queue for GPU-bound jobs
+   - Have workers wait for GPU availability
 
 ## JSON Schema Layouts
 
