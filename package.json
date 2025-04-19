@@ -1,0 +1,26 @@
+{
+  "name": "veda",
+  "version": "1.0.0",
+  "description": "Awesome. Let’s write up the **ideal Veda workflow** as a clean, structured design—based on your notes—while respecting your principles (JSON, composability, GPU constraint, TUI control, etc.).",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com//zorlin/veda.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "ws": "^8.18.1"
+  }
+}

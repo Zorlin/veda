@@ -1,6 +1,7 @@
 import httpx
 import json
 import logging
+import asyncio
 from typing import Optional, Dict, Any
 
 # Configure logging
@@ -20,7 +21,7 @@ class OllamaClient:
         """Initializes the OllamaClient.
 
         Args:
-            api_url: The base URL for the Ollama API (e.g., "http://10.7.1.200:11434/api/generate").
+            api_url: The base URL for the Ollama API (e.g., "http://localhost:11434/api/generate").
             model: The name of the Ollama model to use.
             timeout: Request timeout in seconds.
             options: Optional dictionary of Ollama parameters (e.g., temperature, top_p).
@@ -53,19 +54,19 @@ class OllamaClient:
             "stream": False, # Keep it simple for now, get full response
             "options": self.options,
         }
-        logger.debug(f"Sending request to Ollama: {payload}")
+        logger.debug(f"Sending request to Ollama: {self.model}")
         try:
             # Synchronous call
             response = self._client.post(self.api_url, json=payload)
             response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
             response_data = response.json()
-            logger.debug(f"Received response from Ollama: {response_data}")
+            logger.debug(f"Received response from Ollama")
 
             if "response" in response_data:
                 return response_data["response"].strip()
             else:
-                logger.error(f"Unexpected response format from Ollama: {response_data}")
+                logger.error(f"Unexpected response format from Ollama")
                 return "[Error: Unexpected response format from Ollama]"
 
         except httpx.TimeoutException:
@@ -75,38 +76,22 @@ class OllamaClient:
             logger.error(f"Error connecting to Ollama API at {self.api_url}: {e}")
             return f"[Error: Could not connect to Ollama API: {e}]"
         except json.JSONDecodeError:
-            logger.error(f"Error decoding JSON response from Ollama: {response.text}")
+            logger.error(f"Error decoding JSON response from Ollama")
             return "[Error: Invalid JSON response from Ollama]"
         except Exception as e:
             logger.exception(f"An unexpected error occurred during Ollama request: {e}")
             return f"[Error: An unexpected error occurred: {e}]"
 
-# Example usage (optional, for testing)
-# No async close needed for synchronous client in this context
-# if __name__ == "__main__":
-#     import asyncio
-#     import os
-#     from config import load_config # Assuming config.py is accessible
-#     from pathlib import Path
+    async def generate_async(self, prompt: str) -> str:
+        """Asynchronous version of generate that runs in a thread pool.
+        
+        This allows the synchronous generate method to be called from async code.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.generate, prompt)
 
-#     async def run_test():
-#         try:
-#             project_root = Path(__file__).parent.parent
-#             cfg_path = project_root / "config.yaml"
-#             cfg = load_config(cfg_path)
-
-#             client = OllamaClient(
-#                 api_url=cfg.get("ollama_api_url"),
-#                 model=cfg.get("ollama_model"),
-#                 timeout=cfg.get("ollama_request_timeout", 300),
-#                 options=cfg.get("ollama_options")
-#             )
-#             prompt = "Why is the sky blue?"
-#             print(f"Sending prompt: '{prompt}'")
-#             response = await client.generate(prompt)
-#             print(f"\nOllama Response:\n{response}")
-#             await client.close()
-#         except Exception as e:
-#             print(f"Test failed: {e}")
-
-#     asyncio.run(run_test())
+    def close(self):
+        """Close the client session."""
+        if hasattr(self, '_client') and self._client:
+            self._client.close()
+            logger.debug("OllamaClient closed")
