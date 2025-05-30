@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(chmod:*)",
+      "Bash(pip install:*)",
+      "Bash(grep:*)",
+      "Bash(mkdir:*)",
+      "Bash(cargo init:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test)",
+      "Bash(cargo build:*)",
+      "Bash(git rm:*)",
+      "mcp__deepwiki__ask_question",
+      "WebFetch(domain:github.com)"
+    ]
+  },
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": [
+    "playwright",
+    "taskmaster-ai",
+    "deepwiki"
+  ]
+}

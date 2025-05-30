@@ -1,0 +1,351 @@
+use std::process::Stdio;
+use tokio::sync::mpsc;
+use tokio::process::Command as AsyncCommand;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use uuid::Uuid;
+use anyhow::Result;
+use serde::Deserialize;
+
+#[derive(Debug, Clone)]
+pub enum ClaudeMessage {
+    StreamStart { instance_id: Uuid },
+    StreamText { instance_id: Uuid, text: String },
+    StreamEnd { instance_id: Uuid },
+    Error { instance_id: Uuid, error: String },
+    Exited { instance_id: Uuid, code: Option<i32> },
+    ToolUse { instance_id: Uuid, tool_name: String },
+    SessionStarted { instance_id: Uuid, session_id: String },
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum ClaudeStreamEvent {
+    #[serde(rename = "system")]
+    System {
+        subtype: String,
+        session_id: String,
+    },
+    #[serde(rename = "assistant")]
+    Assistant {
+        message: AssistantMessage,
+        session_id: String,
+    },
+    #[serde(rename = "user")]
+    User {
+        message: serde_json::Value,
+        session_id: String,
+    },
+    #[serde(rename = "result")]
+    Result {
+        subtype: String,
+        result: Option<String>,
+        is_error: bool,
+        session_id: String,
+    },
+    #[serde(rename = "error")]
+    Error { error: ErrorInfo },
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct AssistantMessage {
+    pub id: String,
+    pub content: Vec<ContentItem>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum ContentItem {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+}
+
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct ErrorInfo {
+    pub message: String,
+}
+
+/// Enable a tool in Claude's configuration
+pub async fn enable_claude_tool(tool_name: &str) -> Result<()> {
+    tracing::info!("Enabling Claude tool: {}", tool_name);
+    
+    let cmd = AsyncCommand::new("claude")
+        .arg("config")
+        .arg("add")
+        .arg("allowedTools")
+        .arg(tool_name)
+        .output()
+        .await?;
+    
+    if !cmd.status.success() {
+        let error_output = String::from_utf8_lossy(&cmd.stderr);
+        tracing::error!("Failed to enable tool {}: {}", tool_name, error_output);
+        return Err(anyhow::anyhow!("Failed to enable tool: {}", error_output));
+    }
+    
+    let output = String::from_utf8_lossy(&cmd.stdout);
+    tracing::info!("Successfully enabled tool {}: {}", tool_name, output);
+    Ok(())
+}
+
+pub async fn send_to_claude(
+    instance_id: Uuid,
+    message: String,
+    tx: mpsc::Sender<ClaudeMessage>,
+) -> Result<()> {
+    send_to_claude_with_session(instance_id, message, tx, None).await
+}
+
+pub async fn send_to_claude_with_session(
+    instance_id: Uuid,
+    message: String,
+    tx: mpsc::Sender<ClaudeMessage>,
+    session_id: Option<String>,
+) -> Result<()> {
+    tracing::info!("send_to_claude called for instance {} with message: {} (session: {:?})", instance_id, message, session_id);
+    
+    // Build command args based on whether we have a session ID
+    let mut cmd = AsyncCommand::new("claude");
+    
+    if let Some(session) = session_id {
+        cmd.arg("--resume").arg(session);
+    }
+    
+    cmd.arg("-p")
+        .arg(&message)
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--verbose")
+        .arg("--mcp-config")
+        .arg(".mcp.json")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+        
+    let mut cmd = cmd.spawn()
+        .map_err(|e| {
+            tracing::error!("Failed to spawn claude process: {}", e);
+            e
+        })?;
+
+    tracing::info!("Claude process spawned successfully");
+
+    let stdout = cmd.stdout.take().expect("Failed to open stdout");
+    let stderr = cmd.stderr.take().expect("Failed to open stderr");
+
+    // Notify start
+    tx.send(ClaudeMessage::StreamStart { instance_id }).await?;
+    tracing::debug!("Sent StreamStart message for instance {}", instance_id);
+
+    // Spawn task to read stdout
+    let tx_stdout = tx.clone();
+    let id_stdout = instance_id;
+    tokio::spawn(async move {
+        tracing::debug!("Starting stdout reader task for instance {}", id_stdout);
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+        let mut line_count = 0;
+        
+        while let Ok(Some(line)) = lines.next_line().await {
+            line_count += 1;
+            tracing::debug!("STDOUT line {}: {}", line_count, line);
+            
+            // Parse JSON streaming events
+            match serde_json::from_str::<ClaudeStreamEvent>(&line) {
+                Ok(event) => {
+                    tracing::debug!("Parsed event: {:?}", event);
+                    match event {
+                        ClaudeStreamEvent::System { subtype, session_id } => {
+                            if subtype == "init" {
+                                tracing::info!("Session started with ID: {}", session_id);
+                                let _ = tx_stdout.send(ClaudeMessage::SessionStarted {
+                                    instance_id: id_stdout,
+                                    session_id,
+                                }).await;
+                            }
+                        }
+                        ClaudeStreamEvent::Assistant { message, .. } => {
+                            // Extract text and tool uses from the assistant message
+                            for content in message.content {
+                                match content {
+                                    ContentItem::Text { text } => {
+                                        tracing::info!("Received assistant text: {:?}", text);
+                                        let _ = tx_stdout.send(ClaudeMessage::StreamText {
+                                            instance_id: id_stdout,
+                                            text,
+                                        }).await;
+                                    }
+                                    ContentItem::ToolUse { name, .. } => {
+                                        tracing::info!("Claude attempting to use tool: {}", name);
+                                        let _ = tx_stdout.send(ClaudeMessage::ToolUse {
+                                            instance_id: id_stdout,
+                                            tool_name: name,
+                                        }).await;
+                                    }
+                                }
+                            }
+                        }
+                        ClaudeStreamEvent::Result { result, is_error, .. } => {
+                            if !is_error {
+                                tracing::info!("Received result event, ending stream");
+                                let _ = tx_stdout.send(ClaudeMessage::StreamEnd {
+                                    instance_id: id_stdout,
+                                }).await;
+                            } else if let Some(error_msg) = result {
+                                tracing::error!("Error in result: {}", error_msg);
+                                let _ = tx_stdout.send(ClaudeMessage::Error {
+                                    instance_id: id_stdout,
+                                    error: error_msg,
+                                }).await;
+                            }
+                        }
+                        ClaudeStreamEvent::Error { error } => {
+                            tracing::error!("Received error from Claude: {}", error.message);
+                            let _ = tx_stdout.send(ClaudeMessage::Error {
+                                instance_id: id_stdout,
+                                error: error.message,
+                            }).await;
+                        }
+                        ClaudeStreamEvent::User { .. } => {
+                            tracing::debug!("Ignoring event: {:?}", event);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse JSON line: {} - Error: {}", line, e);
+                }
+            }
+        }
+        tracing::info!("Stdout reader task finished after {} lines", line_count);
+    });
+
+    // Spawn task to read stderr
+    let tx_stderr = tx.clone();
+    let id_stderr = instance_id;
+    tokio::spawn(async move {
+        tracing::debug!("Starting stderr reader task for instance {}", id_stderr);
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+        let mut line_count = 0;
+        
+        while let Ok(Some(line)) = lines.next_line().await {
+            line_count += 1;
+            tracing::debug!("STDERR line {}: {}", line_count, line);
+            
+            // Log all stderr output for debugging
+            if line.contains("error") || line.contains("Error") {
+                tracing::error!("Error from Claude stderr: {}", line);
+                let _ = tx_stderr.send(ClaudeMessage::Error {
+                    instance_id: id_stderr,
+                    error: line,
+                }).await;
+            } else {
+                // Log verbose output
+                tracing::info!("Claude verbose output: {}", line);
+            }
+        }
+        tracing::info!("Stderr reader task finished after {} lines", line_count);
+    });
+
+    // Wait for the process to complete
+    let id_exit = instance_id;
+    tokio::spawn(async move {
+        tracing::debug!("Waiting for claude process to exit for instance {}", id_exit);
+        match cmd.wait().await {
+            Ok(status) => {
+                let exit_code = status.code();
+                tracing::info!("Claude process exited with code: {:?}", exit_code);
+                let _ = tx.send(ClaudeMessage::Exited {
+                    instance_id: id_exit,
+                    code: exit_code,
+                }).await;
+            }
+            Err(e) => {
+                tracing::error!("Error waiting for claude process: {}", e);
+                let _ = tx.send(ClaudeMessage::Error {
+                    instance_id: id_exit,
+                    error: e.to_string(),
+                }).await;
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_assistant_message() {
+        let json = r#"{"type":"assistant","message":{"id":"msg_123","content":[{"type":"text","text":"Hello, world!"}]},"session_id":"sess_123"}"#;
+        let event = serde_json::from_str::<ClaudeStreamEvent>(json).unwrap();
+        
+        match event {
+            ClaudeStreamEvent::Assistant { message, .. } => {
+                assert_eq!(message.content.len(), 1);
+                if let ContentItem::Text { text } = &message.content[0] {
+                    assert_eq!(text, "Hello, world!");
+                } else {
+                    panic!("Expected text content");
+                }
+            }
+            _ => panic!("Expected Assistant event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_result_success() {
+        let json = r#"{"type":"result","subtype":"success","result":"Test result","is_error":false,"session_id":"sess_123"}"#;
+        let event = serde_json::from_str::<ClaudeStreamEvent>(json).unwrap();
+        
+        match event {
+            ClaudeStreamEvent::Result { result, is_error, .. } => {
+                assert_eq!(result, Some("Test result".to_string()));
+                assert!(!is_error);
+            }
+            _ => panic!("Expected Result event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_error() {
+        let json = r#"{"type":"error","error":{"message":"API key not found"}}"#;
+        let event = serde_json::from_str::<ClaudeStreamEvent>(json).unwrap();
+        
+        match event {
+            ClaudeStreamEvent::Error { error } => {
+                assert_eq!(error.message, "API key not found");
+            }
+            _ => panic!("Expected Error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_claude_message_channel() {
+        let (tx, mut rx) = mpsc::channel(10);
+        
+        // Send different message types
+        tx.send(ClaudeMessage::StreamStart { instance_id: Uuid::new_v4() }).await.unwrap();
+        tx.send(ClaudeMessage::StreamText { 
+            instance_id: Uuid::new_v4(), 
+            text: "Test".to_string() 
+        }).await.unwrap();
+        
+        // Receive and verify
+        let msg1 = rx.recv().await.unwrap();
+        assert!(matches!(msg1, ClaudeMessage::StreamStart { .. }));
+        
+        let msg2 = rx.recv().await.unwrap();
+        match msg2 {
+            ClaudeMessage::StreamText { text, .. } => assert_eq!(text, "Test"),
+            _ => panic!("Expected StreamText"),
+        }
+    }
+}

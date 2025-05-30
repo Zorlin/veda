@@ -11,6 +11,9 @@ aider-chat
 # Textual TUI
 textual
 
+# Clipboard support
+pyperclip
+
 # Configuration loading
 pyyaml
 

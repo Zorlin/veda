@@ -5,15 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "veda"
 version = "0.1.0"
-description = "AI‑Orchestrated Software Development Tool"
+description = "Claude Code Orchestrator - Multi-instance coordination with AI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "textual",
-    "aider-install",
-    "ollama",
+    "aiohttp",
     "pyyaml",
+    "textual",
+    "rich",
 ]
 
 [project.scripts]
-veda = "src.cli:run"
+veda = "veda:main_sync"
+
+[tool.setuptools]
+packages = ["veda"]
