@@ -5,7 +5,7 @@ use anyhow::Result;
 use arboard::Clipboard;
 use chrono::{Local, DateTime};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseEventKind, EnableBracketedPaste, DisableBracketedPaste},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -71,9 +71,6 @@ struct ClaudeInstance {
     last_tool_attempts: Vec<String>,
     // Claude session ID for resume
     session_id: Option<String>,
-    // Paste detection
-    last_input_time: std::time::Instant,
-    rapid_input_count: u32,
 }
 
 impl ClaudeInstance {
@@ -99,8 +96,6 @@ impl ClaudeInstance {
             scroll_offset: 0,
             last_tool_attempts: Vec::new(),
             session_id: None,
-            last_input_time: std::time::Instant::now(),
-            rapid_input_count: 0,
         }
     }
 
@@ -638,7 +633,7 @@ async fn main() -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -653,7 +648,8 @@ async fn main() -> Result<()> {
     execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
-        DisableMouseCapture
+        DisableMouseCapture,
+        DisableBracketedPaste
     )?;
     terminal.show_cursor()?;
 
@@ -681,6 +677,24 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
 
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
+                Event::Paste(data) => {
+                    // Handle paste event - insert text directly into textarea
+                    if let Some(instance) = app.current_instance_mut() {
+                        if !instance.is_processing {
+                            tracing::debug!("Paste event detected with {} characters", data.len());
+                            // Insert each character of the pasted data
+                            for ch in data.chars() {
+                                use ratatui::crossterm::event::{Event as RatatuiEvent, KeyEvent, KeyCode as RatatuiKeyCode, KeyModifiers as RatatuiKeyModifiers};
+                                let key_event = if ch == '\n' {
+                                    KeyEvent::new(RatatuiKeyCode::Enter, RatatuiKeyModifiers::NONE)
+                                } else {
+                                    KeyEvent::new(RatatuiKeyCode::Char(ch), RatatuiKeyModifiers::NONE)
+                                };
+                                instance.textarea.input(RatatuiEvent::Key(key_event));
+                            }
+                        }
+                    }
+                }
                 Event::Key(key) => {
                     tracing::debug!("Key event: {:?} with modifiers: {:?}", key.code, key.modifiers);
                     match (key.modifiers, key.code) {
@@ -719,40 +733,17 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
                             }
                         }
                         (_, KeyCode::Enter) => {
+                            // Enter sends message
                             if let Some(instance) = app.current_instance_mut() {
-                                if !instance.is_processing {
-                                    let now = std::time::Instant::now();
-                                    let time_since_last = now.duration_since(instance.last_input_time);
-                                    
-                                    // If input happened very quickly (< 10ms), it's likely paste
-                                    if time_since_last.as_millis() < 10 {
-                                        instance.rapid_input_count += 1;
-                                    } else {
-                                        instance.rapid_input_count = 0;
-                                    }
-                                    
-                                    instance.last_input_time = now;
-                                    
-                                    // If we've had rapid inputs, treat Enter as newline (paste)
-                                    if instance.rapid_input_count > 0 {
-                                        tracing::debug!("Detected paste operation, adding newline");
-                                        use ratatui::crossterm::event::Event as RatatuiEvent;
-                                        instance.textarea.input(RatatuiEvent::Key(key));
-                                        // Reset counter after a short delay
-                                        instance.rapid_input_count = 0;
-                                    } else {
-                                        // Normal Enter - send message
-                                        if !instance.textarea.is_empty() {
-                                            let message = instance.textarea.lines().join("\n");
-                                            instance.textarea = TextArea::default();
-                                            instance.textarea.set_block(
-                                                Block::default()
-                                                    .borders(Borders::ALL)
-                                                    .title("Input")
-                                            );
-                                            app.send_message(message).await;
-                                        }
-                                    }
+                                if !instance.textarea.is_empty() && !instance.is_processing {
+                                    let message = instance.textarea.lines().join("\n");
+                                    instance.textarea = TextArea::default();
+                                    instance.textarea.set_block(
+                                        Block::default()
+                                            .borders(Borders::ALL)
+                                            .title("Input")
+                                    );
+                                    app.send_message(message).await;
                                 }
                             }
                         }
@@ -760,18 +751,6 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
                             // Pass all other key events to the textarea
                             if let Some(instance) = app.current_instance_mut() {
                                 if !instance.is_processing {
-                                    let now = std::time::Instant::now();
-                                    let time_since_last = now.duration_since(instance.last_input_time);
-                                    
-                                    // Track rapid input for paste detection
-                                    if time_since_last.as_millis() < 10 {
-                                        instance.rapid_input_count += 1;
-                                    } else {
-                                        instance.rapid_input_count = 0;
-                                    }
-                                    
-                                    instance.last_input_time = now;
-                                    
                                     use ratatui::crossterm::event::Event as RatatuiEvent;
                                     instance.textarea.input(RatatuiEvent::Key(key));
                                 }
