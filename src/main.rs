@@ -554,7 +554,7 @@ Your response:"#,
             terminal_width: 80, // Default, will be updated in draw
             tab_rects: Vec::new(),
             coordination_enabled: true,
-            max_instances: 8, // Main + 7 additional
+            max_instances: 5, // Main + 4 additional
             coordination_in_progress: false,
             last_coordination_skip_log: None,
             session_id,
