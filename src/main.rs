@@ -207,7 +207,12 @@ impl ClaudeInstance {
         if total_lines > actual_visible {
             // Calculate scroll to show bottom content
             // Subtract 1 to ensure the last line is visible
-            self.scroll_offset = (total_lines - actual_visible) as u16;
+            self.scroll_offset = (total_lines.saturating_sub(actual_visible)) as u16;
+            // Ensure scroll offset doesn't exceed reasonable bounds
+            if self.scroll_offset > 10000 {
+                tracing::error!("Excessive scroll offset detected: {}, resetting to safe value", self.scroll_offset);
+                self.scroll_offset = (total_lines.saturating_sub(actual_visible)).min(1000) as u16;
+            }
         } else {
             self.scroll_offset = 0;
         }
@@ -1273,6 +1278,14 @@ This prompt appears only once per session. You now have full access to these pow
                     self.hide_todo_list();
                     
                     if let Some(instance_idx) = target_instance_index {
+                        // DEBUG: Log which instance we're adding to
+                        tracing::warn!("Adding message to instance_idx: {}, instance_id: {}, name: {}, is_current_tab: {}", 
+                            instance_idx, 
+                            self.instances[instance_idx].id,
+                            self.instances[instance_idx].name,
+                            instance_idx == self.current_tab
+                        );
+                        
                         let instance = &mut self.instances[instance_idx];
                         // Check if we should append to existing Claude message or create new one
                         let should_create_new = if let Some(last_msg) = instance.messages.last() {
@@ -2833,9 +2846,29 @@ async fn start_ipc_server(app_tx: mpsc::Sender<ClaudeMessage>, session_id: Strin
                                         let task_desc = msg["task_description"].as_str().unwrap_or("");
                                         let num_instances = msg["num_instances"].as_u64().unwrap_or(2) as u8;
                                         
+                                        // Get target instance ID from the IPC message if provided
+                                        let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
+                                            // Try to parse the provided instance ID
+                                            match Uuid::parse_str(target_id_str) {
+                                                Ok(id) => {
+                                                    tracing::info!("IPC spawn_instances using target_instance_id: {}", id);
+                                                    id
+                                                },
+                                                Err(e) => {
+                                                    tracing::warn!("Failed to parse target_instance_id '{}': {}, using random UUID", target_id_str, e);
+                                                    Uuid::new_v4()
+                                                }
+                                            }
+                                        } else {
+                                            // No target instance ID provided, use a random one for backward compatibility
+                                            let random_id = Uuid::new_v4();
+                                            tracing::info!("IPC spawn_instances using random UUID: {} (no target_instance_id provided)", random_id);
+                                            random_id
+                                        };
+                                        
                                         // Send message to main app
                                         let _ = app_tx.send(ClaudeMessage::VedaSpawnInstances {
-                                            instance_id: Uuid::new_v4(), // Use a dummy ID for IPC requests
+                                            instance_id,
                                             task_description: task_desc.to_string(),
                                             num_instances,
                                         }).await;
@@ -2843,8 +2876,26 @@ async fn start_ipc_server(app_tx: mpsc::Sender<ClaudeMessage>, session_id: Strin
                                         format!("✅ Spawning {} instances for task: {}", num_instances, task_desc)
                                     }
                                     Some("list_instances") => {
+                                        // Get target instance ID from the IPC message if provided
+                                        let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
+                                            match Uuid::parse_str(target_id_str) {
+                                                Ok(id) => {
+                                                    tracing::info!("IPC list_instances using target_instance_id: {}", id);
+                                                    id
+                                                },
+                                                Err(e) => {
+                                                    tracing::warn!("Failed to parse target_instance_id '{}': {}, using random UUID", target_id_str, e);
+                                                    Uuid::new_v4()
+                                                }
+                                            }
+                                        } else {
+                                            let random_id = Uuid::new_v4();
+                                            tracing::info!("IPC list_instances using random UUID: {} (no target_instance_id provided)", random_id);
+                                            random_id
+                                        };
+                                        
                                         let _ = app_tx.send(ClaudeMessage::VedaListInstances {
-                                            instance_id: Uuid::new_v4(),
+                                            instance_id,
                                         }).await;
                                         
                                         "✅ Listing instances (check Veda UI)".to_string()
@@ -2852,8 +2903,26 @@ async fn start_ipc_server(app_tx: mpsc::Sender<ClaudeMessage>, session_id: Strin
                                     Some("close_instance") => {
                                         let instance_name = msg["instance_name"].as_str().unwrap_or("");
                                         
+                                        // Get target instance ID from the IPC message if provided
+                                        let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
+                                            match Uuid::parse_str(target_id_str) {
+                                                Ok(id) => {
+                                                    tracing::info!("IPC close_instance using target_instance_id: {}", id);
+                                                    id
+                                                },
+                                                Err(e) => {
+                                                    tracing::warn!("Failed to parse target_instance_id '{}': {}, using random UUID", target_id_str, e);
+                                                    Uuid::new_v4()
+                                                }
+                                            }
+                                        } else {
+                                            let random_id = Uuid::new_v4();
+                                            tracing::info!("IPC close_instance using random UUID: {} (no target_instance_id provided)", random_id);
+                                            random_id
+                                        };
+                                        
                                         let _ = app_tx.send(ClaudeMessage::VedaCloseInstance {
-                                            instance_id: Uuid::new_v4(),
+                                            instance_id,
                                             target_instance_name: instance_name.to_string(),
                                         }).await;
                                         
@@ -3065,12 +3134,42 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: 
         // Check for stalled conversations
         app.check_for_stalls().await;
         
+        // Debug check for empty tabs bug
+        let total_messages: usize = app.instances.iter().map(|i| i.messages.len()).sum();
+        if total_messages > 0 && app.instances.iter().all(|i| {
+            // Check if the instance appears to have no visible content
+            i.messages.is_empty() || i.scroll_offset > i.messages.len() as u16 * 2
+        }) {
+            tracing::error!("UI BUG DETECTED: {} total messages but all tabs appear empty!", total_messages);
+            for (idx, instance) in app.instances.iter().enumerate() {
+                tracing::error!("Tab {}: {} messages, scroll_offset={}, last_height={}", 
+                    idx, instance.messages.len(), instance.scroll_offset, instance.last_message_area_height);
+            }
+            // Force reset scroll offsets as recovery
+            for instance in app.instances.iter_mut() {
+                instance.scroll_offset = 0;
+            }
+        }
+        
         // Check if todo list should be hidden
         if app.should_hide_todo_list() {
             app.hide_todo_list();
         }
         
-        terminal.draw(|f| ui(f, app))?;
+        // Add error recovery for terminal drawing with timeout protection
+        let draw_start = std::time::Instant::now();
+        if let Err(e) = terminal.draw(|f| ui(f, app)) {
+            tracing::error!("Terminal draw error: {:?}", e);
+            // Try to recover by hiding cursor and clearing
+            let _ = terminal.hide_cursor();
+            let _ = terminal.clear();
+            // Force a redraw on next iteration
+            continue;
+        }
+        let draw_duration = draw_start.elapsed();
+        if draw_duration.as_millis() > 500 {
+            tracing::warn!("Slow UI render detected: {:?}ms", draw_duration.as_millis());
+        }
 
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
@@ -3378,6 +3477,18 @@ fn ui(f: &mut Frame, app: &mut App) {
         // Update scroll position for the current tab only
         instance.auto_scroll_with_width(Some(message_area_height), Some(message_area_width));
         
+        // Debug check for empty display bug
+        if !instance.messages.is_empty() {
+            tracing::debug!("Rendering tab {} with {} messages", app.current_tab, instance.messages.len());
+            if instance.messages.len() > 5 {
+                // Log a sample of messages to verify they exist
+                tracing::debug!("Sample messages: first={:?}, last={:?}", 
+                    instance.messages.first().map(|m| format!("{}: {}", m.sender, m.content.chars().take(50).collect::<String>())),
+                    instance.messages.last().map(|m| format!("{}: {}", m.sender, m.content.chars().take(50).collect::<String>()))
+                );
+            }
+        }
+        
         let mut all_lines = Vec::new();
         
         for (i, msg) in instance.messages.iter().enumerate() {
@@ -3413,7 +3524,12 @@ fn ui(f: &mut Frame, app: &mut App) {
                     ));
                 }
             } else {
-                content.push(Span::raw(&msg.content));
+                // Sanitize content to prevent terminal issues
+                let safe_content = msg.content
+                    .chars()
+                    .map(|c| if c.is_control() && c != '\n' && c != '\t' { '?' } else { c })
+                    .collect::<String>();
+                content.push(Span::raw(safe_content));
             }
             
             // Apply selection highlighting
@@ -3428,9 +3544,22 @@ fn ui(f: &mut Frame, app: &mut App) {
                 }
             }
             
-            all_lines.push(Line::from(content).style(style));
-            // Add empty line between messages for readability
-            all_lines.push(Line::from(""));
+            // Safely create line with error recovery
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Line::from(content).style(style)
+            })) {
+                Ok(line) => {
+                    all_lines.push(line);
+                    // Add empty line between messages for readability
+                    all_lines.push(Line::from(""));
+                }
+                Err(e) => {
+                    tracing::error!("Failed to render message line {}: {:?}", i, e);
+                    // Add placeholder line to prevent UI corruption
+                    all_lines.push(Line::from(format!("[Error rendering message {}]", i)));
+                    all_lines.push(Line::from(""));
+                }
+            }
         }
 
         let current_dir = if let Ok(home) = std::env::var("HOME") {
@@ -3442,6 +3571,14 @@ fn ui(f: &mut Frame, app: &mut App) {
         } else {
             instance.working_directory.clone()
         };
+        // Debug check before rendering
+        if all_lines.is_empty() && !instance.messages.is_empty() {
+            tracing::error!("CRITICAL UI BUG: {} messages but no lines generated for rendering!", instance.messages.len());
+            tracing::error!("First message: {:?}", instance.messages.first());
+            // Add fallback content
+            all_lines.push(Line::from("[Error: Failed to render messages]"));
+        }
+        
         let messages_paragraph = Paragraph::new(all_lines)
             .block(Block::default().borders(Borders::ALL).title(format!(
                 "Messages - {} [Auto: {}] [CoT: {}] [Coord: {}] [Dir: {}]{}",

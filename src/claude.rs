@@ -158,10 +158,11 @@ pub async fn send_to_claude_with_session(
         cmd.env("VEDA_SESSION_ID", veda_session_id);
     }
     
-    // Set the target instance ID if available (for spawned instances)
-    if let Ok(target_instance_id) = std::env::var("VEDA_TARGET_INSTANCE_ID") {
-        cmd.env("VEDA_TARGET_INSTANCE_ID", target_instance_id);
-    }
+    // ALWAYS set the target instance ID to THIS instance's ID
+    // This ensures that any MCP tools called by this Claude instance
+    // will have the correct instance ID for routing
+    cmd.env("VEDA_TARGET_INSTANCE_ID", instance_id.to_string());
+    tracing::info!("Setting VEDA_TARGET_INSTANCE_ID={} for Claude process", instance_id);
     
     let session_id_for_log = session_id.clone();
     if let Some(session) = session_id {
