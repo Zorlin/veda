@@ -25,10 +25,11 @@
       "Bash(ls:*)"
     ]
   },
-  "enableAllProjectMcpServers": false,
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "playwright",
     "taskmaster-ai",
-    "deepwiki"
+    "deepwiki",
+    "veda"
   ]
 }
