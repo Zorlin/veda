@@ -69,6 +69,8 @@ struct ClaudeInstance {
     scroll_offset: u16,
     // Track tool use attempts
     last_tool_attempts: Vec<String>,
+    // Track successful tool usage to avoid unnecessary permission checks
+    successful_tools: Vec<String>,
     // Claude session ID for resume
     session_id: Option<String>,
     // Working directory for this tab
@@ -107,6 +109,7 @@ impl ClaudeInstance {
             selecting: false,
             scroll_offset: 0,
             last_tool_attempts: Vec::new(),
+            successful_tools: Vec::new(),
             session_id: None,
             working_directory: std::env::current_dir()
                 .map(|p| p.display().to_string())
@@ -1265,6 +1268,17 @@ This prompt appears only once per session. You now have full access to these pow
                             let instance = &mut self.instances[instance_idx];
                             instance.is_processing = false;
                             
+                            // Track successful tool usage to avoid unnecessary permission checks
+                            if !instance.last_tool_attempts.is_empty() {
+                                // If we completed successfully after tool attempts, those tools must have worked
+                                for tool in &instance.last_tool_attempts {
+                                    if !instance.successful_tools.contains(tool) {
+                                        instance.successful_tools.push(tool.clone());
+                                        tracing::info!("Marking tool '{}' as successfully used for instance {}", tool, instance_id);
+                                    }
+                                }
+                            }
+                            
                             // Check if this is the current tab and process queue
                             let _is_current_tab = current_tab_id.map(|id| id == instance_id).unwrap_or(false);
                             
@@ -1417,18 +1431,34 @@ Response:"#,
                         let (had_tool_attempts, attempted_tools, session_id_opt) = {
                             if let Some(instance) = self.instances.iter_mut().find(|i| i.id == main_instance_id) {
                                 let had_tool_attempts = !instance.last_tool_attempts.is_empty();
-                                let attempted_tools = instance.last_tool_attempts.clone();
+                                
+                                // Filter out tools that we know were successful - no need to check permission
+                                let attempted_tools: Vec<String> = instance.last_tool_attempts.iter()
+                                    .filter(|tool| !instance.successful_tools.contains(tool))
+                                    .cloned()
+                                    .collect();
+                                
+                                let skipped_tools: Vec<String> = instance.last_tool_attempts.iter()
+                                    .filter(|tool| instance.successful_tools.contains(tool))
+                                    .cloned()
+                                    .collect();
                                 
                                 // Clear tool attempts for next message
                                 instance.last_tool_attempts.clear();
                                 
                                 // Add system message if tools were attempted
                                 if had_tool_attempts {
-                                    instance.add_message("System".to_string(), 
-                                        format!("🤖 Automode: Checking if Claude needs permission for tools: {}", attempted_tools.join(", ")));
+                                    if !attempted_tools.is_empty() {
+                                        instance.add_message("System".to_string(), 
+                                            format!("🤖 Automode: Checking if Claude needs permission for tools: {}", attempted_tools.join(", ")));
+                                    }
+                                    if !skipped_tools.is_empty() {
+                                        instance.add_message("System".to_string(), 
+                                            format!("✅ Automode: Skipping permission check for proven tools: {}", skipped_tools.join(", ")));
+                                    }
                                 }
                                 
-                                (had_tool_attempts, attempted_tools, instance.session_id.clone())
+                                (had_tool_attempts && !attempted_tools.is_empty(), attempted_tools, instance.session_id.clone())
                             } else {
                                 (false, Vec::new(), None)
                             }
@@ -1635,6 +1665,10 @@ Response:"#,
                 ClaudeMessage::ToolPermissionDenied { instance_id, tool_name, .. } => {
                     tracing::info!("Tool permission denied for instance {}: {}", instance_id, tool_name);
                     if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+                        // Remove tool from successful list since it was explicitly denied
+                        instance.successful_tools.retain(|t| t != &tool_name);
+                        tracing::info!("Removed tool '{}' from successful list due to permission denial", tool_name);
+                        
                         instance.add_message("System".to_string(), format!("🔒 Permission denied for tool: {}", tool_name));
                         
                         // In automode, ask DeepSeek to analyze if this tool should be enabled
