@@ -2335,6 +2335,8 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                         // First set the instance-specific environment variable
                         std::env::set_var("VEDA_TARGET_INSTANCE_ID", instance_id.to_string());
                         
+                        tracing::info!("🚀 About to spawn Claude Code for instance {} ({})", instance_id, instance_name_owned);
+                        
                         let spawn_result = crate::claude::send_to_claude_with_session(
                             instance_id,
                             "Continue implementation implementing MooseNG".to_string(),
@@ -2345,6 +2347,8 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                         
                         // Clean up the environment variable
                         std::env::remove_var("VEDA_TARGET_INSTANCE_ID");
+                        
+                        tracing::info!("🏁 Claude Code spawn result for instance {} ({}): {:?}", instance_id, instance_name_owned, spawn_result.is_ok());
                         
                         match spawn_result {
                             Ok(()) => {
