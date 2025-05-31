@@ -12,7 +12,8 @@
       "Bash(cargo build:*)",
       "Bash(git rm:*)",
       "mcp__deepwiki__ask_question",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(sed:*)"
     ]
   },
   "enableAllProjectMcpServers": false,

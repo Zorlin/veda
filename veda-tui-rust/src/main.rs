@@ -71,6 +71,8 @@ struct ClaudeInstance {
     last_tool_attempts: Vec<String>,
     // Claude session ID for resume
     session_id: Option<String>,
+    // Working directory for this tab
+    working_directory: String,
 }
 
 impl ClaudeInstance {
@@ -96,6 +98,9 @@ impl ClaudeInstance {
             scroll_offset: 0,
             last_tool_attempts: Vec::new(),
             session_id: None,
+            working_directory: std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| ".".to_string()),
         }
     }
 
@@ -149,9 +154,70 @@ struct App {
     collecting_deepseek_response: bool,
     // Todo list overlay
     todo_list: TodoListState,
+    // Terminal size and tab rectangles
+    terminal_width: u16,
+    tab_rects: Vec<Rect>,
 }
 
 impl App {
+    fn strip_chain_of_thought(text: &str) -> String {
+        let mut cleaned = text.to_string();
+        
+        // Remove <thinking>...</thinking> blocks
+        while let Some(start) = cleaned.find("<thinking>") {
+            if let Some(end) = cleaned[start..].find("</thinking>") {
+                let end_pos = start + end + "</thinking>".len();
+                cleaned.replace_range(start..end_pos, "");
+            } else {
+                break;
+            }
+        }
+        
+        // Split by lines and filter out obvious thinking patterns
+        let lines: Vec<&str> = cleaned.lines().collect();
+        let mut filtered_lines = Vec::new();
+        let mut skip_until_empty = false;
+        
+        for line in lines {
+            let line_lower = line.to_lowercase();
+            
+            // Skip lines that start thinking patterns
+            if line_lower.starts_with("let me think") ||
+               line_lower.starts_with("i need to") ||
+               line_lower.starts_with("first, i") ||
+               line_lower.starts_with("analysis:") ||
+               line_lower.contains("let me analyze") {
+                skip_until_empty = true;
+                continue;
+            }
+            
+            // Reset skip flag on empty line or clear content
+            if line.trim().is_empty() {
+                skip_until_empty = false;
+                filtered_lines.push(line);
+                continue;
+            }
+            
+            // Skip if we're in a thinking section
+            if skip_until_empty {
+                continue;
+            }
+            
+            filtered_lines.push(line);
+        }
+        
+        let result = filtered_lines.join("\n");
+        
+        // Clean up extra whitespace
+        let mut final_result = result.trim().to_string();
+        // Remove multiple consecutive newlines
+        while final_result.contains("\n\n\n") {
+            final_result = final_result.replace("\n\n\n", "\n\n");
+        }
+        
+        final_result
+    }
+    
     fn new() -> Result<Self> {
         let mut instances = Vec::new();
         instances.push(ClaudeInstance::new("Claude 1".to_string()));
@@ -176,6 +242,8 @@ impl App {
                 visible: false,
                 last_update: Local::now(),
             },
+            terminal_width: 80, // Default, will be updated in draw
+            tab_rects: Vec::new(),
         })
     }
 
@@ -188,10 +256,33 @@ impl App {
         self.instances.push(ClaudeInstance::new(format!("Claude {}", instance_num)));
         self.current_tab = self.instances.len() - 1;
     }
+    
+    fn close_current_instance(&mut self) {
+        if self.instances.len() > 1 {
+            self.instances.remove(self.current_tab);
+            // Adjust current tab if we removed the last one
+            if self.current_tab >= self.instances.len() {
+                self.current_tab = self.instances.len() - 1;
+            }
+            self.sync_working_directory();
+        }
+        // If only one tab left, don't close it (always keep at least one)
+    }
+    
+    fn sync_working_directory(&mut self) {
+        if let Some(instance) = self.instances.get(self.current_tab) {
+            if let Err(e) = std::env::set_current_dir(&instance.working_directory) {
+                tracing::warn!("Failed to sync working directory to {}: {}", instance.working_directory, e);
+            } else {
+                tracing::debug!("Synced working directory to: {}", instance.working_directory);
+            }
+        }
+    }
 
     fn next_tab(&mut self) {
         if !self.instances.is_empty() {
             self.current_tab = (self.current_tab + 1) % self.instances.len();
+            self.sync_working_directory();
         }
     }
 
@@ -202,6 +293,7 @@ impl App {
             } else {
                 self.current_tab - 1
             };
+            self.sync_working_directory();
         }
     }
 
@@ -263,24 +355,87 @@ impl App {
 
     async fn send_message(&mut self, message: String) {
         if let Some(instance) = self.current_instance_mut() {
+            // Handle !cd command
+            if message.trim().starts_with("!cd ") {
+                let path = message.trim().strip_prefix("!cd ").unwrap_or("").trim();
+                self.handle_cd_command(path).await;
+                return;
+            }
+            
             tracing::info!("Sending message to Claude instance {}: {}", instance.id, message);
             instance.add_message("You".to_string(), message.clone());
             instance.is_processing = true;
             
             let id = instance.id;
             let session_id = instance.session_id.clone();
+            let working_dir = instance.working_directory.clone();
             let tx = self.message_tx.clone();
+            
+            // Prepend working directory context to the message
+            let context_message = format!("Working directory: {}\n\n{}", working_dir, message);
             
             // Send to Claude
             tokio::spawn(async move {
-                tracing::debug!("Spawning send_to_claude task for instance {} with session {:?}", id, session_id);
-                if let Err(e) = send_to_claude_with_session(id, message.clone(), tx, session_id).await {
+                tracing::debug!("Spawning send_to_claude task for instance {} with session {:?} in dir {}", id, session_id, working_dir);
+                if let Err(e) = send_to_claude_with_session(id, context_message, tx, session_id).await {
                     tracing::error!("Error sending to Claude: {}", e);
                     eprintln!("Error sending to Claude: {}", e);
                 } else {
                     tracing::info!("Successfully initiated Claude command for message: {}", message);
                 }
             });
+        }
+    }
+    
+    async fn handle_cd_command(&mut self, path: &str) {
+        if let Some(instance) = self.current_instance_mut() {
+            let expanded_path = if path.starts_with('~') {
+                path.replacen('~', &std::env::var("HOME").unwrap_or_default(), 1)
+            } else {
+                path.to_string()
+            };
+            
+            // Add user message showing the command
+            instance.add_message("You".to_string(), format!("!cd {}", path));
+            
+            // Validate the path exists and change to it
+            match std::fs::metadata(&expanded_path) {
+                Ok(metadata) if metadata.is_dir() => {
+                    // Actually change the working directory globally
+                    match std::env::set_current_dir(&expanded_path) {
+                        Ok(_) => {
+                            // Update the working directory for this tab
+                            instance.working_directory = expanded_path.clone();
+                            
+                            instance.add_message(
+                                "System".to_string(), 
+                                format!("📁 Changed working directory to: {}", expanded_path)
+                            );
+                            tracing::info!("Changed working directory to: {} for tab {}", expanded_path, instance.name);
+                        }
+                        Err(e) => {
+                            instance.add_message(
+                                "System".to_string(), 
+                                format!("❌ Failed to change to directory: {}", e)
+                            );
+                            tracing::error!("Failed to change to directory {}: {}", expanded_path, e);
+                        }
+                    }
+                }
+                Ok(_) => {
+                    instance.add_message(
+                        "System".to_string(), 
+                        format!("❌ Path exists but is not a directory: {}", expanded_path)
+                    );
+                }
+                Err(e) => {
+                    instance.add_message(
+                        "System".to_string(), 
+                        format!("❌ Directory does not exist: {}", e)
+                    );
+                    tracing::error!("Failed to access directory {}: {}", expanded_path, e);
+                }
+            }
         }
     }
 
@@ -345,13 +500,13 @@ impl App {
                         self.collecting_deepseek_response = false;
                         let full_response = self.deepseek_response_buffer.trim();
                         
-                        // Extract MESSAGE_TO_CLAUDE_WITH_VERDICT
+                        // Extract MESSAGE_TO_CLAUDE_WITH_VERDICT and strip CoT
                         let message_to_claude = if let Some(idx) = full_response.find("MESSAGE_TO_CLAUDE_WITH_VERDICT:") {
                             let verdict_part = &full_response[idx + "MESSAGE_TO_CLAUDE_WITH_VERDICT:".len()..];
                             verdict_part.trim().to_string()
                         } else {
-                            // Fallback to full response if no verdict section found
-                            full_response.to_string()
+                            // Fallback: strip thinking sections from full response
+                            Self::strip_chain_of_thought(full_response)
                         };
                         
                         if !message_to_claude.is_empty() {
@@ -362,6 +517,7 @@ impl App {
                                 
                                 tokio::spawn(async move {
                                     tracing::info!("Sending DeepSeek verdict to Claude: {}", message_to_claude);
+                                    // Send directly without working directory context since this is automode
                                     if let Err(e) = send_to_claude_with_session(instance_id, message_to_claude, tx, session_id).await {
                                         tracing::error!("Failed to send DeepSeek response to Claude: {}", e);
                                     }
@@ -373,7 +529,7 @@ impl App {
                 DeepSeekMessage::Error { error } => {
                     tracing::error!("DeepSeek error: {}", error);
                     if let Some(instance) = self.current_instance_mut() {
-                        instance.add_message("DeepSeek Error".to_string(), error);
+                        instance.add_message("DeepSeekError".to_string(), error);
                     }
                     self.collecting_deepseek_response = false;
                 }
@@ -661,7 +817,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
-    loop {
+    'outer: loop {
         // Process any Claude messages
         app.process_claude_messages().await;
         
@@ -711,6 +867,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
                         }
                         (_, KeyCode::Esc) => return Ok(()),
                         (KeyModifiers::CONTROL, KeyCode::Char('n')) => app.add_instance(),
+                        (KeyModifiers::CONTROL, KeyCode::Char('x')) => app.close_current_instance(),
                         (KeyModifiers::CONTROL, KeyCode::Char('a')) => app.toggle_auto_mode(),
                         (KeyModifiers::CONTROL, KeyCode::Char('t')) => app.toggle_chain_of_thought(),
                         (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
@@ -761,6 +918,18 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
                 Event::Mouse(mouse) => {
                     match mouse.kind {
                         MouseEventKind::Down(_) => {
+                            // Check if click is on any tab using calculated rectangles
+                            for (i, tab_rect) in app.tab_rects.iter().enumerate() {
+                                if mouse.column >= tab_rect.x 
+                                    && mouse.column < tab_rect.x + tab_rect.width
+                                    && mouse.row == tab_rect.y {
+                                    app.current_tab = i;
+                                    app.sync_working_directory();
+                                    tracing::info!("Clicked tab {} at ({}, {}) ", i, mouse.column, mouse.row);
+                                    continue 'outer;
+                                }
+                            }
+                            
                             if let Some(instance) = app.current_instance_mut() {
                                 // Check if click is on a DeepSeek thinking message
                                 let message_area_start = 3; // Account for header
@@ -807,6 +976,8 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
+    // Update terminal width
+    app.terminal_width = f.area().width;
     // Calculate textarea height based on content
     let textarea_height = if let Some(instance) = app.instances.get(app.current_tab) {
         let line_count = instance.textarea.lines().len() as u16;
@@ -822,6 +993,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             Constraint::Length(3),
             Constraint::Min(10),
             Constraint::Length(textarea_height),
+            Constraint::Length(1),
         ])
         .split(f.area());
 
@@ -832,11 +1004,35 @@ fn ui(f: &mut Frame, app: &mut App) {
         .map(|instance| Line::from(instance.name.clone()))
         .collect();
     let tabs = Tabs::new(titles)
-        .block(Block::default().borders(Borders::ALL).title("Veda - Claude Orchestrator"))
+        .block(Block::default().borders(Borders::ALL).title("Veda Claude Manager "))
         .select(app.current_tab)
         .style(Style::default().fg(Color::White))
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
     f.render_widget(tabs, chunks[0]);
+    
+    // Calculate tab rectangles for click detection
+    app.tab_rects.clear();
+    if !app.instances.is_empty() {
+        let tab_area = Rect {
+            x: chunks[0].x + 1, // Inside border
+            y: chunks[0].y + 1, // Inside border
+            width: chunks[0].width - 2, // Minus borders
+            height: 1, // Tab height
+        };
+        
+        let mut current_x = tab_area.x;
+        for instance in &app.instances {
+            let tab_width = instance.name.len() as u16 + 2; // +2 for padding like " Claude 1 "
+            let tab_rect = Rect {
+                x: current_x,
+                y: tab_area.y,
+                width: tab_width,
+                height: 1,
+            };
+            app.tab_rects.push(tab_rect);
+            current_x += tab_width;
+        }
+    }
 
     // Messages area
     if let Some(instance) = app.instances.get_mut(app.current_tab) {
@@ -852,7 +1048,8 @@ fn ui(f: &mut Frame, app: &mut App) {
                         "You" => Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                         "Tool" => Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
                         "System" => Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
-                        "Error" | "DeepSeek Error" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        "Error" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        "DeepSeekError" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                         "DeepSeek" => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                         _ => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                     },
@@ -894,12 +1091,22 @@ fn ui(f: &mut Frame, app: &mut App) {
             all_lines.push(Line::from(""));
         }
 
+        let current_dir = if let Ok(home) = std::env::var("HOME") {
+            if instance.working_directory.starts_with(&home) {
+                instance.working_directory.replacen(&home, "~", 1)
+            } else {
+                instance.working_directory.clone()
+            }
+        } else {
+            instance.working_directory.clone()
+        };
         let messages_paragraph = Paragraph::new(all_lines)
             .block(Block::default().borders(Borders::ALL).title(format!(
-                "Messages - {} [Auto: {}] [CoT: {}]{}",
+                "Messages - {} [Auto: {}] [CoT: {}] [Dir: {}]{}",
                 instance.name,
                 if app.auto_mode { "ON" } else { "OFF" },
                 if app.show_chain_of_thought { "ON" } else { "OFF" },
+                current_dir,
                 if let Some(ref sid) = instance.session_id {
                     let display_len = 8.min(sid.len());
                     let start = sid.len().saturating_sub(display_len);
@@ -928,6 +1135,13 @@ fn ui(f: &mut Frame, app: &mut App) {
         f.render_widget(&instance.textarea, chunks[2]);
     }
     
+    // Status bar with hotkeys
+    let status_line = "Ctrl+N: New Tab | Ctrl+X: Close Tab | Ctrl+L/R: Switch | Ctrl+A: Auto | Ctrl+T: CoT | Ctrl+D: Todo | Ctrl+C: Copy/Exit | !cd: ChangeDir ";
+    let status_bar = Paragraph::new(status_line)
+        .style(Style::default().bg(Color::DarkGray).fg(Color::White))
+        .alignment(Alignment::Left);
+    f.render_widget(status_bar, chunks[3]);
+    
     // Render todo list overlay if visible
     if app.todo_list.visible {
         render_todo_overlay(f, &app.todo_list);
@@ -941,20 +1155,20 @@ fn render_todo_overlay(f: &mut Frame, todo_list: &TodoListState) {
     let mut lines = Vec::new();
     lines.push(Line::from(vec![
         Span::styled("📋 ", Style::default()),
-        Span::styled("Todo List", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("TodoTasks", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
     ]));
     lines.push(Line::from("")); // Empty line
     
     if todo_list.items.is_empty() {
         lines.push(Line::from(Span::styled(
-            "No tasks yet", 
+            "No tasks ", 
             Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)
         )));
     } else {
         for item in &todo_list.items {
             let status_emoji = match item.status.as_str() {
                 "done" => "✅",
-                "in-progress" => "🔄",
+                "in_progress" => "🔄",
                 "review" => "👀",
                 "deferred" => "⏸️",
                 "cancelled" => "❌",
