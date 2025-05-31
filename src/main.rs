@@ -1184,14 +1184,25 @@ This prompt appears only once per session. You now have full access to these pow
                     // Don't create empty message - we'll create it when we get actual content
                 }
                 ClaudeMessage::StreamText { instance_id, text, session_id } => {
-                    // Find which tab this instance belongs to using session_id when available
+                    // Route ONLY by session_id - create tab if session doesn't exist
                     let target_instance_index = if let Some(session_id_val) = &session_id {
-                        // First try to find by session_id (for spawned instances)
-                        self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
-                            .or_else(|| self.instances.iter().position(|i| i.id == instance_id))
+                        // Find by session_id only
+                        match self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val)) {
+                            Some(idx) => Some(idx),
+                            None => {
+                                // Create new tab for this session_id
+                                tracing::info!("🆕 Creating new tab for session: {}", session_id_val);
+                                let tab_name = format!("Veda-{}", self.instances.len() + 1);
+                                let mut new_instance = ClaudeInstance::new(tab_name);
+                                new_instance.session_id = Some(session_id_val.clone());
+                                self.instances.push(new_instance);
+                                Some(self.instances.len() - 1)
+                            }
+                        }
                     } else {
-                        // Fallback to instance_id
-                        self.instances.iter().position(|i| i.id == instance_id)
+                        // No session_id means this is likely a startup message - ignore or buffer
+                        tracing::warn!("Received StreamText without session_id - ignoring: {:?}", text.chars().take(50).collect::<String>());
+                        continue;
                     };
                     
                     let tab_info = if let Some(session_id) = &session_id {
@@ -1679,8 +1690,11 @@ Response:"#,
                     }
                 }
                 ClaudeMessage::SessionStarted { instance_id, session_id } => {
-                    // Find which tab this instance belongs to
-                    let tab_info = self.instances.iter().position(|i| i.id == instance_id)
+                    // Use session-first routing: try to find by session_id first, fallback to instance_id
+                    let target_instance_index = self.instances.iter().position(|i| i.session_id.as_ref() == Some(&session_id))
+                        .or_else(|| self.instances.iter().position(|i| i.id == instance_id));
+                    
+                    let tab_info = target_instance_index
                         .map(|idx| format!("Tab {} ({})", idx + 1, self.instances[idx].name.clone()))
                         .unwrap_or_else(|| "Unknown tab".to_string());
                     
@@ -1692,7 +1706,8 @@ Response:"#,
                             i + 1, inst.name, inst.id, inst.session_id);
                     }
                     
-                    if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+                    if let Some(instance_idx) = target_instance_index {
+                        let instance = &mut self.instances[instance_idx];
                         instance.session_id = Some(session_id.clone());
                         instance.add_message("System".to_string(), format!("📝 Session started: {}", session_id));
                         tracing::info!("✅ Successfully set session {} for {}", session_id, instance.name);
@@ -1723,9 +1738,9 @@ Response:"#,
                             tracing::info!("✅ Processed all buffered messages for session {}", session_id);
                         }
                     } else {
-                        tracing::error!("❌ Could not find instance {} to set session ID {}", instance_id, session_id);
+                        tracing::error!("❌ Could not find instance by session {} or instance_id {} to set session ID", session_id, instance_id);
                         tracing::error!("Available instances: {:?}", 
-                            self.instances.iter().map(|i| (i.id, i.name.clone())).collect::<Vec<_>>());
+                            self.instances.iter().map(|i| (i.id, i.name.clone(), i.session_id.clone())).collect::<Vec<_>>());
                     }
                 }
                 ClaudeMessage::ToolPermissionDenied { instance_id, tool_name, .. } => {
