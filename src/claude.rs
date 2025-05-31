@@ -15,6 +15,7 @@ pub enum ClaudeMessage {
     Exited { instance_id: Uuid, code: Option<i32> },
     ToolUse { instance_id: Uuid, tool_name: String },
     SessionStarted { instance_id: Uuid, session_id: String },
+    ToolPermissionDenied { instance_id: Uuid, tool_name: String },
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -100,6 +101,31 @@ pub async fn send_to_claude(
     tx: mpsc::Sender<ClaudeMessage>,
 ) -> Result<()> {
     send_to_claude_with_session(instance_id, message, tx, None).await
+}
+
+impl ClaudeStreamEvent {
+    /// Extract tool name from permission denied messages
+    fn extract_permission_denied_tool(message: &serde_json::Value) -> Option<String> {
+        // Look for the structure: message.content[0].content contains permission text
+        if let Some(content_array) = message.get("content").and_then(|c| c.as_array()) {
+            for content_item in content_array {
+                if let Some(content_text) = content_item.get("content").and_then(|c| c.as_str()) {
+                    if let Some(is_error) = content_item.get("is_error").and_then(|e| e.as_bool()) {
+                        if is_error && content_text.contains("but you haven't granted it yet") {
+                            // Extract tool name from the standardized message format
+                            if let Some(start) = content_text.find("Claude requested permissions to use ") {
+                                let tool_part = &content_text[start + "Claude requested permissions to use ".len()..];
+                                if let Some(end) = tool_part.find(", but you haven't granted it yet") {
+                                    return Some(tool_part[..end].trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 pub async fn send_to_claude_with_session(
@@ -211,8 +237,17 @@ pub async fn send_to_claude_with_session(
                                 error: error.message,
                             }).await;
                         }
-                        ClaudeStreamEvent::User { .. } => {
-                            tracing::debug!("Ignoring event: {:?}", event);
+                        ClaudeStreamEvent::User { message, session_id: _ } => {
+                            // Check if this is a tool permission denied message
+                            if let Some(tool_name) = ClaudeStreamEvent::extract_permission_denied_tool(&message) {
+                                tracing::info!("Tool permission denied for: {}", tool_name);
+                                let _ = tx_stdout.send(ClaudeMessage::ToolPermissionDenied {
+                                    instance_id: id_stdout,
+                                    tool_name,
+                                }).await;
+                            } else {
+                                tracing::debug!("Ignoring User event (no permission issue detected)");
+                            }
                         }
                     }
                 }

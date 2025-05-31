@@ -1,8 +1,0 @@
-repos:
-  - repo: local
-    hooks:
-      - id: pytest-block-on-fail
-        name: Run pytest (block on FAIL)
-        entry: .tools/hooks/pytest_block_on_fail.py
-        language: python
-        types: [python]

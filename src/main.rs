@@ -73,6 +73,10 @@ struct ClaudeInstance {
     session_id: Option<String>,
     // Working directory for this tab
     working_directory: String,
+    // Stall detection
+    last_activity: DateTime<Local>,
+    stall_check_sent: bool,
+    stall_delay_seconds: i64, // Dynamic delay: 10s, 20s, 30s max
 }
 
 impl ClaudeInstance {
@@ -101,6 +105,9 @@ impl ClaudeInstance {
             working_directory: std::env::current_dir()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| ".".to_string()),
+            last_activity: Local::now(),
+            stall_check_sent: false,
+            stall_delay_seconds: 10, // Start with 10 second delay
         }
     }
 
@@ -117,6 +124,12 @@ impl ClaudeInstance {
             is_thinking,
             is_collapsed,
         });
+        // Update activity when new messages arrive
+        self.last_activity = Local::now();
+        // Reset stall check flag when there's new activity
+        if !is_thinking {
+            self.stall_check_sent = false;
+        }
     }
 
     fn get_selected_text(&self) -> Option<String> {
@@ -136,6 +149,48 @@ impl ClaudeInstance {
             }
         }
         None
+    }
+    
+    fn should_check_for_stall(&self) -> bool {
+        if self.is_processing || self.stall_check_sent {
+            return false;
+        }
+        
+        let elapsed = Local::now().signed_duration_since(self.last_activity);
+        elapsed.num_seconds() > self.stall_delay_seconds
+    }
+    
+    fn on_user_input(&mut self) {
+        // Update activity and increase delay when user types
+        self.last_activity = Local::now();
+        self.stall_check_sent = false;
+        
+        // Double the delay up to 30 seconds max when user types
+        self.stall_delay_seconds = (self.stall_delay_seconds * 2).min(30);
+        tracing::debug!("User input detected, stall delay increased to {} seconds", self.stall_delay_seconds);
+    }
+    
+    fn get_recent_context(&self) -> (String, String) {
+        // Get the last Claude message
+        let claude_message = self.messages.iter()
+            .rev()
+            .find(|m| m.sender == "Claude" && !m.content.is_empty())
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+            
+        // Get the last few user messages for context
+        let user_context = self.messages.iter()
+            .rev()
+            .filter(|m| m.sender == "You")
+            .take(3)
+            .map(|m| m.content.clone())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n\n");
+            
+        (claude_message, user_context)
     }
 }
 
@@ -216,6 +271,73 @@ impl App {
         }
         
         final_result
+    }
+    
+    async fn analyze_tool_safety(tool_name: &str) -> Result<bool> {
+        tracing::info!("Analyzing safety of tool: {}", tool_name);
+        
+        let prompt = format!(
+            r#"Analyze if it's safe to automatically enable the "{}" tool for Claude.
+
+Consider these security factors:
+1. Can this tool be used maliciously to harm the system?
+2. Can it access or modify sensitive data?
+3. Can it execute arbitrary commands that could be dangerous?
+4. Is this a commonly safe tool for AI assistants?
+
+Common safe tools: Read, Write (for basic file operations), TodoRead, TodoWrite, mcp tools
+Potentially unsafe tools: Bash (arbitrary command execution), tools that access network/system
+
+Your response must be EXACTLY one of:
+SAFE_TO_ENABLE
+UNSAFE_TO_ENABLE
+
+Your response:"#,
+            tool_name
+        );
+        
+        let request_body = serde_json::json!({
+            "model": "deepseek-r1:8b",
+            "prompt": prompt,
+            "stream": false
+        });
+        
+        let client = reqwest::Client::new();
+        let response = client
+            .post("http://localhost:11434/api/generate")
+            .json(&request_body)
+            .send()
+            .await?;
+        
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            tracing::error!("Ollama API error: {}", error_text);
+            return Err(anyhow::anyhow!("Ollama API error: {}", error_text));
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct OllamaResponse {
+            response: String,
+        }
+        
+        let ollama_response: OllamaResponse = response.json().await?;
+        let response_text = ollama_response.response.trim();
+        
+        tracing::debug!("DeepSeek safety analysis response: {}", response_text);
+        
+        // Extract the final verdict, ignoring chain of thought
+        let verdict = if let Some(_idx) = response_text.rfind("SAFE_TO_ENABLE") {
+            "SAFE_TO_ENABLE"
+        } else if response_text.contains("UNSAFE_TO_ENABLE") {
+            "UNSAFE_TO_ENABLE"
+        } else {
+            // Default to unsafe if unclear
+            "UNSAFE_TO_ENABLE"
+        };
+        
+        let is_safe = verdict == "SAFE_TO_ENABLE";
+        tracing::info!("Tool {} safety analysis: {} -> {}", tool_name, verdict, if is_safe { "APPROVED" } else { "DENIED" });
+        Ok(is_safe)
     }
     
     fn new() -> Result<Self> {
@@ -746,6 +868,95 @@ impl App {
                         instance.add_message("System".to_string(), format!("📝 Session started: {}", session_id));
                     }
                 }
+                ClaudeMessage::ToolPermissionDenied { instance_id, tool_name } => {
+                    tracing::info!("Tool permission denied for instance {}: {}", instance_id, tool_name);
+                    if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+                        instance.add_message("System".to_string(), format!("🔒 Permission denied for tool: {}", tool_name));
+                        
+                        // In automode, ask DeepSeek to analyze if this tool should be enabled
+                        if self.auto_mode {
+                            let tool_name_copy = tool_name.clone();
+                            let instance_id_copy = instance.id;
+                            let session_id = instance.session_id.clone();
+                            let tx = self.message_tx.clone();
+                            
+                            tokio::spawn(async move {
+                                tracing::info!("Automode: Analyzing safety of tool: {}", tool_name_copy);
+                                
+                                match Self::analyze_tool_safety(&tool_name_copy).await {
+                                    Ok(true) => {
+                                        tracing::info!("DeepSeek approved enabling tool: {}", tool_name_copy);
+                                        
+                                        // Enable the tool
+                                        if let Err(e) = enable_claude_tool(&tool_name_copy).await {
+                                            tracing::error!("Failed to enable tool {}: {}", tool_name_copy, e);
+                                            let _ = tx.send(ClaudeMessage::StreamText {
+                                                instance_id: instance_id_copy,
+                                                text: format!("❌ Failed to enable {}: {}", tool_name_copy, e),
+                                            }).await;
+                                        } else {
+                                            tracing::info!("Successfully enabled tool: {}", tool_name_copy);
+                                            let _ = tx.send(ClaudeMessage::StreamText {
+                                                instance_id: instance_id_copy,
+                                                text: format!("🔧 Automode: Safely enabled tool: {}", tool_name_copy),
+                                            }).await;
+                                            
+                                            // Tell Claude to try again
+                                            let response = format!("I've enabled the {} tool for you. Please try using it again.", tool_name_copy);
+                                            if let Err(e) = send_to_claude_with_session(instance_id_copy, response, tx, session_id).await {
+                                                tracing::error!("Failed to send tool enablement message to Claude: {}", e);
+                                            }
+                                        }
+                                    }
+                                    Ok(false) => {
+                                        tracing::warn!("DeepSeek determined tool {} is unsafe to enable", tool_name_copy);
+                                        let _ = tx.send(ClaudeMessage::StreamText {
+                                            instance_id: instance_id_copy,
+                                            text: format!("🚫 Automode: Tool {} was deemed unsafe and not enabled", tool_name_copy),
+                                        }).await;
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Failed to analyze tool safety: {}", e);
+                                        let _ = tx.send(ClaudeMessage::StreamText {
+                                            instance_id: instance_id_copy,
+                                            text: format!("⚠️ Could not analyze safety of tool {}: {}", tool_name_copy, e),
+                                        }).await;
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn check_for_stalls(&mut self) {
+        if !self.auto_mode {
+            return; // Only check for stalls in automode
+        }
+        
+        if let Some(instance) = self.current_instance_mut() {
+            if instance.should_check_for_stall() {
+                tracing::info!("Detected conversation stall for instance {} after {} seconds, triggering DeepSeek intervention", 
+                              instance.id, instance.stall_delay_seconds);
+                
+                // Mark that we've sent a stall check to avoid repeated triggers
+                instance.stall_check_sent = true;
+                
+                let (claude_message, user_context) = instance.get_recent_context();
+                let deepseek_tx = self.deepseek_tx.clone();
+                
+                // Add system message about stall detection
+                instance.add_message("System".to_string(), 
+                    format!("🕐 Conversation stalled ({}s) - DeepSeek analyzing...", instance.stall_delay_seconds));
+                
+                tokio::spawn(async move {
+                    tracing::info!("Generating stall intervention response");
+                    if let Err(e) = generate_deepseek_stall_response(&claude_message, &user_context, deepseek_tx).await {
+                        tracing::error!("Failed to generate stall response: {}", e);
+                    }
+                });
             }
         }
     }
@@ -823,6 +1034,9 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
         
         // Process any DeepSeek messages
         app.process_deepseek_messages().await;
+        
+        // Check for stalled conversations
+        app.check_for_stalls().await;
         
         // Check if todo list should be hidden
         if app.should_hide_todo_list() {
