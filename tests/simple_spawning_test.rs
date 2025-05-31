@@ -35,7 +35,7 @@ impl SimpleApp {
     }
 
     fn spawn_instance(&mut self, name: String) -> Uuid {
-        let mut instance = TestInstance::new(name);
+        let instance = TestInstance::new(name);
         let instance_id = instance.id;
         self.instances.push(instance);
         instance_id

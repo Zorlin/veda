@@ -2312,7 +2312,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                     // Auto-start the generic instance
                     let tx = self.message_tx.clone();
                     // Clone values needed for the async task
-                    let working_dir_owned = working_dir.to_string();
+                    let _working_dir_owned = working_dir.to_string();
                     let instance_name_owned = instance_name.clone();
                     
                     tokio::spawn(async move {
