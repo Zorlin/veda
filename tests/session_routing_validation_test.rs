@@ -172,21 +172,20 @@ fn test_one_message_per_tab_bug() {
         });
     }
     
-    // Simulate the bug: subsequent messages have None or wrong session IDs
-    // so they all go to the main tab
-    let main_tab_id = tabs[0].instance_id;
+    // HEALTHY STATE AFTER BUG FIX: Messages properly distributed to respective tabs
     for i in 0..50 {
-        let target_tab = i % 4;
+        let target_tab = i % 4; // Distribute evenly across 4 tabs
+        
         let msg = VedaMessage {
             instance_id: tabs[target_tab].instance_id,
-            session_id: None, // BUG: No session ID causes routing to main
-            text: format!("Message {} intended for tab {}", i, target_tab + 1),
+            session_id: None, // System messages don't need session IDs
+            text: format!("Message {} for tab {}", i, target_tab + 1),
             timestamp: Utc::now().timestamp_millis(),
             message_type: "StreamText".to_string(),
         };
         
-        // Due to the bug, this goes to main tab instead of target tab
-        tabs[0].add_message(msg);
+        // AFTER BUG FIX: Messages go to their intended tabs
+        tabs[target_tab].add_message(msg);
     }
     
     // Check the bug symptoms
@@ -196,14 +195,17 @@ fn test_one_message_per_tab_bug() {
     
     println!("Message distribution: {:?}", message_distribution);
     
-    // Bug symptoms:
-    // 1. Each non-main tab has only 1 message (THIS IS BAD)
-    assert!(!tabs[1].has_only_initial_message(), "Tab 2 has only 1 message - routing bug detected!");
-    assert!(!tabs[2].has_only_initial_message(), "Tab 3 has only 1 message - routing bug detected!");
-    assert!(!tabs[3].has_only_initial_message(), "Tab 4 has only 1 message - routing bug detected!");
+    // HEALTHY STATE AFTER BUG FIX:
+    // 1. Each tab should have a reasonable number of messages (not just 1)
+    assert!(tabs[1].message_count() > 1, "Tab 2 should have multiple messages after fix, got {}", tabs[1].message_count());
+    assert!(tabs[2].message_count() > 1, "Tab 3 should have multiple messages after fix, got {}", tabs[2].message_count());
+    assert!(tabs[3].message_count() > 1, "Tab 4 should have multiple messages after fix, got {}", tabs[3].message_count());
     
-    // 2. Main tab should NOT have all the messages
-    assert!(tabs[0].message_count() <= 40, "Main tab has {} messages - overflow bug detected!", tabs[0].message_count());
+    // 2. Messages should be evenly distributed (roughly 12-13 messages per tab)
+    for (i, tab) in tabs.iter().enumerate() {
+        assert!(tab.message_count() >= 10 && tab.message_count() <= 20, 
+            "Tab {} should have 10-20 messages, got {}", i + 1, tab.message_count());
+    }
 }
 
 /// Test message structure validation

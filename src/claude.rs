@@ -225,6 +225,8 @@ pub async fn send_to_claude_with_session(
                         ClaudeStreamEvent::System { subtype, session_id } => {
                             if subtype == "init" {
                                 tracing::info!("Session started with ID: {}", session_id);
+                                
+                                // Simple session started message - shared registry handles coordination
                                 let _ = tx_stdout.send(ClaudeMessage::SessionStarted {
                                     session_id,
                                 }).await;
@@ -312,7 +314,7 @@ pub async fn send_to_claude_with_session(
                             tracing::error!("Received error from Claude: {}", error.message);
                             let _ = tx_stdout.send(ClaudeMessage::Error {
                                 error: error.message,
-                                session_id: None, // Error events don't have session_id
+                                session_id: session_id_clone.clone(), // Use this Claude process's session ID
                             }).await;
                         }
                         ClaudeStreamEvent::User { message, session_id } => {

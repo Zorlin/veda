@@ -288,8 +288,8 @@ impl ClaudeInstance {
 }
 
 struct App {
-    // Global instance ID shared by all tabs in this Veda process
-    instance_id: Uuid,
+    // Global process ID (PID) for this Veda process
+    instance_id: u32,
     // Session ID for this Veda process
     session_id: String,
     instances: Vec<ClaudeInstance>,
@@ -321,7 +321,10 @@ struct App {
     enter_press_count: u8,
     last_enter_time: Option<std::time::Instant>,
     // Buffer for messages that arrive before sessions are established
-    pending_session_messages: Vec<(Uuid, String, String)>, // (instance_id, text, session_id)
+    pending_session_messages: Vec<(u32, String, String)>, // (process_id, text, session_id)
+    // No complex mapping needed - shared registry handles cross-process coordination
+    // Auto-task to send once main instance has session ID
+    pending_auto_task: Option<String>,
 }
 
 impl App {
@@ -540,13 +543,15 @@ Your response:"#,
         let mut instances = Vec::new();
         instances.push(ClaudeInstance::new("Veda-1".to_string()));
         
+        // No complex initialization needed
+        
         let (tx, rx) = mpsc::channel(100);
         let (deepseek_tx, deepseek_rx) = mpsc::channel(100);
         
-        // Generate a single instance ID for this entire Veda process
-        let instance_id = Uuid::new_v4();
+        // Use the actual PID as the Veda process ID
+        let instance_id = std::process::id();
         let session_id = Uuid::new_v4().to_string();
-        tracing::info!("Veda instance started with ID: {}, session ID: {}", instance_id, session_id);
+        tracing::info!("Veda process started with PID: {}, session ID: {}", instance_id, session_id);
         
         Ok(Self {
             instance_id,
@@ -577,6 +582,7 @@ Your response:"#,
             enter_press_count: 0,
             last_enter_time: None,
             pending_session_messages: Vec::new(),
+            pending_auto_task: None,
         })
     }
 
@@ -587,17 +593,75 @@ Your response:"#,
     fn current_instance_mut(&mut self) -> Option<&mut ClaudeInstance> {
         self.instances.get_mut(self.current_tab)
     }
+    
+    fn assign_session_to_instance(&mut self, target_instance_index: Option<usize>, session_id: String) {
+        let tab_info = target_instance_index
+            .map(|idx| format!("Tab {} ({})", idx + 1, self.instances[idx].name.clone()))
+            .unwrap_or_else(|| "Unknown tab".to_string());
+        
+        tracing::info!("🎬 Session started for {} with ID: {}", tab_info, session_id);
+        
+        // Log all current instances for debugging
+        for (i, inst) in self.instances.iter().enumerate() {
+            tracing::info!("  Instance {}: {} (ID: {}, Session: {:?})", 
+                i + 1, inst.name, inst.id, inst.session_id);
+        }
+        
+        if let Some(instance_idx) = target_instance_index {
+            let instance = &mut self.instances[instance_idx];
+            instance.session_id = Some(session_id.clone());
+            instance.add_message("System".to_string(), format!("📝 Session started: {}", session_id));
+            tracing::info!("✅ Successfully set session {} for {}", session_id, instance.name);
+            
+            // If this is instance 0 and we have a pending auto-task, send it
+            if instance_idx == 0 && self.pending_auto_task.is_some() {
+                let auto_task = self.pending_auto_task.take().unwrap();
+                let tx = self.message_tx.clone();
+                let session_id_for_auto = session_id.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    let _ = tx.send(ClaudeMessage::StreamText {
+                        text: auto_task,
+                        session_id: Some(session_id_for_auto),
+                    }).await;
+                });
+                tracing::info!("🚀 Sent pending auto-task to instance 0 with session {}", session_id);
+            }
+            
+            // Process any buffered messages for this session
+            let mut buffered_messages = Vec::new();
+            let mut remaining_messages = Vec::new();
+            
+            for (msg_instance_id, text, msg_session_id) in std::mem::take(&mut self.pending_session_messages) {
+                if msg_session_id == session_id {
+                    buffered_messages.push((msg_instance_id, text, msg_session_id));
+                } else {
+                    remaining_messages.push((msg_instance_id, text, msg_session_id));
+                }
+            }
+            self.pending_session_messages = remaining_messages;
+            
+            if !buffered_messages.is_empty() {
+                tracing::info!("📬 Processing {} buffered messages for session {}", buffered_messages.len(), session_id);
+                for (_, text, _) in buffered_messages {
+                    instance.add_message("System".to_string(), text);
+                }
+            }
+        }
+    }
 
     fn add_instance(&mut self) {
         let instance_num = self.instances.len() + 1;
         let instance_name = format!("Veda-{}", instance_num);
         let new_instance = ClaudeInstance::new(instance_name.clone());
-        let instance_id = new_instance.id;
         
-        tracing::info!("Creating new tab: {} with instance_id: {}", instance_name, instance_id);
+        tracing::info!("Creating new tab: {}", instance_name);
         
         self.instances.push(new_instance);
         self.current_tab = self.instances.len() - 1;
+        
+        // Tab created - session ID will be assigned when user first sends a message
+        tracing::info!("✅ New tab {} created (session ID will be assigned on first use)", instance_name);
     }
     
     fn close_current_instance(&mut self) {
@@ -1184,15 +1248,20 @@ This prompt appears only once per session. You now have full access to these pow
                             if let Some(instance) = self.current_instance_mut() {
                                 let instance_id = instance.id;
                                 let session_id = instance.session_id.clone();
-                                let tx = self.message_tx.clone();
                                 
-                                tokio::spawn(async move {
-                                    tracing::info!("Sending DeepSeek verdict to Claude: {}", message_to_claude);
-                                    // Send directly without working directory context since this is automode
-                                    if let Err(e) = send_to_claude_with_session(message_to_claude, tx, session_id, None).await {
-                                        tracing::error!("Failed to send DeepSeek response to Claude: {}", e);
-                                    }
-                                });
+                                // CRITICAL BUG FIX: Only send automode message if instance has session ID
+                                if let Some(session_id) = session_id {
+                                    let tx = self.message_tx.clone();
+                                    
+                                    tokio::spawn(async move {
+                                        tracing::info!("Sending DeepSeek verdict to Claude: {}", message_to_claude);
+                                        if let Err(e) = send_to_claude_with_session(message_to_claude, tx, Some(session_id), None).await {
+                                            tracing::error!("Failed to send DeepSeek response to Claude: {}", e);
+                                        }
+                                    });
+                                } else {
+                                    tracing::warn!("⚠️  Skipping automode message - instance {} has no session ID yet", instance.name);
+                                }
                             }
                         }
                     }
@@ -1239,8 +1308,8 @@ This prompt appears only once per session. You now have full access to these pow
                         }
                         by_session
                     } else {
-                        // No session_id - route to current tab as fallback
-                        tracing::warn!("No session_id provided for message routing! Routing to current tab ({}) as fallback.", self.current_tab);
+                        // No session_id - route to current tab as fallback for system messages
+                        tracing::info!("No session_id provided - routing system message to current tab ({})", self.current_tab);
                         Some(self.current_tab)
                     };
                     
@@ -1765,57 +1834,13 @@ Response:"#,
                     }
                 }
                 ClaudeMessage::SessionStarted { session_id } => {
-                    // Find first instance without a session_id
+                    tracing::info!("🎬 SessionStarted received for session_id: {}", session_id);
+                    
+                    // No target specified - find first instance without a session_id
                     let target_instance_index = self.instances.iter().position(|i| i.session_id.is_none());
+                    tracing::info!("🔄 No target specified, using fallback assignment: {:?}", target_instance_index);
                     
-                    let tab_info = target_instance_index
-                        .map(|idx| format!("Tab {} ({})", idx + 1, self.instances[idx].name.clone()))
-                        .unwrap_or_else(|| "Unknown tab".to_string());
-                    
-                    tracing::info!("🎬 Session started for {} with ID: {}", tab_info, session_id);
-                    
-                    // Log all current instances for debugging
-                    for (i, inst) in self.instances.iter().enumerate() {
-                        tracing::info!("  Instance {}: {} (ID: {}, Session: {:?})", 
-                            i + 1, inst.name, inst.id, inst.session_id);
-                    }
-                    
-                    if let Some(instance_idx) = target_instance_index {
-                        let instance = &mut self.instances[instance_idx];
-                        instance.session_id = Some(session_id.clone());
-                        instance.add_message("System".to_string(), format!("📝 Session started: {}", session_id));
-                        tracing::info!("✅ Successfully set session {} for {}", session_id, instance.name);
-                        
-                        // Process any buffered messages for this session
-                        let mut buffered_messages = Vec::new();
-                        let mut remaining_messages = Vec::new();
-                        
-                        for (msg_instance_id, text, msg_session_id) in std::mem::take(&mut self.pending_session_messages) {
-                            if msg_session_id == session_id {
-                                buffered_messages.push((msg_instance_id, text, msg_session_id));
-                            } else {
-                                remaining_messages.push((msg_instance_id, text, msg_session_id));
-                            }
-                        }
-                        self.pending_session_messages = remaining_messages;
-                        
-                        if !buffered_messages.is_empty() {
-                            tracing::info!("📬 Processing {} buffered messages for session {}", buffered_messages.len(), session_id);
-                            for (_, text, _) in buffered_messages {
-                                instance.add_message("Claude".to_string(), text);
-                                // For non-current tabs, use default dimensions if not set
-                                let height = if instance.last_message_area_height == 0 { 20 } else { instance.last_message_area_height };
-                                let width = if instance.last_terminal_width == 0 { 80 } else { instance.last_terminal_width };
-                                // Trigger auto-scroll after adding buffered message
-                                instance.auto_scroll_with_width(Some(height), Some(width));
-                            }
-                            tracing::info!("✅ Processed all buffered messages for session {}", session_id);
-                        }
-                    } else {
-                        tracing::error!("❌ Could not find instance by session {} to set session ID", session_id);
-                        tracing::error!("Available instances: {:?}", 
-                            self.instances.iter().map(|i| (i.id, i.name.clone(), i.session_id.clone())).collect::<Vec<_>>());
-                    }
+                    self.assign_session_to_instance(target_instance_index, session_id);
                 }
                 ClaudeMessage::ToolPermissionDenied { tool_name, session_id, .. } => {
                     tracing::info!("Tool permission denied for session {:?}: {}", session_id, tool_name);
@@ -2536,6 +2561,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                     let instance_id = new_instance.id; // Get the real instance ID
                     tracing::info!("Creating new tab: {} with instance_id: {}", instance_name, instance_id);
                     self.instances.push(new_instance);
+                    // Session ID will be assigned when user first sends a message
                     
                     tracing::info!("Starting Claude Code instance for: {}", smart_task);
                     
@@ -2667,6 +2693,7 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
             let instance_id = new_instance.id;
             let instance_name_copy = new_instance.name.clone();
             self.instances.push(new_instance);
+            // Session ID will be assigned when user first sends a message
             
             // Switch to the new instance briefly to show it was created
             if i == 0 {
@@ -2684,6 +2711,8 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
             
             let instance_id_copy = instance_id;
             let instance_name_copy2 = instance_name_copy.clone();
+            // Capture coordinator's session ID for status messages
+            let coordinator_session_id = self.instances[0].session_id.clone();
             
             // Start the Claude process for this instance automatically
             tokio::spawn(async move {
@@ -2720,18 +2749,18 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                     Ok(()) => {
                         tracing::info!("✅ Successfully started Claude Code instance for {}", instance_name_copy2);
                         
-                        // Send success message to current instance  
+                        // Send success message to coordinator instance  
                         let _ = tx.send(ClaudeMessage::StreamText {
                             text: format!("✅ Started Claude Code instance {} with task", instance_name_copy2),
-                            session_id: None,
+                            session_id: coordinator_session_id.clone(),
                         }).await;
                     }
                     Err(e) => {
                         tracing::error!("Failed to start Claude Code instance for {}: {}", instance_name_copy2, e);
-                        // Send error message to the UI
+                        // Send error message to coordinator instance
                         let _ = tx.send(ClaudeMessage::StreamText {
                             text: format!("❌ Failed to start Claude Code instance: {}", e),
-                            session_id: None,
+                            session_id: coordinator_session_id.clone(),
                         }).await;
                     }
                 }
@@ -3121,16 +3150,8 @@ async fn main() -> Result<()> {
         if !app.instances.is_empty() {
             app.instances[0].add_message("System".to_string(), format!("Auto-starting with task: {}", auto_task));
             
-            // Queue the task for immediate processing
-            let tx = app.message_tx.clone();
-            let instance_id = app.instances[0].id;
-            tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                let _ = tx.send(ClaudeMessage::StreamText {
-                    text: auto_task,
-                    session_id: None,
-                }).await;
-            });
+            // Store auto-task to send once instance 0 has a session ID
+            app.pending_auto_task = Some(auto_task);
         }
     }
     
