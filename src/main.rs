@@ -2332,6 +2332,9 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                         tracing::info!("Auto-starting Claude Code instance {} ({})", instance_name_owned, instance_id);
                         
                         // Spawn Claude Code instance with same parameters as main instance
+                        // First set the instance-specific environment variable
+                        std::env::set_var("VEDA_TARGET_INSTANCE_ID", instance_id.to_string());
+                        
                         let spawn_result = crate::claude::send_to_claude_with_session(
                             instance_id,
                             "Continue implementation implementing MooseNG".to_string(),
@@ -2339,6 +2342,9 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                             None,
                             None,
                         ).await;
+                        
+                        // Clean up the environment variable
+                        std::env::remove_var("VEDA_TARGET_INSTANCE_ID");
                         
                         match spawn_result {
                             Ok(()) => {
@@ -2488,6 +2494,9 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                 tracing::info!("Auto-starting Claude Code instance {} ({}) with task", instance_name_copy2, instance_id_copy);
                 
                 // Spawn Claude Code instance with the task instruction
+                // First set the instance-specific environment variable
+                std::env::set_var("VEDA_TARGET_INSTANCE_ID", instance_id_copy.to_string());
+                
                 let spawn_result = crate::claude::send_to_claude_with_session(
                     instance_id_copy,
                     task_instruction.clone(),
@@ -2495,6 +2504,9 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                     None,
                     None,
                 ).await;
+                
+                // Clean up the environment variable
+                std::env::remove_var("VEDA_TARGET_INSTANCE_ID");
                 
                 match spawn_result {
                     Ok(()) => {

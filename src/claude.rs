@@ -158,6 +158,11 @@ pub async fn send_to_claude_with_session(
         cmd.env("VEDA_SESSION_ID", veda_session_id);
     }
     
+    // Set the target instance ID if available (for spawned instances)
+    if let Ok(target_instance_id) = std::env::var("VEDA_TARGET_INSTANCE_ID") {
+        cmd.env("VEDA_TARGET_INSTANCE_ID", target_instance_id);
+    }
+    
     if let Some(session) = session_id {
         cmd.arg("--resume").arg(session);
     }

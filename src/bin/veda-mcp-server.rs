@@ -61,15 +61,23 @@ pub async fn create_tool_call_response(request_id: &Value, tool_name: &str, tool
     // Get the session ID from environment
     let veda_session = std::env::var("VEDA_SESSION_ID").unwrap_or_else(|_| "default".to_string());
     
+    // Get the target instance ID if this is a spawned instance
+    let target_instance_id = std::env::var("VEDA_TARGET_INSTANCE_ID").ok();
+    
     match tool_name {
         "veda_spawn_instances" => {
             // Send message to Veda via IPC
-            let ipc_message = json!({
+            let mut ipc_message = json!({
                 "type": "spawn_instances",
                 "session_id": veda_session,
                 "task_description": tool_input["task_description"].as_str().unwrap_or(""),
                 "num_instances": tool_input["num_instances"].as_u64().unwrap_or(2)
             });
+            
+            // Add target instance ID if available
+            if let Some(ref target_id) = target_instance_id {
+                ipc_message["target_instance_id"] = json!(target_id);
+            }
             
             match send_to_veda(&veda_session, &ipc_message).await {
                 Ok(response) => {
