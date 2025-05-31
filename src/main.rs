@@ -2311,7 +2311,9 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                     
                     // Auto-start the generic instance
                     let tx = self.message_tx.clone();
-                    let auto_start_message = format!("Begin working on: {}", generic_task);
+                    // Clone values needed for the async task
+                    let working_dir_owned = working_dir.to_string();
+                    let instance_name_owned = instance_name.clone();
                     
                     tokio::spawn(async move {
                         // Wait a moment to ensure the UI has been updated
@@ -2327,17 +2329,37 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                             }
                         }
                         
-                        tracing::info!("Auto-starting generic Claude instance {} ({})", instance_name, instance_id);
-                        if let Err(e) = send_to_claude_with_session(instance_id, auto_start_message.clone(), tx.clone(), None, None).await {
-                            tracing::error!("Failed to auto-start generic instance {}: {}", instance_name, e);
-                            // Send error message to the UI
-                            let _ = tx.send(ClaudeMessage::StreamText {
-                                instance_id,
-                                text: format!("❌ Failed to auto-start instance: {}", e),
-                                session_id: None,
-                            }).await;
-                        } else {
-                            tracing::info!("✅ Successfully started Claude process for {}", instance_name);
+                        tracing::info!("Auto-starting Claude Code instance {} ({})", instance_name_owned, instance_id);
+                        
+                        // Spawn Claude Code instance with same parameters as main instance
+                        let spawn_result = crate::claude::send_to_claude_with_session(
+                            instance_id,
+                            "Continue implementation implementing MooseNG".to_string(),
+                            tx.clone(),
+                            None,
+                            None,
+                        ).await;
+                        
+                        match spawn_result {
+                            Ok(()) => {
+                                tracing::info!("✅ Successfully started Claude Code instance for {}", instance_name_owned);
+                                
+                                // Send success message to current instance
+                                let _ = tx.send(ClaudeMessage::StreamText {
+                                    instance_id,
+                                    text: format!("✅ Started Claude Code instance for {}", instance_name_owned),
+                                    session_id: None,
+                                }).await;
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to start Claude Code instance for {}: {}", instance_name_owned, e);
+                                // Send error message to the UI
+                                let _ = tx.send(ClaudeMessage::StreamText {
+                                    instance_id,
+                                    text: format!("❌ Failed to start Claude Code instance: {}", e),
+                                    session_id: None,
+                                }).await;
+                            }
                         }
                     });
                 }
@@ -2463,17 +2485,37 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                     }
                 }
                 
-                tracing::info!("Auto-starting Claude instance {} ({}) with task", instance_name_copy2, instance_id_copy);
-                if let Err(e) = send_to_claude_with_session(instance_id_copy, task_instruction.clone(), tx.clone(), None, None).await {
-                    tracing::error!("Failed to auto-start spawned instance {}: {}", instance_name_copy2, e);
-                    // Send error message to the UI
-                    let _ = tx.send(ClaudeMessage::StreamText {
-                        instance_id: instance_id_copy,
-                        text: format!("❌ Failed to auto-start instance: {}", e),
-                        session_id: None,
-                    }).await;
-                } else {
-                    tracing::info!("✅ Successfully started Claude process for {}", instance_name_copy2);
+                tracing::info!("Auto-starting Claude Code instance {} ({}) with task", instance_name_copy2, instance_id_copy);
+                
+                // Spawn Claude Code instance with the task instruction
+                let spawn_result = crate::claude::send_to_claude_with_session(
+                    instance_id_copy,
+                    task_instruction.clone(),
+                    tx.clone(),
+                    None,
+                    None,
+                ).await;
+                
+                match spawn_result {
+                    Ok(()) => {
+                        tracing::info!("✅ Successfully started Claude Code instance for {}", instance_name_copy2);
+                        
+                        // Send success message to current instance
+                        let _ = tx.send(ClaudeMessage::StreamText {
+                            instance_id: instance_id_copy,
+                            text: format!("✅ Started Claude Code instance {} with task", instance_name_copy2),
+                            session_id: None,
+                        }).await;
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to start Claude Code instance for {}: {}", instance_name_copy2, e);
+                        // Send error message to the UI
+                        let _ = tx.send(ClaudeMessage::StreamText {
+                            instance_id: instance_id_copy,
+                            text: format!("❌ Failed to start Claude Code instance: {}", e),
+                            session_id: None,
+                        }).await;
+                    }
                 }
             });
         }
@@ -2753,6 +2795,36 @@ async fn main() -> Result<()> {
 
     // Create app state
     let mut app = App::new()?;
+    
+    // Check for instance name from environment (for spawned instances)
+    if let Ok(instance_name) = std::env::var("VEDA_INSTANCE_NAME") {
+        // This is a spawned instance - update the main instance name
+        if !app.instances.is_empty() {
+            app.instances[0].name = instance_name;
+            tracing::info!("Updated instance name from environment: {}", app.instances[0].name);
+        }
+    }
+    
+    // Check for auto-start task from environment
+    if let Ok(auto_task) = std::env::var("VEDA_AUTO_TASK") {
+        tracing::info!("Auto-task detected from environment: {}", auto_task);
+        // Add the auto-task as an initial message to process
+        if !app.instances.is_empty() {
+            app.instances[0].add_message("System".to_string(), format!("Auto-starting with task: {}", auto_task));
+            
+            // Queue the task for immediate processing
+            let tx = app.message_tx.clone();
+            let instance_id = app.instances[0].id;
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                let _ = tx.send(ClaudeMessage::StreamText {
+                    instance_id,
+                    text: auto_task,
+                    session_id: None,
+                }).await;
+            });
+        }
+    }
     
     // Set the session ID as environment variable for child processes
     std::env::set_var("VEDA_SESSION_ID", &app.session_id);
