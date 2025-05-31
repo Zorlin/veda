@@ -613,6 +613,15 @@ Your response:"#,
             instance.add_message("System".to_string(), format!("📝 Session started: {}", session_id));
             tracing::info!("✅ Successfully set session {} for {}", session_id, instance.name);
             
+            // Register sessionID -> Veda_PID in shared registry for cross-process coordination
+            let veda_pid = self.instance_id; // This is the Veda process PID
+            let session_id_for_registry = session_id.clone();
+            tokio::spawn(async move {
+                if let Err(e) = crate::shared_ipc::RegistryClient::register_session_pid(&session_id_for_registry, veda_pid).await {
+                    tracing::warn!("Failed to register session {} -> PID {} in shared registry: {}", session_id_for_registry, veda_pid, e);
+                }
+            });
+            
             // If this is instance 0 and we have a pending auto-task, send it
             if instance_idx == 0 && self.pending_auto_task.is_some() {
                 let auto_task = self.pending_auto_task.take().unwrap();

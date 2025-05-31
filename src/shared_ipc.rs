@@ -12,6 +12,8 @@ use tracing::{info, error, warn};
 pub struct SharedInstanceRegistry {
     /// Map of Session ID -> number of child instances
     session_instances: Arc<RwLock<HashMap<String, u32>>>,
+    /// Map of Session ID -> Veda PID for cross-process coordination  
+    session_to_pid: Arc<RwLock<HashMap<String, u32>>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -46,6 +48,7 @@ impl SharedInstanceRegistry {
     pub fn new() -> Self {
         Self {
             session_instances: Arc::new(RwLock::new(HashMap::new())),
+            session_to_pid: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -84,6 +87,30 @@ impl SharedInstanceRegistry {
     pub async fn clear_session(&self, session_id: &str) {
         let mut registry = self.session_instances.write().await;
         registry.remove(session_id);
+    }
+    
+    /// Register sessionID -> Veda PID mapping
+    pub async fn register_session_pid(&self, session_id: &str, veda_pid: u32) {
+        let mut registry = self.session_to_pid.write().await;
+        registry.insert(session_id.to_string(), veda_pid);
+    }
+    
+    /// Get Veda PID for a session
+    pub async fn get_session_pid(&self, session_id: &str) -> Option<u32> {
+        let registry = self.session_to_pid.read().await;
+        registry.get(session_id).copied()
+    }
+    
+    /// Remove sessionID -> PID mapping
+    pub async fn unregister_session_pid(&self, session_id: &str) {
+        let mut registry = self.session_to_pid.write().await;
+        registry.remove(session_id);
+    }
+    
+    /// Get all sessionID -> PID mappings
+    pub async fn get_all_session_pids(&self) -> HashMap<String, u32> {
+        let registry = self.session_to_pid.read().await;
+        registry.clone()
     }
 }
 
@@ -168,6 +195,46 @@ async fn handle_registry_connection(
                             success: true,
                             message: "Session cleared".to_string(),
                             data: None,
+                        }
+                    }
+                    "register_pid" => {
+                        let veda_pid = cmd.value.unwrap_or(0);
+                        registry.register_session_pid(&cmd.session_id, veda_pid).await;
+                        RegistryResponse {
+                            success: true,
+                            message: format!("Registered session {} -> PID {}", cmd.session_id, veda_pid),
+                            data: None,
+                        }
+                    }
+                    "get_pid" => {
+                        if let Some(veda_pid) = registry.get_session_pid(&cmd.session_id).await {
+                            RegistryResponse {
+                                success: true,
+                                message: format!("Session {} -> PID {}", cmd.session_id, veda_pid),
+                                data: Some(HashMap::from([(cmd.session_id.clone(), veda_pid)])),
+                            }
+                        } else {
+                            RegistryResponse {
+                                success: false,
+                                message: format!("No PID found for session {}", cmd.session_id),
+                                data: None,
+                            }
+                        }
+                    }
+                    "unregister_pid" => {
+                        registry.unregister_session_pid(&cmd.session_id).await;
+                        RegistryResponse {
+                            success: true,
+                            message: format!("Unregistered session {}", cmd.session_id),
+                            data: None,
+                        }
+                    }
+                    "list_pids" => {
+                        let all_pids = registry.get_all_session_pids().await;
+                        RegistryResponse {
+                            success: true,
+                            message: format!("{} session PIDs", all_pids.len()),
+                            data: Some(all_pids),
                         }
                     }
                     _ => RegistryResponse {
@@ -269,6 +336,72 @@ impl RegistryClient {
     pub async fn list_all_sessions() -> Result<HashMap<String, u32>> {
         let cmd = RegistryCommand {
             command: "list".to_string(),
+            session_id: String::new(),
+            value: None,
+        };
+        
+        let response = Self::send_command(cmd).await?;
+        if response.success {
+            return Ok(response.data.unwrap_or_default());
+        }
+        Ok(HashMap::new())
+    }
+    
+    /// Register sessionID -> Veda PID mapping in shared registry
+    pub async fn register_session_pid(session_id: &str, veda_pid: u32) -> Result<()> {
+        let cmd = RegistryCommand {
+            command: "register_pid".to_string(),
+            session_id: session_id.to_string(),
+            value: Some(veda_pid),
+        };
+        
+        let response = Self::send_command(cmd).await?;
+        if response.success {
+            info!("✅ Registered session {} -> PID {} in shared registry", session_id, veda_pid);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to register session PID: {}", response.message))
+        }
+    }
+    
+    /// Get Veda PID for a session from shared registry
+    pub async fn get_session_pid(session_id: &str) -> Result<Option<u32>> {
+        let cmd = RegistryCommand {
+            command: "get_pid".to_string(),
+            session_id: session_id.to_string(),
+            value: None,
+        };
+        
+        let response = Self::send_command(cmd).await?;
+        if response.success {
+            if let Some(data) = response.data {
+                return Ok(data.get(session_id).copied());
+            }
+        }
+        Ok(None)
+    }
+    
+    /// Remove sessionID -> PID mapping from shared registry
+    pub async fn unregister_session_pid(session_id: &str) -> Result<()> {
+        let cmd = RegistryCommand {
+            command: "unregister_pid".to_string(),
+            session_id: session_id.to_string(),
+            value: None,
+        };
+        
+        let response = Self::send_command(cmd).await?;
+        if response.success {
+            info!("✅ Unregistered session {} from shared registry", session_id);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to unregister session PID: {}", response.message))
+        }
+    }
+    
+    /// Get all sessionID -> PID mappings from shared registry
+    pub async fn list_all_session_pids() -> Result<HashMap<String, u32>> {
+        let cmd = RegistryCommand {
+            command: "list_pids".to_string(),
             session_id: String::new(),
             value: None,
         };
