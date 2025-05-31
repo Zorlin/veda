@@ -117,7 +117,7 @@ Your response (one line only):"#,
     );
     
     let request_body = json!({
-        "model": "deepseek-r1:8b",
+        "model": "gemma3:8b",
         "prompt": prompt,
         "stream": false
     });
@@ -237,7 +237,7 @@ MESSAGE_TO_CLAUDE_WITH_VERDICT:"#,
     
     // Create the request body for Ollama API with streaming
     let request_body = json!({
-        "model": "deepseek-r1:8b",
+        "model": "gemma3:8b",
         "prompt": prompt,
         "stream": true
     });
@@ -635,7 +635,7 @@ Important instructions:
     
     // Create the request body for Ollama API with streaming
     let request_body = json!({
-        "model": "deepseek-r1:8b",
+        "model": "gemma3:8b",
         "prompt": prompt,
         "stream": true
     });
@@ -778,7 +778,7 @@ Important instructions:
     
     // Create the request body for Ollama API
     let request_body = json!({
-        "model": "deepseek-r1:8b",
+        "model": "gemma3:8b",
         "prompt": prompt,
         "stream": false
     });

@@ -163,6 +163,7 @@ pub async fn send_to_claude_with_session(
         cmd.env("VEDA_TARGET_INSTANCE_ID", target_instance_id);
     }
     
+    let session_id_for_log = session_id.clone();
     if let Some(session) = session_id {
         cmd.arg("--resume").arg(session);
     }
@@ -183,7 +184,9 @@ pub async fn send_to_claude_with_session(
             e
         })?;
 
-    tracing::info!("Claude process spawned successfully");
+    let process_pid = cmd.id();
+    tracing::info!("Claude process spawned successfully with PID: {:?} for instance {} (session: {:?})", 
+        process_pid, instance_id, session_id_for_log);
     
     // Extract stdout and stderr first, before storing the process handle
     let stdout = cmd.stdout.take().expect("Failed to open stdout");
@@ -193,7 +196,7 @@ pub async fn send_to_claude_with_session(
     if let Some(ref handle_storage) = process_handle_storage {
         let mut handle_guard = handle_storage.lock().await;
         *handle_guard = Some(cmd);
-        tracing::debug!("Stored process handle for instance {}", instance_id);
+        tracing::info!("Stored process handle (PID: {:?}) for instance {}", process_pid, instance_id);
     }
 
     // Notify start

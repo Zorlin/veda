@@ -1,15 +1,22 @@
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::env;
 
 // Mock implementation of MCP server functions for testing
 mod mcp_server {
     use serde_json::{json, Value};
+    use std::collections::HashMap;
     
-    // Re-export the functions we want to test
-    pub async fn create_tool_call_response_test(request_id: &Value, tool_name: &str, tool_input: &Value) -> Value {
+    // Re-export the functions we want to test - now takes explicit environment
+    pub async fn create_tool_call_response_test(
+        request_id: &Value, 
+        tool_name: &str, 
+        tool_input: &Value,
+        env_vars: &HashMap<String, String>
+    ) -> Value {
         // Mock implementation that mirrors the actual MCP server logic
-        let veda_session = std::env::var("VEDA_SESSION_ID").unwrap_or_else(|_| "default".to_string());
-        let target_instance_id = std::env::var("VEDA_TARGET_INSTANCE_ID").ok();
+        let veda_session = env_vars.get("VEDA_SESSION_ID").cloned().unwrap_or_else(|| "default".to_string());
+        let target_instance_id = env_vars.get("VEDA_TARGET_INSTANCE_ID").cloned();
         
         match tool_name {
             "veda_spawn_instances" => {
@@ -78,11 +85,12 @@ async fn test_mcp_server_includes_target_instance_id() {
         "num_instances": 3
     });
     
-    // Set up environment variables
-    env::set_var("VEDA_SESSION_ID", "test-session-123");
-    env::set_var("VEDA_TARGET_INSTANCE_ID", "target-instance-456");
+    // Set up test environment variables
+    let mut env_vars = HashMap::new();
+    env_vars.insert("VEDA_SESSION_ID".to_string(), "test-session-123".to_string());
+    env_vars.insert("VEDA_TARGET_INSTANCE_ID".to_string(), "target-instance-456".to_string());
     
-    let response = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input).await;
+    let response = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input, &env_vars).await;
     
     // Verify response structure
     assert_eq!(response["jsonrpc"], "2.0");
@@ -102,10 +110,6 @@ async fn test_mcp_server_includes_target_instance_id() {
     assert_eq!(ipc_message["task_description"], "Test task");
     assert_eq!(ipc_message["num_instances"], 3);
     assert_eq!(ipc_message["target_instance_id"], "target-instance-456");
-    
-    // Clean up
-    env::remove_var("VEDA_SESSION_ID");
-    env::remove_var("VEDA_TARGET_INSTANCE_ID");
 }
 
 #[tokio::test]
@@ -117,10 +121,11 @@ async fn test_mcp_server_without_target_instance_id() {
     });
     
     // Set up environment variables without target instance ID
-    env::set_var("VEDA_SESSION_ID", "test-session-789");
-    env::remove_var("VEDA_TARGET_INSTANCE_ID");
+    let mut env_vars = HashMap::new();
+    env_vars.insert("VEDA_SESSION_ID".to_string(), "test-session-789".to_string());
+    // Deliberately not setting VEDA_TARGET_INSTANCE_ID
     
-    let response = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input).await;
+    let response = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input, &env_vars).await;
     
     // Parse the IPC message from the response
     let response_text = response["result"]["content"][0]["text"].as_str().unwrap();
@@ -133,9 +138,6 @@ async fn test_mcp_server_without_target_instance_id() {
     assert_eq!(ipc_message["task_description"], "Another test");
     assert_eq!(ipc_message["num_instances"], 1);
     assert!(ipc_message.get("target_instance_id").is_none(), "Should not include target_instance_id when not set");
-    
-    // Clean up
-    env::remove_var("VEDA_SESSION_ID");
 }
 
 #[tokio::test]
@@ -144,10 +146,11 @@ async fn test_mcp_server_list_instances_with_target_id() {
     let tool_input = json!({});
     
     // Set up environment variables
-    env::set_var("VEDA_SESSION_ID", "list-session");
-    env::set_var("VEDA_TARGET_INSTANCE_ID", "list-target-123");
+    let mut env_vars = HashMap::new();
+    env_vars.insert("VEDA_SESSION_ID".to_string(), "list-session".to_string());
+    env_vars.insert("VEDA_TARGET_INSTANCE_ID".to_string(), "list-target-123".to_string());
     
-    let response = mcp_server::create_tool_call_response_test(&request_id, "veda_list_instances", &tool_input).await;
+    let response = mcp_server::create_tool_call_response_test(&request_id, "veda_list_instances", &tool_input, &env_vars).await;
     
     // Parse the IPC message
     let response_text = response["result"]["content"][0]["text"].as_str().unwrap();
@@ -158,15 +161,10 @@ async fn test_mcp_server_list_instances_with_target_id() {
     assert_eq!(ipc_message["type"], "list_instances");
     assert_eq!(ipc_message["session_id"], "list-session");
     assert_eq!(ipc_message["target_instance_id"], "list-target-123");
-    
-    // Clean up
-    env::remove_var("VEDA_SESSION_ID");
-    env::remove_var("VEDA_TARGET_INSTANCE_ID");
 }
 
 #[tokio::test]
 async fn test_mcp_server_environment_isolation() {
-    // Test that different environment setups produce different results
     let request_id = json!(1);
     let tool_input = json!({
         "task_description": "Isolation test",
@@ -174,20 +172,25 @@ async fn test_mcp_server_environment_isolation() {
     });
     
     // First call with target instance ID
-    env::set_var("VEDA_SESSION_ID", "isolation-session");
-    env::set_var("VEDA_TARGET_INSTANCE_ID", "target-alpha");
+    let mut env_vars1 = HashMap::new();
+    env_vars1.insert("VEDA_SESSION_ID".to_string(), "isolation-session".to_string());
+    env_vars1.insert("VEDA_TARGET_INSTANCE_ID".to_string(), "target-alpha".to_string());
     
-    let response1 = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input).await;
+    let response1 = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input, &env_vars1).await;
     
     // Second call with different target instance ID
-    env::set_var("VEDA_TARGET_INSTANCE_ID", "target-beta");
+    let mut env_vars2 = HashMap::new();
+    env_vars2.insert("VEDA_SESSION_ID".to_string(), "isolation-session".to_string());
+    env_vars2.insert("VEDA_TARGET_INSTANCE_ID".to_string(), "target-beta".to_string());
     
-    let response2 = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input).await;
+    let response2 = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input, &env_vars2).await;
     
     // Third call with no target instance ID
-    env::remove_var("VEDA_TARGET_INSTANCE_ID");
+    let mut env_vars3 = HashMap::new();
+    env_vars3.insert("VEDA_SESSION_ID".to_string(), "isolation-session".to_string());
+    // No VEDA_TARGET_INSTANCE_ID
     
-    let response3 = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input).await;
+    let response3 = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input, &env_vars3).await;
     
     // Parse all responses
     let text1 = response1["result"]["content"][0]["text"].as_str().unwrap();
@@ -202,10 +205,7 @@ async fn test_mcp_server_environment_isolation() {
     // Verify specific content
     assert!(text1.contains("target-alpha"), "First response should contain target-alpha");
     assert!(text2.contains("target-beta"), "Second response should contain target-beta");
-    assert!(!text3.contains("target_instance_id"), "Third response should not contain target_instance_id");
-    
-    // Clean up
-    env::remove_var("VEDA_SESSION_ID");
+    assert!(!text3.contains("target_instance_id"), "Third response should not contain target_instance_id field");
 }
 
 #[tokio::test]
@@ -213,9 +213,11 @@ async fn test_mcp_server_unknown_tool() {
     let request_id = json!("unknown");
     let tool_input = json!({});
     
-    env::set_var("VEDA_TARGET_INSTANCE_ID", "should-be-ignored");
+    // Test with environment that includes target instance (should be ignored for unknown tool)
+    let mut env_vars = HashMap::new();
+    env_vars.insert("VEDA_TARGET_INSTANCE_ID".to_string(), "should-be-ignored".to_string());
     
-    let response = mcp_server::create_tool_call_response_test(&request_id, "unknown_tool", &tool_input).await;
+    let response = mcp_server::create_tool_call_response_test(&request_id, "unknown_tool", &tool_input, &env_vars).await;
     
     // Verify error response
     assert_eq!(response["jsonrpc"], "2.0");
@@ -223,23 +225,19 @@ async fn test_mcp_server_unknown_tool() {
     assert!(response["error"].is_object());
     assert_eq!(response["error"]["code"], -32601);
     assert_eq!(response["error"]["message"], "Method not found");
-    
-    // Clean up
-    env::remove_var("VEDA_TARGET_INSTANCE_ID");
 }
 
 #[tokio::test]
 async fn test_environment_variable_cleanup() {
-    // Ensure environment variables don't leak between tests
     let request_id = json!(123);
     let tool_input = json!({
         "task_description": "Cleanup test"
     });
     
-    // Verify no environment variables are set initially
-    assert!(env::var("VEDA_TARGET_INSTANCE_ID").is_err(), "Should start with no target instance ID");
+    // Test with completely clean environment (no variables set)
+    let env_vars = HashMap::new();
     
-    let response = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input).await;
+    let response = mcp_server::create_tool_call_response_test(&request_id, "veda_spawn_instances", &tool_input, &env_vars).await;
     
     // Parse response
     let response_text = response["result"]["content"][0]["text"].as_str().unwrap();
@@ -248,7 +246,5 @@ async fn test_environment_variable_cleanup() {
     
     // Verify no target_instance_id in message when environment is clean
     assert!(ipc_message.get("target_instance_id").is_none(), "Should not have target_instance_id when env is clean");
-    
-    // Verify environment is still clean after the call
-    assert!(env::var("VEDA_TARGET_INSTANCE_ID").is_err(), "Should end with no target instance ID");
+    assert_eq!(ipc_message["session_id"], "default", "Should use default session when no VEDA_SESSION_ID");
 }
