@@ -13,7 +13,16 @@
       "Bash(git rm:*)",
       "mcp__deepwiki__ask_question",
       "WebFetch(domain:github.com)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash",
+      "TodoWrite",
+      "TodoWrite LS Bash",
+      "Bash(timeout 30 cargo check)",
+      "Bash(cargo run:*)",
+      "Bash(timeout 10 cargo check)",
+      "Bash(rg:*)",
+      "Bash(timeout 10 cargo build)",
+      "Bash(ls:*)"
     ]
   },
   "enableAllProjectMcpServers": false,

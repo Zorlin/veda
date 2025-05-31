@@ -16,6 +16,10 @@ pub enum ClaudeMessage {
     ToolUse { instance_id: Uuid, tool_name: String },
     SessionStarted { instance_id: Uuid, session_id: String },
     ToolPermissionDenied { instance_id: Uuid, tool_name: String },
+    // Instance management MCP calls
+    VedaSpawnInstances { instance_id: Uuid, task_description: String, num_instances: u8 },
+    VedaListInstances { instance_id: Uuid },
+    VedaCloseInstance { instance_id: Uuid, target_instance_name: String },
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -206,12 +210,53 @@ pub async fn send_to_claude_with_session(
                                             text,
                                         }).await;
                                     }
-                                    ContentItem::ToolUse { name, .. } => {
+                                    ContentItem::ToolUse { name, input, .. } => {
                                         tracing::info!("Claude attempting to use tool: {}", name);
-                                        let _ = tx_stdout.send(ClaudeMessage::ToolUse {
-                                            instance_id: id_stdout,
-                                            tool_name: name,
-                                        }).await;
+                                        
+                                        // Check for Veda instance management MCP calls
+                                        match name.as_str() {
+                                            "veda_spawn_instances" => {
+                                                let task_description = input.as_object()
+                                                    .and_then(|obj| obj.get("task_description"))
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("")
+                                                    .to_string();
+                                                let num_instances = input.as_object()
+                                                    .and_then(|obj| obj.get("num_instances"))
+                                                    .and_then(|v| v.as_u64())
+                                                    .unwrap_or(2) as u8; // Default to 2 additional instances
+                                                
+                                                let _ = tx_stdout.send(ClaudeMessage::VedaSpawnInstances {
+                                                    instance_id: id_stdout,
+                                                    task_description,
+                                                    num_instances,
+                                                }).await;
+                                            }
+                                            "veda_list_instances" => {
+                                                let _ = tx_stdout.send(ClaudeMessage::VedaListInstances {
+                                                    instance_id: id_stdout,
+                                                }).await;
+                                            }
+                                            "veda_close_instance" => {
+                                                let target_instance_name = input.as_object()
+                                                    .and_then(|obj| obj.get("instance_name"))
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("")
+                                                    .to_string();
+                                                
+                                                let _ = tx_stdout.send(ClaudeMessage::VedaCloseInstance {
+                                                    instance_id: id_stdout,
+                                                    target_instance_name,
+                                                }).await;
+                                            }
+                                            _ => {
+                                                // Regular tool use
+                                                let _ = tx_stdout.send(ClaudeMessage::ToolUse {
+                                                    instance_id: id_stdout,
+                                                    tool_name: name,
+                                                }).await;
+                                            }
+                                        }
                                     }
                                 }
                             }

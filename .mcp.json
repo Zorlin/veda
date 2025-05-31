@@ -19,6 +19,9 @@
     "deepwiki": {
       "type": "sse",
       "url": "https://mcp.deepwiki.com/sse"
+    },
+    "veda": {
+      "command": "veda-mcp-server"
     }
   }
 }

@@ -1,1 +1,1 @@
-cargo build --release ; cp target/release/veda-tui ~/.bin/veda
+cargo build --release ; cp target/release/veda-tui ~/.bin/veda ; cp target/release/veda-mcp-server ~/.bin/veda-mcp-server
