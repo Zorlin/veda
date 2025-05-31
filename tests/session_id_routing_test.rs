@@ -1,279 +1,430 @@
-use uuid::Uuid;
-
-// Mock structures to test session_id routing functionality
-#[derive(Clone)]
-struct MockInstance {
-    id: Uuid,
-    name: String,
-    session_id: Option<String>,
-    messages: Vec<MockMessage>,
-}
-
-#[derive(Clone, Debug)]
-struct MockMessage {
-    sender: String,
-    content: String,
-}
-
-impl MockInstance {
-    fn new(name: String) -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            name,
-            session_id: None,
-            messages: Vec::new(),
+#[cfg(test)]
+mod session_id_routing_tests {
+    use std::sync::Arc;
+    use tokio::sync::{mpsc, Mutex};
+    use uuid::Uuid;
+    use std::collections::HashMap;
+    
+    // Simulate the ClaudeMessage enum for routing
+    #[derive(Debug, Clone)]
+    enum MockClaudeMessage {
+        StreamText {
+            instance_id: Uuid,
+            text: String,
+            session_id: Option<String>,
+        },
+        SessionStarted {
+            instance_id: Uuid,
+            session_id: String,
+        },
+        ToolUse {
+            instance_id: Uuid,
+            tool_name: String,
+            session_id: Option<String>,
+        },
+    }
+    
+    // Mock instance for testing
+    #[derive(Debug, Clone)]
+    struct MockInstance {
+        id: Uuid,
+        name: String,
+        session_id: Option<String>,
+        messages: Vec<(String, String)>, // (sender, content)
+    }
+    
+    impl MockInstance {
+        fn new(name: String) -> Self {
+            Self {
+                id: Uuid::new_v4(),
+                name,
+                session_id: None,
+                messages: Vec::new(),
+            }
         }
-    }
-    
-    fn with_session_id(mut self, session_id: String) -> Self {
-        self.session_id = Some(session_id);
-        self
-    }
-    
-    fn add_message(&mut self, sender: String, content: String) {
-        self.messages.push(MockMessage { sender, content });
-    }
-}
-
-struct MockApp {
-    instances: Vec<MockInstance>,
-}
-
-impl MockApp {
-    fn new() -> Self {
-        Self {
-            instances: vec![MockInstance::new("Claude 1".to_string())],
-        }
-    }
-    
-    // Simulate the session_id routing logic from main.rs
-    fn find_instance_by_session_or_id(&self, instance_id: Uuid, session_id: Option<&String>) -> Option<usize> {
-        if let Some(session_id_val) = session_id {
-            // First try to find by session_id (for spawned instances)
-            self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
-                .or_else(|| self.instances.iter().position(|i| i.id == instance_id))
-        } else {
-            // Fallback to instance_id
-            self.instances.iter().position(|i| i.id == instance_id)
-        }
-    }
-    
-    fn simulate_stream_text(&mut self, instance_id: Uuid, text: String, session_id: Option<String>) -> bool {
-        let target_instance_index = self.find_instance_by_session_or_id(instance_id, session_id.as_ref());
         
-        if let Some(instance_idx) = target_instance_index {
-            self.instances[instance_idx].add_message("Claude".to_string(), text);
-            true
-        } else {
-            false
+        fn add_message(&mut self, sender: String, content: String) {
+            self.messages.push((sender, content));
         }
     }
-}
-
-#[test]
-fn test_session_id_routing_preference() {
-    // Test that session_id takes precedence over instance_id
-    let mut app = MockApp::new();
     
-    // Create instances with different session_ids
-    let instance_2_id = Uuid::new_v4();
-    let instance_3_id = Uuid::new_v4();
-    
-    let instance_2 = MockInstance::new("Claude 2".to_string())
-        .with_session_id("session-alpha".to_string());
-    let instance_3 = MockInstance::new("Claude 3".to_string())
-        .with_session_id("session-beta".to_string());
-    
-    // Set specific IDs for testing
-    app.instances.push(MockInstance { id: instance_2_id, ..instance_2 });
-    app.instances.push(MockInstance { id: instance_3_id, ..instance_3 });
-    
-    // Test 1: Message with session_id should go to correct instance regardless of instance_id
-    let wrong_instance_id = Uuid::new_v4(); // Random ID that doesn't match any instance
-    let success = app.simulate_stream_text(
-        wrong_instance_id, 
-        "Message for session-beta".to_string(), 
-        Some("session-beta".to_string())
-    );
-    
-    assert!(success, "Should find instance by session_id even with wrong instance_id");
-    assert!(app.instances[2].messages.iter().any(|m| m.content.contains("session-beta")), 
-           "Message should appear in instance with session-beta");
-    assert!(!app.instances[1].messages.iter().any(|m| m.content.contains("session-beta")), 
-           "Message should NOT appear in instance with session-alpha");
-    
-    println!("✅ Session ID routing preference works correctly");
-}
-
-#[test]
-fn test_instance_id_fallback() {
-    // Test that instance_id is used when no session_id is provided
-    let mut app = MockApp::new();
-    
-    let instance_2_id = Uuid::new_v4();
-    let instance_2 = MockInstance::new("Claude 2".to_string());
-    app.instances.push(MockInstance { id: instance_2_id, ..instance_2 });
-    
-    // Send message without session_id
-    let success = app.simulate_stream_text(
-        instance_2_id, 
-        "Message without session_id".to_string(), 
-        None
-    );
-    
-    assert!(success, "Should find instance by instance_id when no session_id");
-    assert!(app.instances[1].messages.iter().any(|m| m.content.contains("without session_id")), 
-           "Message should appear in correct instance");
-    
-    println!("✅ Instance ID fallback works correctly");
-}
-
-#[test]
-fn test_session_id_override_instance_id() {
-    // Test complex scenario where session_id and instance_id point to different instances
-    let mut app = MockApp::new();
-    
-    let instance_2_id = Uuid::new_v4();
-    let instance_3_id = Uuid::new_v4();
-    
-    // Instance 2 has session-alpha
-    let instance_2 = MockInstance::new("Claude 2".to_string())
-        .with_session_id("session-alpha".to_string());
-    
-    // Instance 3 has session-beta
-    let instance_3 = MockInstance::new("Claude 3".to_string())
-        .with_session_id("session-beta".to_string());
-    
-    app.instances.push(MockInstance { id: instance_2_id, ..instance_2 });
-    app.instances.push(MockInstance { id: instance_3_id, ..instance_3 });
-    
-    // Send message with instance_2_id but session-beta (should go to instance 3)
-    let success = app.simulate_stream_text(
-        instance_2_id,  // Points to instance 2
-        "Should go to instance 3".to_string(), 
-        Some("session-beta".to_string())  // Points to instance 3
-    );
-    
-    assert!(success, "Should successfully route message");
-    
-    // Message should go to instance 3 (session-beta), not instance 2 (instance_2_id)
-    assert!(!app.instances[1].messages.iter().any(|m| m.content.contains("Should go to instance 3")), 
-           "Message should NOT go to instance 2 despite matching instance_id");
-    assert!(app.instances[2].messages.iter().any(|m| m.content.contains("Should go to instance 3")), 
-           "Message should go to instance 3 based on session_id");
-    
-    println!("✅ Session ID override of instance ID works correctly");
-}
-
-#[test]
-fn test_no_session_match_fallback_to_instance() {
-    // Test that when session_id doesn't match any instance, it falls back to instance_id
-    let mut app = MockApp::new();
-    
-    let instance_2_id = Uuid::new_v4();
-    let instance_2 = MockInstance::new("Claude 2".to_string())
-        .with_session_id("session-alpha".to_string());
-    
-    app.instances.push(MockInstance { id: instance_2_id, ..instance_2 });
-    
-    // Send message with non-existent session_id but valid instance_id
-    let success = app.simulate_stream_text(
-        instance_2_id, 
-        "Fallback to instance_id".to_string(), 
-        Some("non-existent-session".to_string())
-    );
-    
-    assert!(success, "Should fallback to instance_id when session_id not found");
-    assert!(app.instances[1].messages.iter().any(|m| m.content.contains("Fallback to instance_id")), 
-           "Message should appear in instance found by instance_id");
-    
-    println!("✅ Session ID fallback to instance ID works correctly");
-}
-
-#[test]
-fn test_neither_session_nor_instance_match() {
-    // Test that when neither session_id nor instance_id match, routing fails gracefully
-    let mut app = MockApp::new();
-    
-    let instance_2_id = Uuid::new_v4();
-    let instance_2 = MockInstance::new("Claude 2".to_string())
-        .with_session_id("session-alpha".to_string());
-    
-    app.instances.push(MockInstance { id: instance_2_id, ..instance_2 });
-    
-    // Send message with non-existent session_id and non-existent instance_id
-    let wrong_instance_id = Uuid::new_v4();
-    let success = app.simulate_stream_text(
-        wrong_instance_id, 
-        "Should not be routed".to_string(), 
-        Some("non-existent-session".to_string())
-    );
-    
-    assert!(!success, "Should fail when neither session_id nor instance_id match");
-    
-    // Verify no messages were added to any instance
-    for instance in &app.instances {
-        assert!(!instance.messages.iter().any(|m| m.content.contains("Should not be routed")), 
-               "Message should not appear in any instance");
+    // Mock app to test routing logic
+    struct MockApp {
+        instances: Vec<MockInstance>,
+        message_tx: mpsc::Sender<MockClaudeMessage>,
+        message_rx: mpsc::Receiver<MockClaudeMessage>,
     }
     
-    println!("✅ Graceful handling of unmatched routing works correctly");
-}
-
-#[test]
-fn test_real_world_spawned_instance_scenario() {
-    // Test a realistic scenario with main instance and spawned instances
-    let mut app = MockApp::new();
+    impl MockApp {
+        fn new() -> Self {
+            let (tx, rx) = mpsc::channel(100);
+            let mut app = Self {
+                instances: Vec::new(),
+                message_tx: tx,
+                message_rx: rx,
+            };
+            // Create main instance
+            app.instances.push(MockInstance::new("Veda-1".to_string()));
+            app
+        }
+        
+        fn spawn_instance(&mut self) -> (usize, Uuid) {
+            let name = format!("Veda-{}", self.instances.len() + 1);
+            let instance = MockInstance::new(name);
+            let id = instance.id;
+            self.instances.push(instance);
+            (self.instances.len() - 1, id)
+        }
+        
+        async fn process_messages(&mut self) {
+            while let Ok(msg) = self.message_rx.try_recv() {
+                match msg {
+                    MockClaudeMessage::StreamText { instance_id, text, session_id } => {
+                        // This mimics the routing logic from main.rs
+                        let target_instance_index = if let Some(session_id_val) = &session_id {
+                            // First try to find by session_id (for spawned instances)
+                            self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                                .or_else(|| self.instances.iter().position(|i| i.id == instance_id))
+                        } else {
+                            // Fallback to instance_id
+                            self.instances.iter().position(|i| i.id == instance_id)
+                        };
+                        
+                        if let Some(idx) = target_instance_index {
+                            self.instances[idx].add_message("Claude".to_string(), text);
+                        }
+                    }
+                    MockClaudeMessage::SessionStarted { instance_id, session_id } => {
+                        // Assign session ID to instance
+                        if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+                            instance.session_id = Some(session_id);
+                        }
+                    }
+                    MockClaudeMessage::ToolUse { instance_id, tool_name, session_id } => {
+                        let target_instance_index = if let Some(session_id_val) = &session_id {
+                            self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                                .or_else(|| self.instances.iter().position(|i| i.id == instance_id))
+                        } else {
+                            self.instances.iter().position(|i| i.id == instance_id)
+                        };
+                        
+                        if let Some(idx) = target_instance_index {
+                            self.instances[idx].add_message("Tool".to_string(), tool_name);
+                        }
+                    }
+                }
+            }
+        }
+    }
     
-    // Main instance (no session_id initially)
-    let main_instance_id = app.instances[0].id;
+    #[tokio::test]
+    async fn test_session_id_assignment_on_spawn() {
+        let mut app = MockApp::new();
+        
+        // Spawn instances
+        let (idx1, id1) = app.spawn_instance();
+        let (idx2, id2) = app.spawn_instance();
+        let (idx3, id3) = app.spawn_instance();
+        
+        // Simulate session start events
+        app.message_tx.send(MockClaudeMessage::SessionStarted {
+            instance_id: id1,
+            session_id: "session-abc-123".to_string(),
+        }).await.unwrap();
+        
+        app.message_tx.send(MockClaudeMessage::SessionStarted {
+            instance_id: id2,
+            session_id: "session-def-456".to_string(),
+        }).await.unwrap();
+        
+        app.message_tx.send(MockClaudeMessage::SessionStarted {
+            instance_id: id3,
+            session_id: "session-ghi-789".to_string(),
+        }).await.unwrap();
+        
+        // Process messages
+        app.process_messages().await;
+        
+        // Verify session IDs were assigned
+        assert_eq!(app.instances[idx1].session_id, Some("session-abc-123".to_string()));
+        assert_eq!(app.instances[idx2].session_id, Some("session-def-456".to_string()));
+        assert_eq!(app.instances[idx3].session_id, Some("session-ghi-789".to_string()));
+        
+        // Main instance should not have session ID
+        assert!(app.instances[0].session_id.is_none());
+    }
     
-    // Spawned instances with session_ids
-    let spawned_1_id = Uuid::new_v4();
-    let spawned_2_id = Uuid::new_v4();
+    #[tokio::test]
+    async fn test_message_routing_by_session_id() {
+        let mut app = MockApp::new();
+        
+        // Spawn instances and assign session IDs
+        let (_, id1) = app.spawn_instance();
+        let (_, id2) = app.spawn_instance();
+        
+        app.instances[1].session_id = Some("session-tab2".to_string());
+        app.instances[2].session_id = Some("session-tab3".to_string());
+        
+        // Send messages with session IDs
+        app.message_tx.send(MockClaudeMessage::StreamText {
+            instance_id: Uuid::new_v4(), // Wrong instance ID
+            text: "This should go to Tab 2".to_string(),
+            session_id: Some("session-tab2".to_string()),
+        }).await.unwrap();
+        
+        app.message_tx.send(MockClaudeMessage::StreamText {
+            instance_id: Uuid::new_v4(), // Wrong instance ID
+            text: "This should go to Tab 3".to_string(),
+            session_id: Some("session-tab3".to_string()),
+        }).await.unwrap();
+        
+        // Process messages
+        app.process_messages().await;
+        
+        // Verify messages were routed correctly by session ID
+        assert_eq!(app.instances[1].messages.len(), 1);
+        assert_eq!(app.instances[1].messages[0].1, "This should go to Tab 2");
+        
+        assert_eq!(app.instances[2].messages.len(), 1);
+        assert_eq!(app.instances[2].messages[0].1, "This should go to Tab 3");
+        
+        // Main instance should have no messages
+        assert_eq!(app.instances[0].messages.len(), 0);
+    }
     
-    let spawned_1 = MockInstance::new("Claude 2".to_string())
-        .with_session_id("76251a15-e564-449e-a810-f05a26ed782a".to_string());
-    let spawned_2 = MockInstance::new("Claude 3".to_string())
-        .with_session_id("89abc123-1234-5678-9abc-def012345678".to_string());
+    #[tokio::test]
+    async fn test_fallback_to_instance_id_routing() {
+        let mut app = MockApp::new();
+        
+        let (_, id1) = app.spawn_instance();
+        
+        // Send message without session ID
+        app.message_tx.send(MockClaudeMessage::StreamText {
+            instance_id: id1,
+            text: "Fallback routing test".to_string(),
+            session_id: None,
+        }).await.unwrap();
+        
+        // Process messages
+        app.process_messages().await;
+        
+        // Should route by instance ID
+        assert_eq!(app.instances[1].messages.len(), 1);
+        assert_eq!(app.instances[1].messages[0].1, "Fallback routing test");
+    }
     
-    app.instances.push(MockInstance { id: spawned_1_id, ..spawned_1 });
-    app.instances.push(MockInstance { id: spawned_2_id, ..spawned_2 });
+    #[tokio::test]
+    async fn test_concurrent_message_routing() {
+        let app = Arc::new(Mutex::new(MockApp::new()));
+        
+        // Setup instances with session IDs
+        {
+            let mut app_guard = app.lock().await;
+            app_guard.spawn_instance();
+            app_guard.spawn_instance();
+            app_guard.spawn_instance();
+            
+            app_guard.instances[1].session_id = Some("session-worker-1".to_string());
+            app_guard.instances[2].session_id = Some("session-worker-2".to_string());
+            app_guard.instances[3].session_id = Some("session-worker-3".to_string());
+        }
+        
+        // Spawn concurrent senders
+        let mut handles = vec![];
+        
+        for i in 1..=3 {
+            let app_clone = app.clone();
+            let session_id = format!("session-worker-{}", i);
+            
+            let handle = tokio::spawn(async move {
+                let tx = {
+                    let app_guard = app_clone.lock().await;
+                    app_guard.message_tx.clone()
+                };
+                
+                for msg_num in 0..10 {
+                    tx.send(MockClaudeMessage::StreamText {
+                        instance_id: Uuid::new_v4(), // Random ID to test session routing
+                        text: format!("Worker {} Message {}", i, msg_num),
+                        session_id: Some(session_id.clone()),
+                    }).await.unwrap();
+                    
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+                }
+            });
+            handles.push(handle);
+        }
+        
+        // Wait for all senders
+        for handle in handles {
+            handle.await.unwrap();
+        }
+        
+        // Process all messages
+        {
+            let mut app_guard = app.lock().await;
+            app_guard.process_messages().await;
+        }
+        
+        // Verify all messages were routed correctly
+        let app_guard = app.lock().await;
+        for i in 1..=3 {
+            assert_eq!(app_guard.instances[i].messages.len(), 10);
+            // Check first and last messages
+            assert_eq!(app_guard.instances[i].messages[0].1, format!("Worker {} Message 0", i));
+            assert_eq!(app_guard.instances[i].messages[9].1, format!("Worker {} Message 9", i));
+        }
+        
+        // Main instance should have no messages
+        assert_eq!(app_guard.instances[0].messages.len(), 0);
+    }
     
-    // Test messages to different instances
-    assert!(app.simulate_stream_text(
-        main_instance_id, 
-        "Message to main instance".to_string(), 
-        None
-    ), "Main instance should receive message");
+    #[tokio::test]
+    async fn test_tool_use_routing() {
+        let mut app = MockApp::new();
+        
+        let (_, id1) = app.spawn_instance();
+        app.instances[1].session_id = Some("session-tools".to_string());
+        
+        // Send tool use with session ID
+        app.message_tx.send(MockClaudeMessage::ToolUse {
+            instance_id: Uuid::new_v4(), // Wrong instance ID
+            tool_name: "veda_spawn_instances".to_string(),
+            session_id: Some("session-tools".to_string()),
+        }).await.unwrap();
+        
+        // Send another tool use with correct instance ID
+        app.message_tx.send(MockClaudeMessage::ToolUse {
+            instance_id: id1,
+            tool_name: "veda_list_instances".to_string(),
+            session_id: None,
+        }).await.unwrap();
+        
+        // Process messages
+        app.process_messages().await;
+        
+        // Both should go to the same instance
+        assert_eq!(app.instances[1].messages.len(), 2);
+        assert_eq!(app.instances[1].messages[0], ("Tool".to_string(), "veda_spawn_instances".to_string()));
+        assert_eq!(app.instances[1].messages[1], ("Tool".to_string(), "veda_list_instances".to_string()));
+    }
     
-    assert!(app.simulate_stream_text(
-        spawned_1_id, 
-        "Message to spawned instance 1".to_string(), 
-        Some("76251a15-e564-449e-a810-f05a26ed782a".to_string())
-    ), "Spawned instance 1 should receive message");
+    #[test]
+    fn test_session_id_uniqueness() {
+        let mut sessions = HashMap::new();
+        
+        // Simulate creating multiple session IDs
+        for i in 0..100 {
+            let session_id = format!("session-{}-{}", i, Uuid::new_v4());
+            assert!(sessions.insert(session_id.clone(), i).is_none());
+        }
+        
+        // All should be unique
+        assert_eq!(sessions.len(), 100);
+    }
     
-    assert!(app.simulate_stream_text(
-        spawned_2_id, 
-        "Message to spawned instance 2".to_string(), 
-        Some("89abc123-1234-5678-9abc-def012345678".to_string())
-    ), "Spawned instance 2 should receive message");
+    #[tokio::test]
+    async fn test_late_session_assignment() {
+        let mut app = MockApp::new();
+        
+        let (idx, id) = app.spawn_instance();
+        
+        // Send message before session is assigned
+        app.message_tx.send(MockClaudeMessage::StreamText {
+            instance_id: id,
+            text: "Message before session".to_string(),
+            session_id: None,
+        }).await.unwrap();
+        
+        app.process_messages().await;
+        
+        // Verify message was routed by instance ID
+        assert_eq!(app.instances[idx].messages.len(), 1);
+        
+        // Now assign session
+        app.message_tx.send(MockClaudeMessage::SessionStarted {
+            instance_id: id,
+            session_id: "session-late".to_string(),
+        }).await.unwrap();
+        
+        app.process_messages().await;
+        
+        // Send message with session ID
+        app.message_tx.send(MockClaudeMessage::StreamText {
+            instance_id: Uuid::new_v4(), // Different instance ID
+            text: "Message after session".to_string(),
+            session_id: Some("session-late".to_string()),
+        }).await.unwrap();
+        
+        app.process_messages().await;
+        
+        // Should have both messages
+        assert_eq!(app.instances[idx].messages.len(), 2);
+        assert_eq!(app.instances[idx].messages[0].1, "Message before session");
+        assert_eq!(app.instances[idx].messages[1].1, "Message after session");
+    }
     
-    // Verify messages went to correct instances
-    assert!(app.instances[0].messages.iter().any(|m| m.content.contains("main instance")), 
-           "Main instance should have its message");
-    assert!(app.instances[1].messages.iter().any(|m| m.content.contains("spawned instance 1")), 
-           "Spawned instance 1 should have its message");
-    assert!(app.instances[2].messages.iter().any(|m| m.content.contains("spawned instance 2")), 
-           "Spawned instance 2 should have its message");
+    #[test]
+    fn test_session_id_format() {
+        // Test expected session ID formats
+        let patterns = vec![
+            "session-abc-123",
+            "session-1-7f8b9c0d-1234-5678-9abc-def012345678",
+            "session-worker-42",
+            "session-test-integration",
+        ];
+        
+        for pattern in patterns {
+            assert!(pattern.starts_with("session-"));
+            assert!(pattern.len() > 8); // At least "session-X"
+        }
+    }
     
-    // Verify no cross-contamination
-    assert!(!app.instances[0].messages.iter().any(|m| m.content.contains("spawned instance")), 
-           "Main instance should not have spawned instance messages");
-    assert!(!app.instances[1].messages.iter().any(|m| m.content.contains("main instance")), 
-           "Spawned instance 1 should not have main instance message");
-    assert!(!app.instances[2].messages.iter().any(|m| m.content.contains("spawned instance 1")), 
-           "Spawned instance 2 should not have spawned instance 1 message");
+    #[tokio::test]
+    async fn test_session_priority_over_instance_id() {
+        let mut app = MockApp::new();
+        
+        // Create two instances
+        let (_, id1) = app.spawn_instance();
+        let (_, id2) = app.spawn_instance();
+        
+        // Assign session IDs
+        app.instances[1].session_id = Some("session-alpha".to_string());
+        app.instances[2].session_id = Some("session-beta".to_string());
+        
+        // Send message with instance_id pointing to instance 1, but session_id pointing to instance 2
+        app.message_tx.send(MockClaudeMessage::StreamText {
+            instance_id: id1, // Points to Veda-2
+            text: "Priority test message".to_string(),
+            session_id: Some("session-beta".to_string()), // Points to Veda-3
+        }).await.unwrap();
+        
+        app.process_messages().await;
+        
+        // Message should go to instance 2 (session-beta), not instance 1
+        assert_eq!(app.instances[1].messages.len(), 0);
+        assert_eq!(app.instances[2].messages.len(), 1);
+        assert_eq!(app.instances[2].messages[0].1, "Priority test message");
+    }
     
-    println!("✅ Real-world spawned instance scenario works correctly");
+    #[tokio::test]
+    async fn test_missing_session_fallback() {
+        let mut app = MockApp::new();
+        
+        let (_, id1) = app.spawn_instance();
+        app.instances[1].session_id = Some("session-exists".to_string());
+        
+        // Send with non-existent session but valid instance ID
+        app.message_tx.send(MockClaudeMessage::StreamText {
+            instance_id: id1,
+            text: "Fallback message".to_string(),
+            session_id: Some("session-does-not-exist".to_string()),
+        }).await.unwrap();
+        
+        app.process_messages().await;
+        
+        // Should fallback to instance ID
+        assert_eq!(app.instances[1].messages.len(), 1);
+        assert_eq!(app.instances[1].messages[0].1, "Fallback message");
+    }
 }

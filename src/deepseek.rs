@@ -263,6 +263,8 @@ MESSAGE_TO_CLAUDE_WITH_VERDICT:"#,
     let mut stream = response.bytes_stream();
     let mut accumulated_text = String::new();
     let mut in_thinking = false;
+    let mut text_buffer = String::new();
+    let mut last_send = std::time::Instant::now();
     
     while let Some(chunk) = stream.next().await {
         match chunk {
@@ -282,11 +284,23 @@ MESSAGE_TO_CLAUDE_WITH_VERDICT:"#,
                                 let was_thinking = in_thinking;
                                 in_thinking = is_chain_of_thought(&accumulated_text);
                                 
-                                // Send text update
-                                let _ = tx.send(DeepSeekMessage::Text {
-                                    text: resp.response,
-                                    is_thinking: in_thinking,
-                                }).await;
+                                // Buffer text and send in chunks to reduce UI spam
+                                text_buffer.push_str(&resp.response);
+                                
+                                // Send buffered text every 100ms or when we have substantial content
+                                let should_send = text_buffer.len() >= 50 || 
+                                                last_send.elapsed() >= std::time::Duration::from_millis(100) ||
+                                                resp.done ||
+                                                was_thinking != in_thinking;
+                                
+                                if should_send && !text_buffer.is_empty() {
+                                    let _ = tx.send(DeepSeekMessage::Text {
+                                        text: text_buffer.clone(),
+                                        is_thinking: in_thinking,
+                                    }).await;
+                                    text_buffer.clear();
+                                    last_send = std::time::Instant::now();
+                                }
                                 
                                 // If we transitioned thinking states, notify
                                 if was_thinking != in_thinking {
@@ -296,6 +310,13 @@ MESSAGE_TO_CLAUDE_WITH_VERDICT:"#,
                                 }
                                 
                                 if resp.done {
+                                    // Send any remaining buffered text
+                                    if !text_buffer.is_empty() {
+                                        let _ = tx.send(DeepSeekMessage::Text {
+                                            text: text_buffer,
+                                            is_thinking: in_thinking,
+                                        }).await;
+                                    }
                                     let _ = tx.send(DeepSeekMessage::End).await;
                                     return Ok(());
                                 }
@@ -640,6 +661,8 @@ Important instructions:
     let mut stream = response.bytes_stream();
     let mut accumulated_text = String::new();
     let mut in_thinking = false;
+    let mut text_buffer = String::new();
+    let mut last_send = std::time::Instant::now();
     
     while let Some(chunk) = stream.next().await {
         match chunk {
@@ -659,11 +682,23 @@ Important instructions:
                                 let was_thinking = in_thinking;
                                 in_thinking = is_chain_of_thought(&accumulated_text);
                                 
-                                // Send text update
-                                let _ = tx.send(DeepSeekMessage::Text {
-                                    text: resp.response,
-                                    is_thinking: in_thinking,
-                                }).await;
+                                // Buffer text and send in chunks to reduce UI spam
+                                text_buffer.push_str(&resp.response);
+                                
+                                // Send buffered text every 100ms or when we have substantial content
+                                let should_send = text_buffer.len() >= 50 || 
+                                                last_send.elapsed() >= std::time::Duration::from_millis(100) ||
+                                                resp.done ||
+                                                was_thinking != in_thinking;
+                                
+                                if should_send && !text_buffer.is_empty() {
+                                    let _ = tx.send(DeepSeekMessage::Text {
+                                        text: text_buffer.clone(),
+                                        is_thinking: in_thinking,
+                                    }).await;
+                                    text_buffer.clear();
+                                    last_send = std::time::Instant::now();
+                                }
                                 
                                 // If we transitioned thinking states, notify
                                 if was_thinking != in_thinking {
@@ -673,6 +708,13 @@ Important instructions:
                                 }
                                 
                                 if resp.done {
+                                    // Send any remaining buffered text
+                                    if !text_buffer.is_empty() {
+                                        let _ = tx.send(DeepSeekMessage::Text {
+                                            text: text_buffer,
+                                            is_thinking: in_thinking,
+                                        }).await;
+                                    }
                                     let _ = tx.send(DeepSeekMessage::End).await;
                                     return Ok(());
                                 }

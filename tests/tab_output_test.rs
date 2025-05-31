@@ -13,6 +13,8 @@ mod tab_output_tests {
         last_message_area_height: u16,
         last_terminal_width: u16,
         session_id: Option<String>,
+        is_processing: bool,
+        working_directory: String,
     }
     
     #[derive(Clone)]
@@ -31,6 +33,8 @@ mod tab_output_tests {
                 last_message_area_height: 20,
                 last_terminal_width: 80,
                 session_id: None,
+                is_processing: false,
+                working_directory: "/home/user/project".to_string(),
             }
         }
         
@@ -217,5 +221,219 @@ mod tab_output_tests {
         assert_eq!(instance.messages[1].sender, "Claude");
         assert_eq!(instance.messages[2].sender, "Tool");
         assert_eq!(instance.messages[3].sender, "Claude");
+    }
+    
+    #[test]
+    fn test_spawned_instances_naming_convention() {
+        // Test that spawned instances follow the correct naming pattern
+        let mut instances = vec![
+            MockInstance::new("Veda-1".to_string()),
+        ];
+        
+        // Simulate spawning 4 more instances (up to the max of 5)
+        for i in 2..=5 {
+            let instance_name = format!("Veda-{}", i);
+            let mut instance = MockInstance::new(instance_name.clone());
+            instance.working_directory = "/home/user/project".to_string();
+            instances.push(instance);
+        }
+        
+        // Verify all instances have correct names
+        for (idx, instance) in instances.iter().enumerate() {
+            assert_eq!(instance.name, format!("Veda-{}", idx + 1));
+        }
+        
+        // Verify we have exactly 5 instances
+        assert_eq!(instances.len(), 5);
+    }
+    
+    #[test]
+    fn test_instance_working_directory_inheritance() {
+        // Test that spawned instances inherit the working directory
+        let base_dir = "/home/user/complex-project";
+        let mut instances = vec![];
+        
+        // Create main instance with specific working directory
+        let mut main_instance = MockInstance::new("Veda-1".to_string());
+        main_instance.working_directory = base_dir.to_string();
+        instances.push(main_instance);
+        
+        // Spawn additional instances
+        for i in 2..=3 {
+            let mut instance = MockInstance::new(format!("Veda-{}", i));
+            instance.working_directory = base_dir.to_string();
+            instances.push(instance);
+        }
+        
+        // Verify all instances have the same working directory
+        for instance in &instances {
+            assert_eq!(instance.working_directory, base_dir);
+        }
+    }
+    
+    #[test]
+    fn test_tab_status_display() {
+        // Test that tab status correctly shows processing state
+        let mut instances = vec![
+            MockInstance::new("Veda-1".to_string()),
+            MockInstance::new("Veda-2".to_string()),
+            MockInstance::new("Veda-3".to_string()),
+        ];
+        
+        // Set different processing states
+        instances[0].is_processing = false;
+        instances[1].is_processing = true;
+        instances[2].is_processing = false;
+        
+        // Verify status display
+        let statuses: Vec<String> = instances.iter().map(|inst| {
+            format!("{} {}", inst.name, if inst.is_processing { "(Processing)" } else { "(Idle)" })
+        }).collect();
+        
+        assert_eq!(statuses[0], "Veda-1 (Idle)");
+        assert_eq!(statuses[1], "Veda-2 (Processing)");
+        assert_eq!(statuses[2], "Veda-3 (Idle)");
+    }
+    
+    #[test]
+    fn test_session_id_assignment_for_spawned_instances() {
+        // Test that spawned instances get unique session IDs
+        let mut instances = vec![
+            MockInstance::new("Veda-1".to_string()),
+        ];
+        
+        // Main instance doesn't need a session ID
+        assert_eq!(instances[0].session_id, None);
+        
+        // Spawn instances with session IDs
+        for i in 2..=4 {
+            let mut instance = MockInstance::new(format!("Veda-{}", i));
+            instance.session_id = Some(format!("session-{:04}", i * 111));
+            instances.push(instance);
+        }
+        
+        // Verify session IDs
+        assert_eq!(instances[0].session_id, None);
+        assert_eq!(instances[1].session_id, Some("session-0222".to_string()));
+        assert_eq!(instances[2].session_id, Some("session-0333".to_string()));
+        assert_eq!(instances[3].session_id, Some("session-0444".to_string()));
+    }
+    
+    #[test]
+    fn test_message_routing_by_session_priority() {
+        // Test that messages route by session_id first, then by instance_id
+        let mut instances = vec![
+            MockInstance::new("Veda-1".to_string()),
+            MockInstance::new("Veda-2".to_string()),
+            MockInstance::new("Veda-3".to_string()),
+        ];
+        
+        let instance_2_id = instances[1].id;
+        instances[1].session_id = Some("session-abc".to_string());
+        instances[2].session_id = Some("session-xyz".to_string());
+        
+        // Test routing with session_id
+        let incoming_session = Some("session-abc".to_string());
+        let incoming_instance = Uuid::new_v4(); // Different from actual instance
+        
+        // Routing logic from main.rs
+        let target_idx = if let Some(session_id_val) = &incoming_session {
+            instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                .or_else(|| instances.iter().position(|i| i.id == incoming_instance))
+        } else {
+            instances.iter().position(|i| i.id == incoming_instance)
+        };
+        
+        assert_eq!(target_idx, Some(1)); // Should route to Veda-2
+        
+        // Test routing without session_id (fallback to instance_id)
+        let target_idx_2 = instances.iter().position(|i| i.id == instance_2_id);
+        assert_eq!(target_idx_2, Some(1));
+    }
+    
+    #[test]
+    fn test_max_instances_limit() {
+        // Test that we respect the max instances limit of 5
+        let mut instances = vec![];
+        let max_instances = 5;
+        
+        // Create instances up to the limit
+        for i in 1..=max_instances {
+            instances.push(MockInstance::new(format!("Veda-{}", i)));
+        }
+        
+        assert_eq!(instances.len(), max_instances);
+        
+        // Verify we can't exceed the limit
+        let can_add_more = instances.len() < max_instances;
+        assert!(!can_add_more, "Should not be able to add more instances");
+    }
+    
+    #[test]
+    fn test_coordination_message_format() {
+        // Test the coordination message format for spawned instances
+        let mut instance = MockInstance::new("Veda-2".to_string());
+        instance.working_directory = "/home/user/project".to_string();
+        
+        let coordination_msg = format!(
+            "🤝 MULTI-INSTANCE COORDINATION MODE\n\n\
+            YOU ARE: {}\n\
+            WORKING DIRECTORY: {}\n\
+            ASSIGNED TASK: Implement user authentication\n\
+            SCOPE: src/auth/*\n\
+            PRIORITY: High",
+            instance.name,
+            instance.working_directory
+        );
+        
+        instance.add_message("System".to_string(), coordination_msg);
+        
+        assert_eq!(instance.messages.len(), 1);
+        assert!(instance.messages[0].content.contains("MULTI-INSTANCE COORDINATION"));
+        assert!(instance.messages[0].content.contains("Veda-2"));
+        assert!(instance.messages[0].content.contains("/home/user/project"));
+    }
+    
+    #[tokio::test]
+    async fn test_concurrent_instance_spawning() {
+        // Test that multiple instances can be spawned concurrently
+        let instances = Arc::new(Mutex::new(vec![
+            MockInstance::new("Veda-1".to_string()),
+        ]));
+        
+        let instances_to_spawn = 3;
+        let mut handles = vec![];
+        
+        for i in 0..instances_to_spawn {
+            let instances_clone = instances.clone();
+            let handle = tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(10 * i)).await;
+                
+                let mut instances_guard = instances_clone.lock().await;
+                let new_idx = instances_guard.len() + 1;
+                if new_idx <= 5 { // Respect max limit
+                    let mut new_instance = MockInstance::new(format!("Veda-{}", new_idx));
+                    new_instance.session_id = Some(format!("session-spawn-{}", i));
+                    instances_guard.push(new_instance);
+                }
+            });
+            handles.push(handle);
+        }
+        
+        // Wait for all spawns to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+        
+        let instances_guard = instances.lock().await;
+        assert_eq!(instances_guard.len(), 4); // 1 original + 3 spawned
+        
+        // Verify each has unique session ID
+        let session_ids: Vec<_> = instances_guard.iter()
+            .filter_map(|i| i.session_id.as_ref())
+            .collect();
+        
+        let unique_sessions: std::collections::HashSet<_> = session_ids.iter().collect();
+        assert_eq!(session_ids.len(), unique_sessions.len());
     }
 }

@@ -1235,11 +1235,8 @@ This prompt appears only once per session. You now have full access to these pow
                             // Create a new Claude message
                             instance.add_message("Claude".to_string(), text.clone());
                             tracing::debug!("Created new Claude message after tool use");
-                            // For non-current tabs, use default dimensions if not set
-                            let height = if instance.last_message_area_height == 0 { 20 } else { instance.last_message_area_height };
-                            let width = if instance.last_terminal_width == 0 { 80 } else { instance.last_terminal_width };
-                            // Trigger auto-scroll after creating new message
-                            instance.auto_scroll_with_width(Some(height), Some(width));
+                            // Always trigger auto-scroll for new messages (background tabs get proper dimensions now)
+                            instance.auto_scroll_with_width(Some(instance.last_message_area_height), Some(instance.last_terminal_width));
                             // Check if this is todo list data
                             self.parse_todo_list(&text);
                         } else {
@@ -1260,11 +1257,8 @@ This prompt appears only once per session. You now have full access to these pow
                                 None
                             };
                             
-                            // For non-current tabs, use default dimensions if not set
-                            let height = if instance.last_message_area_height == 0 { 20 } else { instance.last_message_area_height };
-                            let width = if instance.last_terminal_width == 0 { 80 } else { instance.last_terminal_width };
-                            // Trigger auto-scroll after appending with stored dimensions
-                            instance.auto_scroll_with_width(Some(height), Some(width));
+                            // Always trigger auto-scroll after appending (background tabs get proper dimensions now)
+                            instance.auto_scroll_with_width(Some(instance.last_message_area_height), Some(instance.last_terminal_width));
                             
                             // Parse todo list if needed (after releasing the mutable borrow)
                             if let Some(content) = needs_todo_parse {
@@ -2323,9 +2317,27 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                         // Wait a moment to ensure the UI has been updated
                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                         
+                        // Pre-enable essential tools for the spawned instance
+                        let essential_tools = ["Edit", "MultiEdit", "Read", "Write", "Bash", "TodoRead", "TodoWrite", "Glob", "Grep", "LS"];
+                        for tool in essential_tools.iter() {
+                            if let Err(e) = enable_claude_tool(tool).await {
+                                tracing::warn!("Failed to pre-enable tool {} for generic instance: {}", tool, e);
+                            } else {
+                                tracing::debug!("Pre-enabled tool {} for generic instance", tool);
+                            }
+                        }
+                        
                         tracing::info!("Auto-starting generic Claude instance {} ({})", instance_name, instance_id);
-                        if let Err(e) = send_to_claude_with_session(instance_id, auto_start_message, tx, None, None).await {
+                        if let Err(e) = send_to_claude_with_session(instance_id, auto_start_message.clone(), tx.clone(), None, None).await {
                             tracing::error!("Failed to auto-start generic instance {}: {}", instance_name, e);
+                            // Send error message to the UI
+                            let _ = tx.send(ClaudeMessage::StreamText {
+                                instance_id,
+                                text: format!("❌ Failed to auto-start instance: {}", e),
+                                session_id: None,
+                            }).await;
+                        } else {
+                            tracing::info!("✅ Successfully started Claude process for {}", instance_name);
                         }
                     });
                 }
@@ -2441,9 +2453,27 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                 // Wait a moment to ensure the UI has been updated
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 
+                // Pre-enable essential tools for the spawned instance
+                let essential_tools = ["Edit", "MultiEdit", "Read", "Write", "Bash", "TodoRead", "TodoWrite", "Glob", "Grep", "LS"];
+                for tool in essential_tools.iter() {
+                    if let Err(e) = enable_claude_tool(tool).await {
+                        tracing::warn!("Failed to pre-enable tool {} for spawned instance: {}", tool, e);
+                    } else {
+                        tracing::debug!("Pre-enabled tool {} for spawned instance", tool);
+                    }
+                }
+                
                 tracing::info!("Auto-starting Claude instance {} ({}) with task", instance_name_copy2, instance_id_copy);
-                if let Err(e) = send_to_claude_with_session(instance_id_copy, task_instruction, tx, None, None).await {
+                if let Err(e) = send_to_claude_with_session(instance_id_copy, task_instruction.clone(), tx.clone(), None, None).await {
                     tracing::error!("Failed to auto-start spawned instance {}: {}", instance_name_copy2, e);
+                    // Send error message to the UI
+                    let _ = tx.send(ClaudeMessage::StreamText {
+                        instance_id: instance_id_copy,
+                        text: format!("❌ Failed to auto-start instance: {}", e),
+                        session_id: None,
+                    }).await;
+                } else {
+                    tracing::info!("✅ Successfully started Claude process for {}", instance_name_copy2);
                 }
             });
         }
@@ -3066,15 +3096,18 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
 
     // Messages area
-    if let Some(instance) = app.instances.get_mut(app.current_tab) {
-        // Update scroll position based on actual message area height and width
-        let message_area_height = chunks[1].height;
-        let message_area_width = chunks[1].width.saturating_sub(2); // Subtract borders
-        
-        // Store dimensions for future auto-scrolling
+    // First, update dimensions for ALL instances so background tabs work correctly
+    let message_area_height = chunks[1].height;
+    let message_area_width = chunks[1].width.saturating_sub(2); // Subtract borders
+    
+    for instance in app.instances.iter_mut() {
+        // Store dimensions for ALL tabs, not just current one
         instance.last_message_area_height = message_area_height;
         instance.last_terminal_width = message_area_width;
-        
+    }
+    
+    if let Some(instance) = app.instances.get_mut(app.current_tab) {
+        // Update scroll position for the current tab only
         instance.auto_scroll_with_width(Some(message_area_height), Some(message_area_width));
         
         let mut all_lines = Vec::new();
