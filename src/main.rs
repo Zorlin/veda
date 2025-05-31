@@ -1593,7 +1593,7 @@ Response:"#,
                                                     let _ = tx.send(ClaudeMessage::StreamText {
                                                         instance_id: main_instance_id,
                                                         text: system_msg,
-                                                        session_id: None,
+                                                        session_id: Some(session_id.clone()),
                                                     }).await;
                                                     
                                                     // Send a message telling Claude the tools are now enabled
@@ -1826,14 +1826,14 @@ Response:"#,
                                             let _ = tx.send(ClaudeMessage::StreamText {
                                                 instance_id: instance_id_copy,
                                                 text: format!("❌ Failed to enable {}: {}", tool_name_copy, e),
-                                                session_id: None,
+                                                session_id: session_id.clone(),
                                             }).await;
                                         } else {
                                             tracing::info!("Successfully enabled tool: {}", tool_name_copy);
                                             let _ = tx.send(ClaudeMessage::StreamText {
                                                 instance_id: instance_id_copy,
                                                 text: format!("🔧 Automode: Safely enabled tool: {}", tool_name_copy),
-                                                session_id: None,
+                                                session_id: session_id.clone(),
                                             }).await;
                                             
                                             // Kill the current process if it exists
@@ -1926,7 +1926,7 @@ Response:"#,
                                         let _ = tx.send(ClaudeMessage::StreamText {
                                             instance_id: instance_id_copy,
                                             text: format!("🚫 Automode: Tool {} was deemed unsafe and not enabled", tool_name_copy),
-                                            session_id: None,
+                                            session_id: session_id.clone(),
                                         }).await;
                                     }
                                     Err(e) => {
@@ -1934,7 +1934,7 @@ Response:"#,
                                         let _ = tx.send(ClaudeMessage::StreamText {
                                             instance_id: instance_id_copy,
                                             text: format!("⚠️ Could not analyze safety of tool {}: {}", tool_name_copy, e),
-                                            session_id: None,
+                                            session_id: session_id.clone(),
                                         }).await;
                                     }
                                 }
@@ -2673,8 +2673,8 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                     instance_id_copy,
                     task_instruction.clone(),
                     tx.clone(),
-                    None,
-                    None,
+                    None, // No existing session for new instance
+                    None, // No process handle storage needed for new instance
                 ).await;
                 
                 // Clean up the environment variable
