@@ -254,6 +254,8 @@ struct App {
     // Multi-instance coordination
     coordination_enabled: bool,
     max_instances: usize,
+    // Session ID for coordination
+    session_id: String,
 }
 
 impl App {
@@ -471,6 +473,9 @@ Your response:"#,
         let (tx, rx) = mpsc::channel(100);
         let (deepseek_tx, deepseek_rx) = mpsc::channel(100);
         
+        // Generate a unique session ID
+        let session_id = uuid::Uuid::new_v4().to_string();
+        
         Ok(Self {
             instances,
             current_tab: 0,
@@ -492,6 +497,7 @@ Your response:"#,
             tab_rects: Vec::new(),
             coordination_enabled: true,
             max_instances: 4, // Main + 3 additional
+            session_id,
         })
     }
 
@@ -658,13 +664,14 @@ This prompt appears only once per session. You now have full access to these pow
         let (id, session_id, working_dir, is_first_message) = {
             if let Some(instance) = self.current_instance_mut() {
                 tracing::info!("Sending message to Claude instance {}: {}", instance.id, message);
+                // Check if this is the first message BEFORE adding it
+                let is_first_message = instance.messages.is_empty();
                 instance.add_message("You".to_string(), message.clone());
                 instance.is_processing = true;
                 
                 let id = instance.id;
                 let session_id = instance.session_id.clone();
                 let working_dir = instance.working_directory.clone();
-                let is_first_message = instance.messages.len() == 1; // Only user message so far
                 
                 (id, session_id, working_dir, is_first_message)
             } else {
@@ -679,11 +686,15 @@ This prompt appears only once per session. You now have full access to these pow
         
         // Add capabilities prompt for first message in a session
         if is_first_message {
+            tracing::info!("Adding capabilities prompt for first message in session");
             context_message.push_str(&Self::create_capabilities_prompt());
             context_message.push_str("\n\n---\n\n");
+        } else {
+            tracing::debug!("Not the first message, skipping capabilities prompt");
         }
         
         context_message.push_str(&message);
+        tracing::debug!("Final message to Claude (first 200 chars): {}", &context_message.chars().take(200).collect::<String>());
         
         // Send to Claude
         tokio::spawn(async move {
@@ -1199,16 +1210,37 @@ This prompt appears only once per session. You now have full access to these pow
                 ClaudeMessage::VedaSpawnInstances { instance_id, task_description, num_instances } => {
                     tracing::info!("Claude requested to spawn {} instances for task: {}", num_instances, task_description);
                     
-                    if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
-                        instance.add_message("Tool".to_string(), 
-                            format!("🤝 Spawning {} additional instances for task: {}", num_instances, task_description));
+                    // Check if it's from IPC (not from a real instance)
+                    let is_ipc = self.instances.iter().find(|i| i.id == instance_id).is_none();
+                    
+                    if !is_ipc {
+                        if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+                            instance.add_message("Tool".to_string(), 
+                                format!("🤝 Spawning {} additional instances for task: {}", num_instances, task_description));
+                        }
                     }
                     
+                    // Use the first instance for coordination if IPC request
+                    let coord_instance_id = if is_ipc && !self.instances.is_empty() {
+                        self.instances[0].id
+                    } else {
+                        instance_id
+                    };
+                    
                     // Use the existing coordination system but with Claude's specific request
-                    self.coordinate_multi_instance_task_with_count(instance_id, &task_description, num_instances as usize).await;
+                    self.coordinate_multi_instance_task_with_count(coord_instance_id, &task_description, num_instances as usize).await;
+                    
+                    // Send response back to the first instance if IPC
+                    if is_ipc && !self.instances.is_empty() {
+                        self.instances[0].add_message("System".to_string(), 
+                            format!("✅ Spawned {} instances via MCP for task: {}", num_instances, task_description));
+                    }
                 }
                 ClaudeMessage::VedaListInstances { instance_id } => {
                     tracing::info!("Claude requested instance list");
+                    
+                    // Check if it's from IPC
+                    let is_ipc = self.instances.iter().find(|i| i.id == instance_id).is_none();
                     
                     // Collect instance information first
                     let mut instance_info = Vec::new();
@@ -1221,9 +1253,13 @@ This prompt appears only once per session. You now have full access to these pow
                             i + 1, inst.name, status, inst.working_directory, current_marker));
                     }
                     
-                    // Then send the message
-                    if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
-                        instance.add_message("Tool".to_string(), instance_info.join("\n"));
+                    let message = instance_info.join("\n");
+                    
+                    // Send to appropriate instance
+                    if is_ipc && !self.instances.is_empty() {
+                        self.instances[0].add_message("System".to_string(), message);
+                    } else if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+                        instance.add_message("Tool".to_string(), message);
                     }
                 }
                 ClaudeMessage::VedaCloseInstance { instance_id, target_instance_name } => {
@@ -1574,6 +1610,7 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
             new_instance.add_message("System".to_string(), coordination_message);
             
             let instance_id = new_instance.id;
+            let instance_name_copy = new_instance.name.clone();
             self.instances.push(new_instance);
             
             // Switch to the new instance briefly to show it was created
@@ -1582,12 +1619,45 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
             }
             
             tracing::info!("Spawned coordinated instance {} for subtask: {}", instance_id, task_desc);
+            
+            // Send initial task instruction to the new instance
+            let tx = self.message_tx.clone();
+            let task_instruction = format!(
+                "Please begin working on your assigned subtask: {}\n\nScope: {}\nPriority: {}\n\nStart by using mcp__taskmaster-ai__get_tasks to check the current project status, then focus on your specific scope.",
+                task_desc, scope, priority
+            );
+            
+            tokio::spawn(async move {
+                tracing::info!("Sending initial task instruction to instance {}", instance_name_copy);
+                if let Err(e) = send_to_claude_with_session(instance_id, task_instruction, tx, None).await {
+                    tracing::error!("Failed to send initial instruction to spawned instance: {}", e);
+                }
+            });
         }
         
-        // Add final coordination message to main instance
+        // Collect instance names first to avoid borrowing issues
+        let instance_names: Vec<String> = self.instances.iter()
+            .skip(1) // Skip Tab 1
+            .map(|inst| inst.name.clone())
+            .collect();
+        
+        // Add final coordination message to main instance with details
         if let Some(main_instance) = self.instances.iter_mut().find(|i| i.id == main_instance_id) {
             main_instance.add_message("System".to_string(), 
-                format!("✅ Spawned {} coordinated instances. Use TaskMaster tools to monitor progress across all instances.", subtasks.len()));
+                format!("✅ Spawned {} coordinated instances: {}\n\nUse:\n- Ctrl+Left/Right to switch between tabs and monitor progress\n- mcp__taskmaster-ai__get_tasks to check overall project status\n- Each instance will update TaskMaster as they complete work", 
+                instances_to_spawn, 
+                instance_names.join(", ")
+            ));
+        }
+        
+        // Switch back to main instance after showing spawned instances
+        if instances_to_spawn > 0 {
+            // Small delay to let user see the new tab
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            // Find the main instance tab
+            if let Some(main_idx) = self.instances.iter().position(|i| i.id == main_instance_id) {
+                self.current_tab = main_idx;
+            }
         }
     }
 
@@ -1614,10 +1684,106 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
     }
 }
 
+async fn start_ipc_server(app_tx: mpsc::Sender<ClaudeMessage>, session_id: String) {
+    use tokio::net::UnixListener;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    
+    // Create socket path
+    let socket_path = format!("/tmp/veda-{}.sock", session_id);
+    
+    // Remove existing socket if it exists
+    let _ = std::fs::remove_file(&socket_path);
+    
+    let listener = match UnixListener::bind(&socket_path) {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::error!("Failed to bind Unix socket at {}: {}", socket_path, e);
+            return;
+        }
+    };
+    
+    tracing::info!("IPC server listening on {} for session {}", socket_path, session_id);
+    
+    loop {
+        match listener.accept().await {
+            Ok((mut socket, _)) => {
+                let _session_id = session_id.clone();
+                let app_tx = app_tx.clone();
+                
+                tokio::spawn(async move {
+                    let (reader, mut writer) = socket.split();
+                    let mut reader = BufReader::new(reader);
+                    let mut line = String::new();
+                    
+                    if reader.read_line(&mut line).await.is_ok() {
+                        if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) {
+                            // Session is already verified by socket path
+                            tracing::info!("IPC received message: {:?}", msg["type"]);
+                            
+                            let response = match msg["type"].as_str() {
+                                    Some("spawn_instances") => {
+                                        let task_desc = msg["task_description"].as_str().unwrap_or("");
+                                        let num_instances = msg["num_instances"].as_u64().unwrap_or(2) as u8;
+                                        
+                                        // Send message to main app
+                                        let _ = app_tx.send(ClaudeMessage::VedaSpawnInstances {
+                                            instance_id: Uuid::new_v4(), // Use a dummy ID for IPC requests
+                                            task_description: task_desc.to_string(),
+                                            num_instances,
+                                        }).await;
+                                        
+                                        format!("✅ Spawning {} instances for task: {}", num_instances, task_desc)
+                                    }
+                                    Some("list_instances") => {
+                                        let _ = app_tx.send(ClaudeMessage::VedaListInstances {
+                                            instance_id: Uuid::new_v4(),
+                                        }).await;
+                                        
+                                        "✅ Listing instances (check Veda UI)".to_string()
+                                    }
+                                    Some("close_instance") => {
+                                        let instance_name = msg["instance_name"].as_str().unwrap_or("");
+                                        
+                                        let _ = app_tx.send(ClaudeMessage::VedaCloseInstance {
+                                            instance_id: Uuid::new_v4(),
+                                            target_instance_name: instance_name.to_string(),
+                                        }).await;
+                                        
+                                        format!("✅ Closing instance: {}", instance_name)
+                                    }
+                                    _ => "❌ Unknown command".to_string(),
+                            };
+                            
+                            let _ = writer.write_all(response.as_bytes()).await;
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                tracing::error!("Failed to accept IPC connection: {}", e);
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Setup logging to debug.log
-    let file_appender = tracing_appender::rolling::never(".", "debug.log");
+    // Setup logging to debug.log in current working directory
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let log_file_path = cwd.join("debug.log");
+    
+    // Create the log file if it doesn't exist
+    if !log_file_path.exists() {
+        if let Err(e) = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(&log_file_path) {
+            eprintln!("Failed to create debug.log: {}", e);
+        }
+    }
+    
+    let file_appender = tracing_appender::rolling::never(&cwd, "debug.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     tracing_subscriber::fmt()
         .with_writer(non_blocking)
@@ -1625,7 +1791,8 @@ async fn main() -> Result<()> {
         .with_env_filter("veda_tui=debug")
         .init();
     
-    tracing::info!("Starting Veda TUI");
+    tracing::info!("Starting Veda TUI from directory: {:?}", cwd);
+    tracing::info!("Debug log path: {:?}", log_file_path);
     
     // Setup terminal
     enable_raw_mode()?;
@@ -1636,9 +1803,23 @@ async fn main() -> Result<()> {
 
     // Create app state
     let mut app = App::new()?;
+    
+    // Set the session ID as environment variable for child processes
+    std::env::set_var("VEDA_SESSION_ID", &app.session_id);
+    
+    // Get session ID and start IPC server
+    let session_id = app.session_id.clone();
+    let ipc_tx = app.message_tx.clone();
+    
+    // Start the IPC server in the background
+    tokio::spawn(async move {
+        start_ipc_server(ipc_tx, session_id).await;
+    });
+    
+    tracing::info!("Started Veda with session ID: {}", app.session_id);
 
-    // Run the UI
-    let res = run_app(&mut terminal, &mut app).await;
+    // Run the UI - keep _guard alive by moving it into the async block
+    let res = run_app(&mut terminal, &mut app, _guard).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -1653,11 +1834,16 @@ async fn main() -> Result<()> {
     if let Err(err) = res {
         eprintln!("Error: {:?}", err);
     }
+    
+    // Clean up Unix socket
+    let socket_path = format!("/tmp/veda-{}.sock", app.session_id);
+    let _ = std::fs::remove_file(&socket_path);
+    tracing::info!("Cleaned up socket: {}", socket_path);
 
     Ok(())
 }
 
-async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: tracing_appender::non_blocking::WorkerGuard) -> Result<()> {
     'outer: loop {
         // Process any Claude messages
         app.process_claude_messages().await;

@@ -1,5 +1,7 @@
 use std::io::{self, BufRead, Write};
 use serde_json::{json, Value};
+use tokio::net::UnixStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 // Extracted functions for testability
 pub fn create_tools_list_response(request_id: &Value) -> Value {
@@ -55,56 +57,125 @@ pub fn create_tools_list_response(request_id: &Value) -> Value {
     })
 }
 
-pub fn create_tool_call_response(request_id: &Value, tool_name: &str, tool_input: &Value) -> Value {
+pub async fn create_tool_call_response(request_id: &Value, tool_name: &str, tool_input: &Value) -> Value {
+    // Get the session ID from environment
+    let veda_session = std::env::var("VEDA_SESSION_ID").unwrap_or_else(|_| "default".to_string());
+    
     match tool_name {
         "veda_spawn_instances" => {
-            json!({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": format!(
-                                "✅ Request sent to Veda to spawn {} instances for task: {}",
-                                tool_input["num_instances"].as_u64().unwrap_or(2),
-                                tool_input["task_description"].as_str().unwrap_or("")
-                            )
+            // Send message to Veda via IPC
+            let ipc_message = json!({
+                "type": "spawn_instances",
+                "session_id": veda_session,
+                "task_description": tool_input["task_description"].as_str().unwrap_or(""),
+                "num_instances": tool_input["num_instances"].as_u64().unwrap_or(2)
+            });
+            
+            match send_to_veda(&veda_session, &ipc_message).await {
+                Ok(response) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": response
+                                }
+                            ]
                         }
-                    ]
+                    })
                 }
-            })
+                Err(e) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": format!("⚠️ Could not connect to Veda: {}. Make sure Veda is running.", e)
+                                }
+                            ]
+                        }
+                    })
+                }
+            }
         }
         "veda_list_instances" => {
-            json!({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "✅ Request sent to Veda to list all instances"
+            let ipc_message = json!({
+                "type": "list_instances",
+                "session_id": veda_session
+            });
+            
+            match send_to_veda(&veda_session, &ipc_message).await {
+                Ok(response) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": response
+                                }
+                            ]
                         }
-                    ]
+                    })
                 }
-            })
+                Err(e) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": format!("⚠️ Could not connect to Veda: {}", e)
+                                }
+                            ]
+                        }
+                    })
+                }
+            }
         }
         "veda_close_instance" => {
-            json!({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": format!(
-                                "✅ Request sent to Veda to close instance: {}",
-                                tool_input["instance_name"].as_str().unwrap_or("")
-                            )
+            let ipc_message = json!({
+                "type": "close_instance",
+                "session_id": veda_session,
+                "instance_name": tool_input["instance_name"].as_str().unwrap_or("")
+            });
+            
+            match send_to_veda(&veda_session, &ipc_message).await {
+                Ok(response) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": response
+                                }
+                            ]
                         }
-                    ]
+                    })
                 }
-            })
+                Err(e) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": format!("⚠️ Could not connect to Veda: {}", e)
+                                }
+                            ]
+                        }
+                    })
+                }
+            }
         }
         _ => {
             json!({
@@ -117,6 +188,24 @@ pub fn create_tool_call_response(request_id: &Value, tool_name: &str, tool_input
             })
         }
     }
+}
+
+async fn send_to_veda(session_id: &str, message: &Value) -> Result<String, Box<dyn std::error::Error>> {
+    // Use Unix domain socket in temp directory with session ID
+    let socket_path = format!("/tmp/veda-{}.sock", session_id);
+    let mut stream = UnixStream::connect(&socket_path).await?;
+    
+    // Send message
+    let msg_str = serde_json::to_string(message)?;
+    stream.write_all(msg_str.as_bytes()).await?;
+    stream.write_all(b"\n").await?;
+    
+    // Read response
+    let mut buffer = vec![0; 4096];
+    let n = stream.read(&mut buffer).await?;
+    let response = String::from_utf8_lossy(&buffer[..n]).to_string();
+    
+    Ok(response)
 }
 
 pub fn create_initialize_response(request_id: &Value) -> Value {
@@ -147,13 +236,13 @@ pub fn create_error_response(request_id: &Value) -> Value {
     })
 }
 
-pub fn process_request(request: &Value) -> Value {
+pub async fn process_request(request: &Value) -> Value {
     match request["method"].as_str() {
         Some("tools/list") => create_tools_list_response(&request["id"]),
         Some("tools/call") => {
             let tool_name = request["params"]["name"].as_str().unwrap_or("");
             let tool_input = &request["params"]["arguments"];
-            create_tool_call_response(&request["id"], tool_name, tool_input)
+            create_tool_call_response(&request["id"], tool_name, tool_input).await
         }
         Some("initialize") => create_initialize_response(&request["id"]),
         _ => create_error_response(&request["id"]),
@@ -165,10 +254,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     
-    for line in stdin.lock().lines() {
+    // Log the session info
+    eprintln!("[veda-mcp-server] Starting with session: {}", 
+        std::env::var("VEDA_SESSION_ID").unwrap_or_else(|_| "default".to_string())
+    );
+    
+    let stdin = stdin.lock();
+    for line in stdin.lines() {
         let line = line?;
         let request: Value = serde_json::from_str(&line)?;
-        let response = process_request(&request);
+        let response = process_request(&request).await;
         
         writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
         stdout.flush()?;
@@ -203,74 +298,73 @@ mod tests {
         assert!(tool_names.contains(&"veda_close_instance"));
     }
 
-    #[test]
-    fn test_create_tool_call_response_spawn_instances() {
+    #[tokio::test]
+    async fn test_create_tool_call_response_spawn_instances() {
         let request_id = json!(1);
         let tool_input = json!({
             "task_description": "Test task",
             "num_instances": 3
         });
         
-        let response = create_tool_call_response(&request_id, "veda_spawn_instances", &tool_input);
+        let response = create_tool_call_response(&request_id, "veda_spawn_instances", &tool_input).await;
         
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], 1);
         
         let text = response["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("spawn 3 instances"));
-        assert!(text.contains("Test task"));
+        assert!(text.contains("Could not connect to Veda"));
     }
 
-    #[test]
-    fn test_create_tool_call_response_spawn_instances_default() {
+    #[tokio::test]
+    async fn test_create_tool_call_response_spawn_instances_default() {
         let request_id = json!(1);
         let tool_input = json!({
             "task_description": "Test task"
             // num_instances omitted, should default to 2
         });
         
-        let response = create_tool_call_response(&request_id, "veda_spawn_instances", &tool_input);
+        let response = create_tool_call_response(&request_id, "veda_spawn_instances", &tool_input).await;
         
         let text = response["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("spawn 2 instances"));
+        assert!(text.contains("Could not connect to Veda"));
     }
 
-    #[test]
-    fn test_create_tool_call_response_list_instances() {
+    #[tokio::test]
+    async fn test_create_tool_call_response_list_instances() {
         let request_id = json!(2);
         let tool_input = json!({});
         
-        let response = create_tool_call_response(&request_id, "veda_list_instances", &tool_input);
+        let response = create_tool_call_response(&request_id, "veda_list_instances", &tool_input).await;
         
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], 2);
         
         let text = response["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("list all instances"));
+        assert!(text.contains("Could not connect to Veda"));
     }
 
-    #[test]
-    fn test_create_tool_call_response_close_instance() {
+    #[tokio::test]
+    async fn test_create_tool_call_response_close_instance() {
         let request_id = json!(3);
         let tool_input = json!({
             "instance_name": "Claude 2-A"
         });
         
-        let response = create_tool_call_response(&request_id, "veda_close_instance", &tool_input);
+        let response = create_tool_call_response(&request_id, "veda_close_instance", &tool_input).await;
         
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], 3);
         
         let text = response["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("close instance: Claude 2-A"));
+        assert!(text.contains("Could not connect to Veda"));
     }
 
-    #[test]
-    fn test_create_tool_call_response_unknown_tool() {
+    #[tokio::test]
+    async fn test_create_tool_call_response_unknown_tool() {
         let request_id = json!(4);
         let tool_input = json!({});
         
-        let response = create_tool_call_response(&request_id, "unknown_tool", &tool_input);
+        let response = create_tool_call_response(&request_id, "unknown_tool", &tool_input).await;
         
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], 4);
@@ -302,21 +396,21 @@ mod tests {
         assert_eq!(response["error"]["message"], "Method not found");
     }
 
-    #[test]
-    fn test_process_request_tools_list() {
+    #[tokio::test]
+    async fn test_process_request_tools_list() {
         let request = json!({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/list"
         });
         
-        let response = process_request(&request);
+        let response = process_request(&request).await;
         assert_eq!(response["id"], 1);
         assert!(response["result"]["tools"].is_array());
     }
 
-    #[test]
-    fn test_process_request_tools_call() {
+    #[tokio::test]
+    async fn test_process_request_tools_call() {
         let request = json!({
             "jsonrpc": "2.0",
             "id": 2,
@@ -330,13 +424,13 @@ mod tests {
             }
         });
         
-        let response = process_request(&request);
+        let response = process_request(&request).await;
         assert_eq!(response["id"], 2);
         assert!(response["result"]["content"].is_array());
     }
 
-    #[test]
-    fn test_process_request_initialize() {
+    #[tokio::test]
+    async fn test_process_request_initialize() {
         let request = json!({
             "jsonrpc": "2.0",
             "id": 3,
@@ -344,20 +438,20 @@ mod tests {
             "params": {}
         });
         
-        let response = process_request(&request);
+        let response = process_request(&request).await;
         assert_eq!(response["id"], 3);
         assert_eq!(response["result"]["serverInfo"]["name"], "veda-mcp-server");
     }
 
-    #[test]
-    fn test_process_request_unknown_method() {
+    #[tokio::test]
+    async fn test_process_request_unknown_method() {
         let request = json!({
             "jsonrpc": "2.0",
             "id": 4,
             "method": "unknown/method"
         });
         
-        let response = process_request(&request);
+        let response = process_request(&request).await;
         assert_eq!(response["id"], 4);
         assert!(response["error"].is_object());
     }

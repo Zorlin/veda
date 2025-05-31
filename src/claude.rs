@@ -143,6 +143,11 @@ pub async fn send_to_claude_with_session(
     // Build command args based on whether we have a session ID
     let mut cmd = AsyncCommand::new("claude");
     
+    // Set the VEDA_SESSION_ID environment variable if available
+    if let Ok(veda_session_id) = std::env::var("VEDA_SESSION_ID") {
+        cmd.env("VEDA_SESSION_ID", veda_session_id);
+    }
+    
     if let Some(session) = session_id {
         cmd.arg("--resume").arg(session);
     }
