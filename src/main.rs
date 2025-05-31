@@ -78,6 +78,9 @@ struct ClaudeInstance {
     stall_check_sent: bool,
     stall_delay_seconds: i64, // Dynamic delay: 10s, 20s, 30s max
     stall_intervention_in_progress: bool, // Prevent multiple simultaneous interventions
+    // Store last known terminal dimensions for auto-scrolling
+    last_terminal_width: u16,
+    last_message_area_height: u16,
 }
 
 impl ClaudeInstance {
@@ -110,6 +113,8 @@ impl ClaudeInstance {
             stall_check_sent: false,
             stall_delay_seconds: 10, // Start with 10 second delay
             stall_intervention_in_progress: false,
+            last_terminal_width: 80, // Default terminal width
+            last_message_area_height: 20, // Default message area height
         }
     }
 
@@ -134,14 +139,21 @@ impl ClaudeInstance {
             self.stall_intervention_in_progress = false;
         }
         
-        // Auto-scroll to show new messages (will be updated with actual height in UI)
-        self.auto_scroll_to_bottom(None);
+        // Auto-scroll to show new messages using last known dimensions
+        self.auto_scroll_with_width(Some(self.last_message_area_height), Some(self.last_terminal_width));
     }
     
     fn auto_scroll_to_bottom(&mut self, message_area_height: Option<u16>) {
+        self.auto_scroll_with_width(message_area_height, None);
+    }
+    
+    fn auto_scroll_with_width(&mut self, message_area_height: Option<u16>, terminal_width: Option<u16>) {
         // Calculate how many lines are needed for all messages
         // Account for message content that might wrap and collapsed thinking sections
         let mut total_lines = 0;
+        
+        // Get the terminal width for better line wrapping calculation
+        let term_width = terminal_width.unwrap_or(80); // Use provided width or default
         
         for msg in &self.messages {
             // Each message has timestamp + sender + content
@@ -149,16 +161,48 @@ impl ClaudeInstance {
                 // Collapsed thinking shows as one line
                 total_lines += 1;
             } else {
-                // Normal message - estimate wrapped lines based on content length
-                let content_lines = (msg.content.len() / 80).max(1); // Rough estimate for 80-char width
-                total_lines += content_lines + 1; // +1 for empty line between messages
+                // Calculate lines needed for message content
+                // Account for timestamp, sender, and actual content wrapping
+                let prefix_len = msg.timestamp.len() + msg.sender.len() + 3; // ": " and space
+                
+                // Split content by newlines and calculate wrapped lines for each
+                let mut msg_lines = 0;
+                let mut is_first_line = true;
+                
+                for line in msg.content.lines() {
+                    if line.is_empty() {
+                        msg_lines += 1;
+                    } else {
+                        // Calculate wrapped lines
+                        let line_chars = if is_first_line {
+                            line.len() + prefix_len
+                        } else {
+                            line.len()
+                        };
+                        let wrapped = (line_chars as f32 / term_width as f32).ceil() as usize;
+                        msg_lines += wrapped.max(1);
+                        is_first_line = false;
+                    }
+                }
+                
+                // If message is empty or has no lines, still count it as 1 line
+                if msg_lines == 0 {
+                    msg_lines = 1;
+                }
+                
+                total_lines += msg_lines;
             }
+            
+            // Add empty line between messages
+            total_lines += 1;
         }
         
-        // Use provided height or fallback to default
+        // Use provided height or fallback to default  
         let visible_lines = message_area_height.unwrap_or(20) as usize;
         
+        // Always scroll to show the latest messages
         if total_lines > visible_lines {
+            // Scroll to show the bottom of the messages
             self.scroll_offset = (total_lines - visible_lines) as u16;
         } else {
             self.scroll_offset = 0;
@@ -796,12 +840,13 @@ This prompt appears only once per session. You now have full access to these pow
                     
                     // Find the last DeepSeek message to append to
                     if let Some(instance) = self.current_instance_mut() {
-                        if let Some(last_msg) = instance.messages.iter_mut()
+                        let should_scroll = if let Some(last_msg) = instance.messages.iter_mut()
                             .rev()
                             .find(|m| m.sender == "DeepSeek") 
                         {
                             last_msg.content.push_str(&text);
                             last_msg.is_thinking = is_thinking;
+                            true
                         } else {
                             // Create new message if none exists
                             instance.add_message_with_flags(
@@ -810,6 +855,12 @@ This prompt appears only once per session. You now have full access to these pow
                                 is_thinking,
                                 false
                             );
+                            false // add_message_with_flags already scrolls
+                        };
+                        
+                        if should_scroll {
+                            // Trigger auto-scroll after appending with stored dimensions
+                            instance.auto_scroll_with_width(Some(instance.last_message_area_height), Some(instance.last_terminal_width));
                         }
                     }
                 }
@@ -867,7 +918,12 @@ This prompt appears only once per session. You now have full access to these pow
                     // Don't create empty message - we'll create it when we get actual content
                 }
                 ClaudeMessage::StreamText { instance_id, text } => {
-                    tracing::debug!("StreamText for instance {}: {:?}", instance_id, text);
+                    // Find which tab this instance belongs to
+                    let tab_info = self.instances.iter().position(|i| i.id == instance_id)
+                        .map(|idx| format!("Tab {} ({})", idx + 1, self.instances[idx].name.clone()))
+                        .unwrap_or_else(|| "Unknown tab".to_string());
+                    
+                    tracing::info!("StreamText for instance {} ({}): {:?}", instance_id, tab_info, text.chars().take(50).collect::<String>());
                     // Hide todo list when new output arrives
                     self.hide_todo_list();
                     if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
@@ -902,6 +958,9 @@ This prompt appears only once per session. You now have full access to these pow
                             } else {
                                 None
                             };
+                            
+                            // Trigger auto-scroll after appending with stored dimensions
+                            instance.auto_scroll_with_width(Some(instance.last_message_area_height), Some(instance.last_terminal_width));
                             
                             // Parse todo list if needed (after releasing the mutable borrow)
                             if let Some(content) = needs_todo_parse {
@@ -1142,10 +1201,17 @@ This prompt appears only once per session. You now have full access to these pow
                     }
                 }
                 ClaudeMessage::SessionStarted { instance_id, session_id } => {
-                    tracing::info!("Session started for instance {} with ID: {}", instance_id, session_id);
+                    // Find which tab this instance belongs to
+                    let tab_info = self.instances.iter().position(|i| i.id == instance_id)
+                        .map(|idx| format!("Tab {} ({})", idx + 1, self.instances[idx].name.clone()))
+                        .unwrap_or_else(|| "Unknown tab".to_string());
+                    
+                    tracing::info!("Session started for instance {} ({}) with ID: {}", instance_id, tab_info, session_id);
                     if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
                         instance.session_id = Some(session_id.clone());
                         instance.add_message("System".to_string(), format!("📝 Session started: {}", session_id));
+                    } else {
+                        tracing::error!("Could not find instance {} to set session ID {}", instance_id, session_id);
                     }
                 }
                 ClaudeMessage::ToolPermissionDenied { instance_id, tool_name } => {
@@ -1627,10 +1693,17 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                 task_desc, scope, priority
             );
             
+            // Store instance info for spawning
+            let instance_info = (instance_id, instance_name_copy.clone(), task_instruction);
+            
+            // Delay the actual Claude process spawning to ensure proper tab creation
             tokio::spawn(async move {
-                tracing::info!("Sending initial task instruction to instance {}", instance_name_copy);
-                if let Err(e) = send_to_claude_with_session(instance_id, task_instruction, tx, None).await {
-                    tracing::error!("Failed to send initial instruction to spawned instance: {}", e);
+                // Wait a bit to ensure the UI has updated with the new tab
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                
+                tracing::info!("Sending initial task instruction to instance {} ({})", instance_info.1, instance_info.0);
+                if let Err(e) = send_to_claude_with_session(instance_info.0, instance_info.2, tx, None).await {
+                    tracing::error!("Failed to send initial instruction to spawned instance {}: {}", instance_info.1, e);
                 }
             });
         }
@@ -2071,9 +2144,15 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Messages area
     if let Some(instance) = app.instances.get_mut(app.current_tab) {
-        // Update scroll position based on actual message area height
+        // Update scroll position based on actual message area height and width
         let message_area_height = chunks[1].height;
-        instance.auto_scroll_to_bottom(Some(message_area_height));
+        let message_area_width = chunks[1].width.saturating_sub(2); // Subtract borders
+        
+        // Store dimensions for future auto-scrolling
+        instance.last_message_area_height = message_area_height;
+        instance.last_terminal_width = message_area_width;
+        
+        instance.auto_scroll_with_width(Some(message_area_height), Some(message_area_width));
         
         let mut all_lines = Vec::new();
         

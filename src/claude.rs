@@ -138,7 +138,7 @@ pub async fn send_to_claude_with_session(
     tx: mpsc::Sender<ClaudeMessage>,
     session_id: Option<String>,
 ) -> Result<()> {
-    tracing::info!("send_to_claude called for instance {} with message: {} (session: {:?})", instance_id, message, session_id);
+    tracing::info!("send_to_claude_with_session called for instance {} with message: {} (session: {:?})", instance_id, message, session_id);
     
     // Build command args based on whether we have a session ID
     let mut cmd = AsyncCommand::new("claude");
@@ -197,7 +197,7 @@ pub async fn send_to_claude_with_session(
                     match event {
                         ClaudeStreamEvent::System { subtype, session_id } => {
                             if subtype == "init" {
-                                tracing::info!("Session started with ID: {}", session_id);
+                                tracing::info!("Session started with ID: {} for instance {}", session_id, id_stdout);
                                 let _ = tx_stdout.send(ClaudeMessage::SessionStarted {
                                     instance_id: id_stdout,
                                     session_id,
@@ -209,7 +209,7 @@ pub async fn send_to_claude_with_session(
                             for content in message.content {
                                 match content {
                                     ContentItem::Text { text } => {
-                                        tracing::info!("Received assistant text: {:?}", text);
+                                        tracing::info!("Received assistant text for instance {}: {:?}", id_stdout, text);
                                         let _ = tx_stdout.send(ClaudeMessage::StreamText {
                                             instance_id: id_stdout,
                                             text,
