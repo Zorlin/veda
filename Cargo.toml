@@ -48,6 +48,7 @@ chrono = "0.4"
 
 # Text wrapping
 textwrap = "0.16"
+unicode-width = "0.1"
 
 # Text input widget
 tui-textarea = "0.7.0"

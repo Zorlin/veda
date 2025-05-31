@@ -154,49 +154,44 @@ impl ClaudeInstance {
     }
     
     fn auto_scroll_with_width(&mut self, message_area_height: Option<u16>, terminal_width: Option<u16>) {
-        // Calculate how many lines are needed for all messages
-        // Account for message content that might wrap and collapsed thinking sections
+        // Count actual rendered lines
         let mut total_lines = 0;
-        
-        // Get the terminal width for better line wrapping calculation
-        let term_width = terminal_width.unwrap_or(80); // Use provided width or default
+        let term_width = terminal_width.unwrap_or(80).saturating_sub(2); // Account for borders
         
         for msg in &self.messages {
-            // Each message has timestamp + sender + content
-            if msg.sender == "DeepSeek" && msg.is_thinking && msg.is_collapsed {
+            if msg.sender == "DeepSeek" && msg.is_thinking && (msg.is_collapsed || !self.messages.is_empty()) {
                 // Collapsed thinking shows as one line
                 total_lines += 1;
             } else {
-                // Calculate lines needed for message content
-                // Account for timestamp, sender, and actual content wrapping
-                let prefix_len = msg.timestamp.len() + msg.sender.len() + 3; // ": " and space
+                // Build the full line as it will be rendered
+                let prefix = format!("{} {}: ", msg.timestamp, msg.sender);
+                let prefix_len = unicode_width::UnicodeWidthStr::width(prefix.as_str());
                 
-                // Split content by newlines and calculate wrapped lines for each
-                let mut msg_lines = 0;
-                let mut is_first_line = true;
-                
-                for line in msg.content.lines() {
-                    if line.is_empty() {
-                        msg_lines += 1;
-                    } else {
-                        // Calculate wrapped lines
-                        let line_chars = if is_first_line {
-                            line.len() + prefix_len
+                // For first line of content
+                let content_lines: Vec<&str> = msg.content.lines().collect();
+                if content_lines.is_empty() || (content_lines.len() == 1 && content_lines[0].is_empty()) {
+                    // Empty message still takes one line
+                    total_lines += 1;
+                } else {
+                    // Calculate wrapped lines for the actual content
+                    for (i, line) in content_lines.iter().enumerate() {
+                        if i == 0 {
+                            // First line includes the prefix
+                            let first_line_width = prefix_len + unicode_width::UnicodeWidthStr::width(*line);
+                            let wrapped = (first_line_width as f32 / term_width as f32).ceil() as usize;
+                            total_lines += wrapped.max(1);
                         } else {
-                            line.len()
-                        };
-                        let wrapped = (line_chars as f32 / term_width as f32).ceil() as usize;
-                        msg_lines += wrapped.max(1);
-                        is_first_line = false;
+                            // Subsequent lines don't have prefix
+                            let line_width = unicode_width::UnicodeWidthStr::width(*line);
+                            if line_width == 0 {
+                                total_lines += 1; // Empty line
+                            } else {
+                                let wrapped = (line_width as f32 / term_width as f32).ceil() as usize;
+                                total_lines += wrapped.max(1);
+                            }
+                        }
                     }
                 }
-                
-                // If message is empty or has no lines, still count it as 1 line
-                if msg_lines == 0 {
-                    msg_lines = 1;
-                }
-                
-                total_lines += msg_lines;
             }
             
             // Add empty line between messages
@@ -206,10 +201,13 @@ impl ClaudeInstance {
         // Use provided height or fallback to default  
         let visible_lines = message_area_height.unwrap_or(20) as usize;
         
-        // Always scroll to show the latest messages
-        if total_lines > visible_lines {
-            // Scroll to show the bottom of the messages
-            self.scroll_offset = (total_lines - visible_lines) as u16;
+        // Account for borders (2 lines) and ensure we don't over-scroll
+        let actual_visible = visible_lines.saturating_sub(2);
+        
+        if total_lines > actual_visible {
+            // Calculate scroll to show bottom content
+            // Subtract 1 to ensure the last line is visible
+            self.scroll_offset = (total_lines - actual_visible) as u16;
         } else {
             self.scroll_offset = 0;
         }
@@ -314,6 +312,8 @@ struct App {
     // Triple-Enter interruption detection
     enter_press_count: u8,
     last_enter_time: Option<std::time::Instant>,
+    // Buffer for messages that arrive before sessions are established
+    pending_session_messages: Vec<(Uuid, String, String)>, // (instance_id, text, session_id)
 }
 
 impl App {
@@ -526,7 +526,7 @@ Your response:"#,
     
     fn new() -> Result<Self> {
         let mut instances = Vec::new();
-        instances.push(ClaudeInstance::new("Claude 1".to_string()));
+        instances.push(ClaudeInstance::new("Veda-1".to_string()));
         
         let (tx, rx) = mpsc::channel(100);
         let (deepseek_tx, deepseek_rx) = mpsc::channel(100);
@@ -561,6 +561,7 @@ Your response:"#,
             message_queue: Vec::new(),
             enter_press_count: 0,
             last_enter_time: None,
+            pending_session_messages: Vec::new(),
         })
     }
 
@@ -574,7 +575,7 @@ Your response:"#,
 
     fn add_instance(&mut self) {
         let instance_num = self.instances.len() + 1;
-        self.instances.push(ClaudeInstance::new(format!("Claude {}", instance_num)));
+        self.instances.push(ClaudeInstance::new(format!("Veda-{}", instance_num)));
         self.current_tab = self.instances.len() - 1;
     }
     
@@ -1201,7 +1202,22 @@ This prompt appears only once per session. You now have full access to these pow
                             .unwrap_or_else(|| "Unknown tab".to_string())
                     };
                     
-                    tracing::info!("StreamText for instance {} ({}): {:?}", instance_id, tab_info, text.chars().take(50).collect::<String>());
+                    tracing::info!("📝 StreamText for instance {} ({}): {:?}", instance_id, tab_info, text.chars().take(50).collect::<String>());
+                    
+                    // Enhanced debugging for session routing
+                    if session_id.is_some() {
+                        let session_str = session_id.as_ref().unwrap();
+                        tracing::info!("🔍 Session routing - looking for session: {}", session_str);
+                        for (i, inst) in self.instances.iter().enumerate() {
+                            if let Some(ref inst_session) = inst.session_id {
+                                tracing::info!("  Tab {} ({}): session {} - {}", 
+                                    i + 1, inst.name, inst_session, 
+                                    if inst_session == session_str { "MATCH" } else { "no match" });
+                            } else {
+                                tracing::info!("  Tab {} ({}): no session", i + 1, inst.name);
+                            }
+                        }
+                    }
                     // Hide todo list when new output arrives
                     self.hide_todo_list();
                     
@@ -1219,6 +1235,11 @@ This prompt appears only once per session. You now have full access to these pow
                             // Create a new Claude message
                             instance.add_message("Claude".to_string(), text.clone());
                             tracing::debug!("Created new Claude message after tool use");
+                            // For non-current tabs, use default dimensions if not set
+                            let height = if instance.last_message_area_height == 0 { 20 } else { instance.last_message_area_height };
+                            let width = if instance.last_terminal_width == 0 { 80 } else { instance.last_terminal_width };
+                            // Trigger auto-scroll after creating new message
+                            instance.auto_scroll_with_width(Some(height), Some(width));
                             // Check if this is todo list data
                             self.parse_todo_list(&text);
                         } else {
@@ -1239,8 +1260,11 @@ This prompt appears only once per session. You now have full access to these pow
                                 None
                             };
                             
+                            // For non-current tabs, use default dimensions if not set
+                            let height = if instance.last_message_area_height == 0 { 20 } else { instance.last_message_area_height };
+                            let width = if instance.last_terminal_width == 0 { 80 } else { instance.last_terminal_width };
                             // Trigger auto-scroll after appending with stored dimensions
-                            instance.auto_scroll_with_width(Some(instance.last_message_area_height), Some(instance.last_terminal_width));
+                            instance.auto_scroll_with_width(Some(height), Some(width));
                             
                             // Parse todo list if needed (after releasing the mutable borrow)
                             if let Some(content) = needs_todo_parse {
@@ -1248,7 +1272,19 @@ This prompt appears only once per session. You now have full access to these pow
                             }
                         }
                     } else {
-                        tracing::error!("Instance {} not found", instance_id);
+                        // Failed to route message - could be a race condition where session hasn't been established yet
+                        if let Some(ref session_id_val) = session_id {
+                            tracing::warn!("⚠️  Failed to route StreamText: instance_id={}, session_id={} - buffering message", instance_id, session_id_val);
+                            tracing::warn!("   Available instances: {:?}", 
+                                self.instances.iter().map(|i| (i.id, i.name.clone(), i.session_id.clone())).collect::<Vec<_>>());
+                            // Buffer the message for when the session gets established
+                            self.pending_session_messages.push((instance_id, text.clone(), session_id_val.clone()));
+                            tracing::info!("📦 Buffered message for session {} (buffer size: {})", session_id_val, self.pending_session_messages.len());
+                        } else {
+                            tracing::error!("❌ Instance {} not found and no session_id provided - cannot route or buffer message", instance_id);
+                            tracing::error!("   Available instances: {:?}", 
+                                self.instances.iter().map(|i| (i.id, i.name.clone())).collect::<Vec<_>>());
+                        }
                     }
                 }
                 ClaudeMessage::StreamEnd { instance_id, session_id } => {
@@ -1654,12 +1690,48 @@ Response:"#,
                         .map(|idx| format!("Tab {} ({})", idx + 1, self.instances[idx].name.clone()))
                         .unwrap_or_else(|| "Unknown tab".to_string());
                     
-                    tracing::info!("Session started for instance {} ({}) with ID: {}", instance_id, tab_info, session_id);
+                    tracing::info!("🎬 Session started for instance {} ({}) with ID: {}", instance_id, tab_info, session_id);
+                    
+                    // Log all current instances for debugging
+                    for (i, inst) in self.instances.iter().enumerate() {
+                        tracing::info!("  Instance {}: {} (ID: {}, Session: {:?})", 
+                            i + 1, inst.name, inst.id, inst.session_id);
+                    }
+                    
                     if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
                         instance.session_id = Some(session_id.clone());
                         instance.add_message("System".to_string(), format!("📝 Session started: {}", session_id));
+                        tracing::info!("✅ Successfully set session {} for {}", session_id, instance.name);
+                        
+                        // Process any buffered messages for this session
+                        let mut buffered_messages = Vec::new();
+                        let mut remaining_messages = Vec::new();
+                        
+                        for (msg_instance_id, text, msg_session_id) in std::mem::take(&mut self.pending_session_messages) {
+                            if msg_session_id == session_id {
+                                buffered_messages.push((msg_instance_id, text, msg_session_id));
+                            } else {
+                                remaining_messages.push((msg_instance_id, text, msg_session_id));
+                            }
+                        }
+                        self.pending_session_messages = remaining_messages;
+                        
+                        if !buffered_messages.is_empty() {
+                            tracing::info!("📬 Processing {} buffered messages for session {}", buffered_messages.len(), session_id);
+                            for (_, text, _) in buffered_messages {
+                                instance.add_message("Claude".to_string(), text);
+                                // For non-current tabs, use default dimensions if not set
+                                let height = if instance.last_message_area_height == 0 { 20 } else { instance.last_message_area_height };
+                                let width = if instance.last_terminal_width == 0 { 80 } else { instance.last_terminal_width };
+                                // Trigger auto-scroll after adding buffered message
+                                instance.auto_scroll_with_width(Some(height), Some(width));
+                            }
+                            tracing::info!("✅ Processed all buffered messages for session {}", session_id);
+                        }
                     } else {
-                        tracing::error!("Could not find instance {} to set session ID {}", instance_id, session_id);
+                        tracing::error!("❌ Could not find instance {} to set session ID {}", instance_id, session_id);
+                        tracing::error!("Available instances: {:?}", 
+                            self.instances.iter().map(|i| (i.id, i.name.clone())).collect::<Vec<_>>());
                     }
                 }
                 ClaudeMessage::ToolPermissionDenied { instance_id, tool_name, .. } => {
@@ -2196,8 +2268,8 @@ Your response:"#,
             tracing::warn!("No subtasks found in breakdown, creating generic instances");
             // If DeepSeek analysis failed or returned no subtasks, create generic instances
             if requested_count > 0 {
-                for i in 0..requested_count.min(self.max_instances - self.instances.len()) {
-                    let instance_name = format!("Claude {}-{}", self.instances.len() + 1, char::from(b'A' + i as u8));
+                for _ in 0..requested_count.min(self.max_instances - self.instances.len()) {
+                    let instance_name = format!("Veda-{}", self.instances.len() + 1);
                     let mut new_instance = ClaudeInstance::new(instance_name);
                     new_instance.working_directory = working_dir.to_string();
                     
@@ -2287,7 +2359,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
             
             let subtask = subtasks.get(i % subtasks.len()).unwrap_or(&"General coordination task");
             
-            let instance_name = format!("Claude {}-{}", self.instances.len() + 1, char::from(b'A' + i as u8));
+            let instance_name = format!("Veda-{}", self.instances.len() + 1);
             let mut new_instance = ClaudeInstance::new(instance_name);
             new_instance.working_directory = working_dir.to_string();
             
@@ -2730,7 +2802,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: 
                     }
                 }
                 Event::Key(key) => {
-                    tracing::debug!("Key event: {:?} with modifiers: {:?}", key.code, key.modifiers);
+                    // DO NOT LOG KEYSTROKES - SECURITY RISK
                     match (key.modifiers, key.code) {
                         (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                             // Check if we have a selection first
@@ -3086,7 +3158,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 }
             )))
             .style(Style::default().fg(Color::White))
-            .wrap(Wrap { trim: true })
+            .wrap(Wrap { trim: false })
             .scroll((instance.scroll_offset, 0));
         f.render_widget(messages_paragraph, chunks[1]);
 
@@ -3194,7 +3266,7 @@ fn render_todo_overlay(f: &mut Frame, todo_list: &TodoListState) {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow))
             .style(Style::default().bg(Color::Black)))
-        .wrap(Wrap { trim: true })
+        .wrap(Wrap { trim: false })
         .alignment(Alignment::Left);
     
     f.render_widget(todo_widget, popup_area);
