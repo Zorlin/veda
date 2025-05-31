@@ -1,0 +1,7 @@
+3
+John Smith
+185
+Alice Johnson
+220
+Bob Williams
+150

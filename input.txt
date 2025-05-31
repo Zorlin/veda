@@ -1,0 +1,17 @@
+Total students: 3
+----------------------------------------
+Student 1:
+  Name: John Smith
+  Score: 185/255
+  Percentage: 72.5%
+----------------------------------------
+Student 2:
+  Name: Alice Johnson
+  Score: 220/255
+  Percentage: 86.3%
+----------------------------------------
+Student 3:
+  Name: Bob Williams
+  Score: 150/255
+  Percentage: 58.8%
+----------------------------------------
