@@ -3143,6 +3143,17 @@ async fn main() -> Result<()> {
     // Create app state
     let mut app = App::new()?;
     
+    // Start the shared registry server (only one instance across all Veda processes)
+    // If it's already running, this will fail silently which is expected
+    tokio::spawn(async {
+        if let Err(e) = crate::shared_ipc::start_shared_ipc_server().await {
+            // Only log if it's not "address already in use" which is expected
+            if !e.to_string().contains("Address already in use") {
+                tracing::warn!("Could not start shared registry server: {}", e);
+            }
+        }
+    });
+    
     // Check for instance name from environment (for spawned instances)
     if let Ok(instance_name) = std::env::var("VEDA_INSTANCE_NAME") {
         // This is a spawned instance - update the main instance name

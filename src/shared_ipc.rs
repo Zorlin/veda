@@ -7,6 +7,31 @@ use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use tracing::{info, error, warn};
 
+/// Get the appropriate socket path for the current OS
+fn get_socket_path() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        // On macOS, use /tmp which is standard and accessible
+        "/tmp/veda-shared-registry.sock".to_string()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // On Linux, check if /run/user exists (systemd user session), otherwise use /tmp
+        let uid = unsafe { libc::getuid() };
+        let user_runtime_dir = format!("/run/user/{}", uid);
+        if std::path::Path::new(&user_runtime_dir).exists() {
+            format!("{}/veda-shared-registry.sock", user_runtime_dir)
+        } else {
+            "/tmp/veda-shared-registry.sock".to_string()
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        // Fallback for other Unix-like systems
+        "/tmp/veda-shared-registry.sock".to_string()
+    }
+}
+
 /// Shared state for tracking instances across multiple Veda processes
 #[derive(Default, Clone)]
 pub struct SharedInstanceRegistry {
@@ -116,12 +141,12 @@ impl SharedInstanceRegistry {
 
 /// Start the shared IPC server that multiple Veda instances can connect to
 pub async fn start_shared_ipc_server() -> Result<()> {
-    let socket_path = "/tmp/veda-shared-registry.sock";
+    let socket_path = get_socket_path();
     
     // Remove existing socket if it exists
-    let _ = std::fs::remove_file(socket_path);
+    let _ = std::fs::remove_file(&socket_path);
     
-    let listener = UnixListener::bind(socket_path)?;
+    let listener = UnixListener::bind(&socket_path)?;
     info!("Shared IPC registry server listening on {}", socket_path);
     
     let registry = SharedInstanceRegistry::new();
@@ -263,8 +288,8 @@ pub struct RegistryClient;
 
 impl RegistryClient {
     pub async fn send_command(command: RegistryCommand) -> Result<RegistryResponse> {
-        let socket_path = "/tmp/veda-shared-registry.sock";
-        let mut socket = UnixStream::connect(socket_path).await?;
+        let socket_path = get_socket_path();
+        let mut socket = UnixStream::connect(&socket_path).await?;
         
         let command_json = serde_json::to_string(&command)?;
         socket.write_all(command_json.as_bytes()).await?;
