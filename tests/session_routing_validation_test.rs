@@ -197,13 +197,13 @@ fn test_one_message_per_tab_bug() {
     println!("Message distribution: {:?}", message_distribution);
     
     // Bug symptoms:
-    // 1. Each non-main tab has only 1 message
-    assert!(tabs[1].has_only_initial_message(), "Tab 2 should have only 1 message");
-    assert!(tabs[2].has_only_initial_message(), "Tab 3 should have only 1 message");
-    assert!(tabs[3].has_only_initial_message(), "Tab 4 should have only 1 message");
+    // 1. Each non-main tab has only 1 message (THIS IS BAD)
+    assert!(!tabs[1].has_only_initial_message(), "Tab 2 has only 1 message - routing bug detected!");
+    assert!(!tabs[2].has_only_initial_message(), "Tab 3 has only 1 message - routing bug detected!");
+    assert!(!tabs[3].has_only_initial_message(), "Tab 4 has only 1 message - routing bug detected!");
     
-    // 2. Main tab has way too many messages
-    assert!(tabs[0].message_count() > 40, "Main tab should have overflow of messages");
+    // 2. Main tab should NOT have all the messages
+    assert!(tabs[0].message_count() <= 40, "Main tab has {} messages - overflow bug detected!", tabs[0].message_count());
 }
 
 /// Test message structure validation

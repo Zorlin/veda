@@ -348,17 +348,15 @@ async fn test_ui_overflow_empty_detection() {
     let single_message_tabs = tabs.iter().filter(|t| t.message_count == 1).count();
     let empty_tabs = tabs.iter().filter(|t| t.is_empty).count();
     
-    // This pattern indicates the routing bug
-    if overflow_tabs > 0 && single_message_tabs >= 2 {
-        println!("WARNING: Detected '1 message per tab while main overflows' pattern!");
-        println!("- {} tabs have overflow (>{} messages)", overflow_tabs, OVERFLOW_THRESHOLD);
-        println!("- {} tabs have exactly 1 message", single_message_tabs);
-        println!("- {} tabs are empty", empty_tabs);
-        
-        // This test demonstrates the bug pattern - in production this should fail
-        // For now, we'll just warn about it
-        eprintln!("Tab routing bug pattern detected - this would fail in production!");
-    }
+    // This pattern indicates the routing bug - FAIL HARD
+    assert!(
+        !(overflow_tabs > 0 && single_message_tabs >= 2),
+        "CRITICAL TAB ROUTING BUG DETECTED! {} tabs have overflow (>{}), {} tabs have exactly 1 message, {} tabs are empty",
+        overflow_tabs,
+        OVERFLOW_THRESHOLD,
+        single_message_tabs,
+        empty_tabs
+    );
 }
 
 /// Test complete end-to-end flow with validation

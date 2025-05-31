@@ -1,5 +1,6 @@
 mod claude;
 mod deepseek;
+mod shared_ipc;
 
 use anyhow::Result;
 use arboard::Clipboard;
@@ -287,6 +288,10 @@ impl ClaudeInstance {
 }
 
 struct App {
+    // Global instance ID shared by all tabs in this Veda process
+    instance_id: Uuid,
+    // Session ID for this Veda process
+    session_id: String,
     instances: Vec<ClaudeInstance>,
     current_tab: usize,
     auto_mode: bool,
@@ -310,8 +315,6 @@ struct App {
     coordination_in_progress: bool,
     // Rate limiting for coordination skip log
     last_coordination_skip_log: Option<std::time::Instant>,
-    // Session ID for coordination
-    session_id: String,
     // Message queue system (like Claude Code)
     message_queue: Vec<String>,
     // Triple-Enter interruption detection
@@ -488,7 +491,7 @@ Your response:"#,
         );
         
         let request_body = serde_json::json!({
-            "model": "gemma3:8b",
+            "model": "gemma3:12b",
             "prompt": prompt,
             "stream": false
         });
@@ -540,10 +543,14 @@ Your response:"#,
         let (tx, rx) = mpsc::channel(100);
         let (deepseek_tx, deepseek_rx) = mpsc::channel(100);
         
-        // Generate a unique session ID
-        let session_id = uuid::Uuid::new_v4().to_string();
+        // Generate a single instance ID for this entire Veda process
+        let instance_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4().to_string();
+        tracing::info!("Veda instance started with ID: {}, session ID: {}", instance_id, session_id);
         
         Ok(Self {
+            instance_id,
+            session_id,
             instances,
             current_tab: 0,
             auto_mode: true,  // Enable automode by default
@@ -566,7 +573,6 @@ Your response:"#,
             max_instances: 5, // Main + 4 additional
             coordination_in_progress: false,
             last_coordination_skip_log: None,
-            session_id,
             message_queue: Vec::new(),
             enter_press_count: 0,
             last_enter_time: None,
@@ -752,12 +758,12 @@ This prompt appears only once per session. You now have full access to these pow
         
         // Collect necessary data first to avoid borrowing conflicts
         let current_tab = self.current_tab;
-        let (id, session_id, working_dir, is_first_message, process_handle, instance_name) = {
+        let (session_id, working_dir, is_first_message, process_handle, instance_name) = {
             if let Some(instance) = self.current_instance_mut() {
                 // Log the current state for debugging
                 let instance_name = instance.name.clone();
-                tracing::info!("Sending message from tab {} ({}), instance_id: {}, session_id: {:?}", 
-                    current_tab, instance_name, instance.id, instance.session_id);
+                tracing::info!("Sending message from tab {} ({}), session_id: {:?}", 
+                    current_tab, instance_name, instance.session_id);
                 tracing::info!("Message: {}", message);
                 
                 // Check if this is the first message BEFORE adding it
@@ -765,7 +771,7 @@ This prompt appears only once per session. You now have full access to these pow
                 instance.add_message("You".to_string(), message.clone());
                 instance.is_processing = true;
                 
-                let id = instance.id;
+                // Only use session_id for routing - eliminate instance_id from message flow
                 let session_id = instance.session_id.clone();
                 let working_dir = instance.working_directory.clone();
                 
@@ -778,7 +784,7 @@ This prompt appears only once per session. You now have full access to these pow
                     instance.process_handle.clone()
                 };
                 
-                (id, session_id, working_dir, is_first_message, process_handle, instance_name)
+                (session_id, working_dir, is_first_message, process_handle, instance_name)
             } else {
                 return;
             }
@@ -802,15 +808,15 @@ This prompt appears only once per session. You now have full access to these pow
         tracing::debug!("Final message to Claude (first 200 chars): {}", &context_message.chars().take(200).collect::<String>());
         
         // Log which tab is sending the message
-        tracing::info!("Tab {} ({}) sending message to Claude instance {}", 
+        tracing::info!("Tab {} ({}) sending message to Claude session {:?}", 
             current_tab + 1, 
             instance_name,
-            id);
+            session_id);
         
-        // Send to Claude
+        // Send to Claude (no instance_id needed - only session_id for routing)
         tokio::spawn(async move {
-            tracing::info!("Spawning send_to_claude task for instance {} with session {:?} in dir {}", id, session_id, working_dir);
-            if let Err(e) = send_to_claude_with_session(id, context_message, tx, session_id, process_handle).await {
+            tracing::info!("Spawning send_to_claude task with session {:?} in dir {}", session_id, working_dir);
+            if let Err(e) = send_to_claude_with_session(context_message, tx, session_id, process_handle).await {
                 tracing::error!("Error sending to Claude: {}", e);
                 eprintln!("Error sending to Claude: {}", e);
             } else {
@@ -1183,7 +1189,7 @@ This prompt appears only once per session. You now have full access to these pow
                                 tokio::spawn(async move {
                                     tracing::info!("Sending DeepSeek verdict to Claude: {}", message_to_claude);
                                     // Send directly without working directory context since this is automode
-                                    if let Err(e) = send_to_claude_with_session(instance_id, message_to_claude, tx, session_id, None).await {
+                                    if let Err(e) = send_to_claude_with_session(message_to_claude, tx, session_id, None).await {
                                         tracing::error!("Failed to send DeepSeek response to Claude: {}", e);
                                     }
                                 });
@@ -1206,59 +1212,56 @@ This prompt appears only once per session. You now have full access to these pow
         while let Ok(msg) = self.message_rx.try_recv() {
             tracing::debug!("Processing message: {:?}", msg);
             match msg {
-                ClaudeMessage::StreamStart { instance_id, .. } => {
-                    tracing::info!("StreamStart for instance {}", instance_id);
+                ClaudeMessage::StreamStart { session_id, .. } => {
+                    tracing::info!("StreamStart for session {:?}", session_id);
                     // Don't create empty message - we'll create it when we get actual content
                 }
-                ClaudeMessage::StreamText { instance_id, text, session_id } => {
+                ClaudeMessage::StreamText { text, session_id } => {
                     // Debug log current state
-                    tracing::info!("StreamText routing - instance_id: {}, session_id: {:?}", instance_id, session_id);
+                    tracing::info!("StreamText routing - session_id: {:?}", session_id);
                     tracing::info!("Current tab instances:");
                     for (i, inst) in self.instances.iter().enumerate() {
                         tracing::info!("  Tab {}: name={}, id={}, session={:?}, is_current={}", 
                             i, inst.name, inst.id, inst.session_id, i == self.current_tab);
                     }
                     
-                    // Try to find instance by session_id first, then by instance_id
+                    // Find instance by session_id only
                     let target_instance_index = if let Some(session_id_val) = &session_id {
-                        // Find by session_id first
+                        // Find by session_id ONLY
                         let by_session = self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val));
                         if by_session.is_some() {
                             tracing::info!("Found instance by session_id: {:?}", by_session);
-                            by_session
                         } else {
-                            // If not found by session, try to find by instance_id
-                            let by_instance = self.instances.iter().position(|i| i.id == instance_id);
-                            if by_instance.is_some() {
-                                tracing::info!("Found instance by instance_id: {:?}", by_instance);
-                            }
-                            by_instance
+                            tracing::warn!("Session {} not found in any tab! Available sessions: {:?}", 
+                                session_id_val,
+                                self.instances.iter().map(|i| i.session_id.as_ref()).collect::<Vec<_>>()
+                            );
                         }
+                        by_session
                     } else {
-                        // No session_id - try to find by instance_id only
-                        let by_instance = self.instances.iter().position(|i| i.id == instance_id);
-                        tracing::info!("No session_id, found by instance_id: {:?}", by_instance);
-                        by_instance
+                        // No session_id - route to current tab as fallback
+                        tracing::warn!("No session_id provided for message routing! Routing to current tab ({}) as fallback.", self.current_tab);
+                        Some(self.current_tab)
                     };
                     
                     // If we still can't find the instance and have a session_id, buffer the message
                     if target_instance_index.is_none() && session_id.is_some() {
                         let session_id_val = session_id.as_ref().unwrap();
-                        tracing::warn!("⚠️  Failed to route StreamText: instance_id={}, session_id={} - buffering message", instance_id, session_id_val);
-                        self.pending_session_messages.push((instance_id, text.clone(), session_id_val.clone()));
+                        tracing::warn!("⚠️  Failed to route StreamText: session_id={} - buffering message", session_id_val);
+                        self.pending_session_messages.push((self.instance_id, text.clone(), session_id_val.clone()));
                         tracing::info!("📦 Buffered message for session {} (buffer size: {})", session_id_val, self.pending_session_messages.len());
                         continue;
                     }
                     
                     let tab_info = if let Some(session_id) = &session_id {
-                        format!("Session {} (instance {})", session_id, instance_id)
+                        format!("Session {}", session_id)
                     } else {
                         target_instance_index
                             .map(|idx| format!("Tab {} ({})", idx + 1, self.instances[idx].name.clone()))
                             .unwrap_or_else(|| "Unknown tab".to_string())
                     };
                     
-                    tracing::debug!("📝 StreamText for instance {} ({}): {:?}", instance_id, tab_info, text.chars().take(50).collect::<String>());
+                    tracing::debug!("📝 StreamText for session ({}): {:?}", tab_info, text.chars().take(50).collect::<String>());
                     
                     // Enhanced debugging for session routing (debug level to reduce noise)
                     if session_id.is_some() {
@@ -1332,31 +1335,33 @@ This prompt appears only once per session. You now have full access to these pow
                     } else {
                         // Failed to route message - could be a race condition where session hasn't been established yet
                         if let Some(ref session_id_val) = session_id {
-                            tracing::warn!("⚠️  Failed to route StreamText: instance_id={}, session_id={} - buffering message", instance_id, session_id_val);
+                            tracing::warn!("⚠️  Failed to route StreamText: session_id={} - buffering message", session_id_val);
                             tracing::warn!("   Available instances: {:?}", 
                                 self.instances.iter().map(|i| (i.id, i.name.clone(), i.session_id.clone())).collect::<Vec<_>>());
                             // Buffer the message for when the session gets established
-                            self.pending_session_messages.push((instance_id, text.clone(), session_id_val.clone()));
+                            self.pending_session_messages.push((self.instance_id, text.clone(), session_id_val.clone()));
                             tracing::info!("📦 Buffered message for session {} (buffer size: {})", session_id_val, self.pending_session_messages.len());
                         } else {
-                            tracing::error!("❌ Instance {} not found and no session_id provided - cannot route or buffer message", instance_id);
+                            tracing::error!("❌ No session_id provided - cannot route or buffer message");
                             tracing::error!("   Available instances: {:?}", 
                                 self.instances.iter().map(|i| (i.id, i.name.clone())).collect::<Vec<_>>());
                         }
                     }
                 }
-                ClaudeMessage::StreamEnd { instance_id, session_id } => {
-                    tracing::info!("StreamEnd for instance {}", instance_id);
+                ClaudeMessage::StreamEnd { session_id } => {
+                    tracing::info!("StreamEnd for session {:?}", session_id);
                     // First, collect necessary data to avoid borrow conflicts
                     let current_tab_id = self.instances.get(self.current_tab).map(|i| i.id);
+                    
+                    // Find instance using session_id only
+                    let target_instance_index = if let Some(session_id_val) = &session_id {
+                        self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                    } else {
+                        // Fallback to current tab if no session_id
+                        Some(self.current_tab)
+                    };
+                    
                     let (claude_message_opt, main_instance_id, user_context_opt) = {
-                        // Find instance using session_id when available, fallback to instance_id
-                        let target_instance_index = if let Some(session_id_val) = &session_id {
-                            self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
-                                .or_else(|| self.instances.iter().position(|i| i.id == instance_id))
-                        } else {
-                            self.instances.iter().position(|i| i.id == instance_id)
-                        };
                         
                         if let Some(instance_idx) = target_instance_index {
                             let instance = &mut self.instances[instance_idx];
@@ -1368,13 +1373,13 @@ This prompt appears only once per session. You now have full access to these pow
                                 for tool in &instance.last_tool_attempts {
                                     if !instance.successful_tools.contains(tool) {
                                         instance.successful_tools.push(tool.clone());
-                                        tracing::info!("Marking tool '{}' as successfully used for instance {}", tool, instance_id);
+                                        tracing::info!("Marking tool '{}' as successfully used for session {:?}", tool, session_id);
                                     }
                                 }
                             }
                             
                             // Check if this is the current tab and process queue
-                            let _is_current_tab = current_tab_id.map(|id| id == instance_id).unwrap_or(false);
+                            let _is_current_tab = target_instance_index.map(|idx| idx == self.current_tab).unwrap_or(false);
                             
                             // Process with automode if enabled
                             if self.auto_mode {
@@ -1591,7 +1596,6 @@ Response:"#,
                                                     // Send a system message to the UI
                                                     let system_msg = format!("🔧 Automode: Enabled tools: {}", enabled_tools.join(", "));
                                                     let _ = tx.send(ClaudeMessage::StreamText {
-                                                        instance_id: main_instance_id,
                                                         text: system_msg,
                                                         session_id: Some(session_id.clone()),
                                                     }).await;
@@ -1602,7 +1606,7 @@ Response:"#,
                                                         enabled_tools.join(", ")
                                                     );
                                                     
-                                                    if let Err(e) = send_to_claude_with_session(main_instance_id, response, tx, Some(session_id), None).await {
+                                                    if let Err(e) = send_to_claude_with_session(response, tx, Some(session_id), None).await {
                                                         tracing::error!("Failed to send tool enablement message to Claude: {}", e);
                                                     }
                                                 }
@@ -1643,7 +1647,7 @@ Response:"#,
                                         if coordination_requested {
                                             // Send a message asking for user confirmation for coordination
                                             let coordination_response = "I can spawn additional Claude instances to work on this task in parallel. Would you like me to proceed with multi-instance coordination?";
-                                            if let Err(e) = send_to_claude_with_session(main_instance_id, coordination_response.to_string(), tx.clone(), Some(session_id.clone()), None).await {
+                                            if let Err(e) = send_to_claude_with_session(coordination_response.to_string(), tx.clone(), Some(session_id.clone()), None).await {
                                                 tracing::error!("Failed to send coordination query: {}", e);
                                             }
                                         } else {
@@ -1679,20 +1683,20 @@ Response:"#,
                     }
                     
                     // Process message queue if this is the current tab and instance finished processing
-                    let current_tab_instance_id = self.instances.get(self.current_tab).map(|i| i.id);
-                    if current_tab_instance_id == Some(instance_id) && !self.message_queue.is_empty() {
-                        tracing::info!("Instance finished processing, checking message queue ({} messages)", self.message_queue.len());
-                        self.process_message_queue().await;
+                    if let Some(target_idx) = target_instance_index {
+                        if target_idx == self.current_tab && !self.message_queue.is_empty() {
+                            tracing::info!("Instance finished processing, checking message queue ({} messages)", self.message_queue.len());
+                            self.process_message_queue().await;
+                        }
                     }
                 }
-                ClaudeMessage::Error { instance_id, error, session_id } => {
-                    tracing::error!("Error for instance {}: {}", instance_id, error);
-                    // Find instance using session_id when available, fallback to instance_id
+                ClaudeMessage::Error { error, session_id } => {
+                    tracing::error!("Error for session {:?}: {}", session_id, error);
+                    // Find instance using session_id only
                     let target_instance_index = if let Some(session_id_val) = &session_id {
                         self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
-                            .or_else(|| self.instances.iter().position(|i| i.id == instance_id))
                     } else {
-                        self.instances.iter().position(|i| i.id == instance_id)
+                        Some(self.current_tab)
                     };
                     
                     if let Some(instance_idx) = target_instance_index {
@@ -1702,34 +1706,52 @@ Response:"#,
                     }
                     
                     // Process message queue if this is the current tab
-                    let current_tab_instance_id = self.instances.get(self.current_tab).map(|i| i.id);
-                    if current_tab_instance_id == Some(instance_id) && !self.message_queue.is_empty() {
-                        tracing::info!("Instance had error, checking message queue ({} messages)", self.message_queue.len());
-                        self.process_message_queue().await;
+                    if let Some(target_idx) = target_instance_index {
+                        if target_idx == self.current_tab && !self.message_queue.is_empty() {
+                            tracing::info!("Instance had error, checking message queue ({} messages)", self.message_queue.len());
+                            self.process_message_queue().await;
+                        }
                     }
                 }
-                ClaudeMessage::Exited { instance_id, code, .. } => {
-                    tracing::info!("Process exited for instance {} with code: {:?}", instance_id, code);
-                    if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
-                        instance.is_processing = false;
+                ClaudeMessage::Exited { code, session_id } => {
+                    tracing::info!("Process exited for session {:?} with code: {:?}", session_id, code);
+                    
+                    // Find instance using session_id only
+                    let target_instance_index = if let Some(session_id_val) = &session_id {
+                        self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                    } else {
+                        Some(self.current_tab)
+                    };
+                    
+                    if let Some(instance_idx) = target_instance_index {
+                        self.instances[instance_idx].is_processing = false;
                     }
                     
                     // Process message queue if this is the current tab
-                    let current_tab_instance_id = self.instances.get(self.current_tab).map(|i| i.id);
-                    if current_tab_instance_id == Some(instance_id) && !self.message_queue.is_empty() {
-                        tracing::info!("Instance exited, checking message queue ({} messages)", self.message_queue.len());
-                        self.process_message_queue().await;
+                    if let Some(target_idx) = target_instance_index {
+                        if target_idx == self.current_tab && !self.message_queue.is_empty() {
+                            tracing::info!("Instance exited, checking message queue ({} messages)", self.message_queue.len());
+                            self.process_message_queue().await;
+                        }
                     }
                 }
-                ClaudeMessage::ToolUse { instance_id, tool_name, .. } => {
-                    tracing::info!("Tool use attempt for instance {}: {}", instance_id, tool_name);
+                ClaudeMessage::ToolUse { tool_name, session_id } => {
+                    tracing::info!("Tool use attempt for session {:?}: {}", session_id, tool_name);
                     
                     // Show todo list if TodoRead or TodoWrite is used
                     if tool_name == "TodoRead" || tool_name == "TodoWrite" {
                         self.show_todo_list();
                     }
                     
-                    if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+                    // Find instance using session_id only
+                    let target_instance_index = if let Some(session_id_val) = &session_id {
+                        self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                    } else {
+                        Some(self.current_tab)
+                    };
+                    
+                    if let Some(instance_idx) = target_instance_index {
+                        let instance = &mut self.instances[instance_idx];
                         // Add tool use message to the conversation
                         instance.add_message("Tool".to_string(), format!("🔧 Attempting to use: {}", tool_name));
                         // Track this tool attempt
@@ -1742,16 +1764,15 @@ Response:"#,
                         }
                     }
                 }
-                ClaudeMessage::SessionStarted { instance_id, session_id } => {
-                    // Use session-first routing: try to find by session_id first, fallback to instance_id
-                    let target_instance_index = self.instances.iter().position(|i| i.session_id.as_ref() == Some(&session_id))
-                        .or_else(|| self.instances.iter().position(|i| i.id == instance_id));
+                ClaudeMessage::SessionStarted { session_id } => {
+                    // Find first instance without a session_id
+                    let target_instance_index = self.instances.iter().position(|i| i.session_id.is_none());
                     
                     let tab_info = target_instance_index
                         .map(|idx| format!("Tab {} ({})", idx + 1, self.instances[idx].name.clone()))
                         .unwrap_or_else(|| "Unknown tab".to_string());
                     
-                    tracing::info!("🎬 Session started for instance {} ({}) with ID: {}", instance_id, tab_info, session_id);
+                    tracing::info!("🎬 Session started for {} with ID: {}", tab_info, session_id);
                     
                     // Log all current instances for debugging
                     for (i, inst) in self.instances.iter().enumerate() {
@@ -1791,14 +1812,24 @@ Response:"#,
                             tracing::info!("✅ Processed all buffered messages for session {}", session_id);
                         }
                     } else {
-                        tracing::error!("❌ Could not find instance by session {} or instance_id {} to set session ID", session_id, instance_id);
+                        tracing::error!("❌ Could not find instance by session {} to set session ID", session_id);
                         tracing::error!("Available instances: {:?}", 
                             self.instances.iter().map(|i| (i.id, i.name.clone(), i.session_id.clone())).collect::<Vec<_>>());
                     }
                 }
-                ClaudeMessage::ToolPermissionDenied { instance_id, tool_name, .. } => {
-                    tracing::info!("Tool permission denied for instance {}: {}", instance_id, tool_name);
-                    if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+                ClaudeMessage::ToolPermissionDenied { tool_name, session_id, .. } => {
+                    tracing::info!("Tool permission denied for session {:?}: {}", session_id, tool_name);
+                    
+                    // Find instance by session_id
+                    let target_instance_index = if let Some(session_id_val) = &session_id {
+                        self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                    } else {
+                        // Fallback to first instance if no session_id
+                        Some(0)
+                    };
+                    
+                    if let Some(index) = target_instance_index {
+                        let instance = &mut self.instances[index];
                         // Remove tool from successful list since it was explicitly denied
                         instance.successful_tools.retain(|t| t != &tool_name);
                         tracing::info!("Removed tool '{}' from successful list due to permission denial", tool_name);
@@ -1808,8 +1839,7 @@ Response:"#,
                         // In automode, ask DeepSeek to analyze if this tool should be enabled
                         if self.auto_mode {
                             let tool_name_copy = tool_name.clone();
-                            let instance_id_copy = instance.id;
-                            let session_id = instance.session_id.clone();
+                            let session_id_copy = instance.session_id.clone();
                             let process_handle = instance.process_handle.clone();
                             let tx = self.message_tx.clone();
                             
@@ -1824,16 +1854,14 @@ Response:"#,
                                         if let Err(e) = enable_claude_tool(&tool_name_copy).await {
                                             tracing::error!("Failed to enable tool {}: {}", tool_name_copy, e);
                                             let _ = tx.send(ClaudeMessage::StreamText {
-                                                instance_id: instance_id_copy,
                                                 text: format!("❌ Failed to enable {}: {}", tool_name_copy, e),
-                                                session_id: session_id.clone(),
+                                                session_id: session_id_copy.clone(),
                                             }).await;
                                         } else {
                                             tracing::info!("Successfully enabled tool: {}", tool_name_copy);
                                             let _ = tx.send(ClaudeMessage::StreamText {
-                                                instance_id: instance_id_copy,
                                                 text: format!("🔧 Automode: Safely enabled tool: {}", tool_name_copy),
-                                                session_id: session_id.clone(),
+                                                session_id: session_id_copy.clone(),
                                             }).await;
                                             
                                             // Kill the current process if it exists
@@ -1846,7 +1874,7 @@ Response:"#,
                                                         use nix::unistd::Pid;
                                                         
                                                         if let Some(pid) = child.id() {
-                                                            tracing::info!("Tool enablement: Killing Claude process {} for session {:?}", pid, session_id);
+                                                            tracing::info!("Tool enablement: Killing Claude process {} for session {:?}", pid, session_id_copy);
                                                             // First try SIGINT
                                                             match signal::kill(Pid::from_raw(pid as i32), Signal::SIGINT) {
                                                                 Ok(_) => tracing::info!("Sent SIGINT to process {}", pid),
@@ -1908,33 +1936,30 @@ Response:"#,
                                             
                                             // Update the instance's process handle
                                             let _ = tx.send(ClaudeMessage::StreamText {
-                                                instance_id: instance_id_copy,
                                                 text: format!("📝 Resuming session after enabling tool: {}", tool_name_copy),
-                                                session_id: session_id.clone(),
+                                                session_id: session_id_copy.clone(),
                                             }).await;
                                             
-                                            tracing::info!("Resuming session {:?} with tool {} enabled", session_id, tool_name_copy);
-                                            if let Err(e) = send_to_claude_with_session(instance_id_copy, response, tx.clone(), session_id.clone(), Some(new_handle.clone())).await {
-                                                tracing::error!("Failed to resume session {:?} with tool enablement: {}", session_id, e);
+                                            tracing::info!("Resuming session {:?} with tool {} enabled", session_id_copy, tool_name_copy);
+                                            if let Err(e) = send_to_claude_with_session(response, tx.clone(), session_id_copy.clone(), Some(new_handle.clone())).await {
+                                                tracing::error!("Failed to resume session {:?} with tool enablement: {}", session_id_copy, e);
                                             } else {
-                                                tracing::info!("Successfully initiated session resume for {:?} with tool {} enabled", session_id, tool_name_copy);
+                                                tracing::info!("Successfully initiated session resume for {:?} with tool {} enabled", session_id_copy, tool_name_copy);
                                             }
                                         }
                                     }
                                     Ok(false) => {
                                         tracing::warn!("DeepSeek determined tool {} is unsafe to enable", tool_name_copy);
                                         let _ = tx.send(ClaudeMessage::StreamText {
-                                            instance_id: instance_id_copy,
                                             text: format!("🚫 Automode: Tool {} was deemed unsafe and not enabled", tool_name_copy),
-                                            session_id: session_id.clone(),
+                                            session_id: session_id_copy.clone(),
                                         }).await;
                                     }
                                     Err(e) => {
                                         tracing::error!("Failed to analyze tool safety: {}", e);
                                         let _ = tx.send(ClaudeMessage::StreamText {
-                                            instance_id: instance_id_copy,
                                             text: format!("⚠️ Could not analyze safety of tool {}: {}", tool_name_copy, e),
-                                            session_id: session_id.clone(),
+                                            session_id: session_id_copy.clone(),
                                         }).await;
                                     }
                                 }
@@ -2157,6 +2182,19 @@ Response:"#,
                             format!("✅ Completed spawning {} instances for task", num_instances));
                     }
                 }
+                ClaudeMessage::CoordinationMessage { message } => {
+                    tracing::info!("Received coordination message: {:?}", message);
+                    // Handle inter-Veda coordination messages
+                    // This is for future multi-Veda coordination functionality
+                    // For now, just log the message
+                    if !self.instances.is_empty() {
+                        self.instances[0].add_message("Coordination".to_string(), 
+                            format!("📡 Coordination: {} -> {}: {}", 
+                                message.from, 
+                                message.to.as_deref().unwrap_or("broadcast"),
+                                message.summary));
+                    }
+                }
             }
         }
     }
@@ -2324,7 +2362,7 @@ Your response:"#,
     
     async fn quick_deepseek_analysis(&self, prompt: &str) -> Result<String> {
         let request_body = serde_json::json!({
-            "model": "gemma3:8b",
+            "model": "gemma3:12b",
             "prompt": prompt,
             "stream": false
         });
@@ -2525,7 +2563,6 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                         
                         // Spawn Claude Code instance with the real instance ID
                         let spawn_result = crate::claude::send_to_claude_with_session(
-                            instance_id_owned, // Use the real instance ID, not a random UUID
                             coordination_message_owned,
                             tx.clone(),
                             None, // No session ID - let Claude generate one
@@ -2670,7 +2707,6 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                 std::env::set_var("VEDA_TARGET_INSTANCE_ID", instance_id_copy.to_string());
                 
                 let spawn_result = crate::claude::send_to_claude_with_session(
-                    instance_id_copy,
                     task_instruction.clone(),
                     tx.clone(),
                     None, // No existing session for new instance
@@ -2684,9 +2720,8 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                     Ok(()) => {
                         tracing::info!("✅ Successfully started Claude Code instance for {}", instance_name_copy2);
                         
-                        // Send success message to current instance
+                        // Send success message to current instance  
                         let _ = tx.send(ClaudeMessage::StreamText {
-                            instance_id: instance_id_copy,
                             text: format!("✅ Started Claude Code instance {} with task", instance_name_copy2),
                             session_id: None,
                         }).await;
@@ -2695,7 +2730,6 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                         tracing::error!("Failed to start Claude Code instance for {}: {}", instance_name_copy2, e);
                         // Send error message to the UI
                         let _ = tx.send(ClaudeMessage::StreamText {
-                            instance_id: instance_id_copy,
                             text: format!("❌ Failed to start Claude Code instance: {}", e),
                             session_id: None,
                         }).await;
@@ -2768,7 +2802,7 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                     
                     tracing::info!("Auto-starting main instance with coordination task");
-                    if let Err(e) = send_to_claude_with_session(main_instance_id, main_task_instruction, tx, main_session_id, None).await {
+                    if let Err(e) = send_to_claude_with_session(main_task_instruction, tx, main_session_id, None).await {
                         tracing::error!("Failed to auto-start main instance: {}", e);
                     }
                 });
@@ -2806,140 +2840,157 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
 }
 
 async fn start_ipc_server(app_tx: mpsc::Sender<ClaudeMessage>, session_id: String) {
-    use tokio::net::UnixListener;
+    use tokio::net::{UnixListener, UnixStream};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use crate::shared_ipc::RegistryClient;
+    
+    // Create a shared socket path that all Veda instances can use
+    let socket_path = "/tmp/veda-shared.sock";
+    
+    // Try to bind the socket, if it fails, another instance is already running
+    match UnixListener::bind(&socket_path) {
+        Ok(listener) => {
+            tracing::info!("Started shared IPC server on {}", socket_path);
+            
+            // This is the first instance, run the shared server
+            loop {
+                match listener.accept().await {
+                    Ok((socket, _)) => {
+                        let app_tx = app_tx.clone();
+                        tokio::spawn(handle_shared_ipc_connection(socket, app_tx));
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to accept IPC connection: {}", e);
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            // Another instance is already running the server
+            tracing::info!("Shared IPC server already running, using client mode");
+        }
+    }
+}
+
+async fn handle_shared_ipc_connection(mut socket: tokio::net::UnixStream, app_tx: mpsc::Sender<ClaudeMessage>) {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     
-    // Create socket path
-    let socket_path = format!("/tmp/veda-{}.sock", session_id);
+    let (reader, mut writer) = socket.split();
+    let mut reader = BufReader::new(reader);
+    let mut line = String::new();
     
-    // Remove existing socket if it exists
-    let _ = std::fs::remove_file(&socket_path);
-    
-    let listener = match UnixListener::bind(&socket_path) {
-        Ok(listener) => listener,
-        Err(e) => {
-            tracing::error!("Failed to bind Unix socket at {}: {}", socket_path, e);
-            return;
+    while reader.read_line(&mut line).await.is_ok() {
+        if line.is_empty() {
+            break;
         }
-    };
-    
-    tracing::info!("IPC server listening on {} for session {}", socket_path, session_id);
-    
-    loop {
-        match listener.accept().await {
-            Ok((mut socket, _)) => {
-                let _session_id = session_id.clone();
-                let app_tx = app_tx.clone();
-                
-                tokio::spawn(async move {
-                    let (reader, mut writer) = socket.split();
-                    let mut reader = BufReader::new(reader);
-                    let mut line = String::new();
+        
+        if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) {
+            tracing::info!("Shared IPC received message: {:?}", msg["type"]);
+            
+            let response = match msg["type"].as_str() {
+                Some("spawn_instances") => {
+                    let task_desc = msg["task_description"].as_str().unwrap_or("");
+                    let num_instances = msg["num_instances"].as_u64().unwrap_or(2) as u8;
+                    let session_id = msg["session_id"].as_str().unwrap_or("");
                     
-                    if reader.read_line(&mut line).await.is_ok() {
-                        if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) {
-                            // Session is already verified by socket path
-                            tracing::info!("IPC received message: {:?}", msg["type"]);
-                            
-                            let response = match msg["type"].as_str() {
-                                    Some("spawn_instances") => {
-                                        let task_desc = msg["task_description"].as_str().unwrap_or("");
-                                        let num_instances = msg["num_instances"].as_u64().unwrap_or(2) as u8;
-                                        
-                                        // Get target instance ID from the IPC message if provided
-                                        let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
-                                            // Try to parse the provided instance ID
-                                            match Uuid::parse_str(target_id_str) {
-                                                Ok(id) => {
-                                                    tracing::info!("IPC spawn_instances using target_instance_id: {}", id);
-                                                    id
-                                                },
-                                                Err(e) => {
-                                                    tracing::warn!("Failed to parse target_instance_id '{}': {}, using random UUID", target_id_str, e);
-                                                    Uuid::new_v4()
-                                                }
-                                            }
-                                        } else {
-                                            // No target instance ID provided, use a random one for backward compatibility
-                                            let random_id = Uuid::new_v4();
-                                            tracing::info!("IPC spawn_instances using random UUID: {} (no target_instance_id provided)", random_id);
-                                            random_id
-                                        };
-                                        
-                                        // Send message to main app
-                                        let _ = app_tx.send(ClaudeMessage::VedaSpawnInstances {
-                                            instance_id,
-                                            task_description: task_desc.to_string(),
-                                            num_instances,
-                                        }).await;
-                                        
-                                        format!("✅ Spawning {} instances for task: {}", num_instances, task_desc)
-                                    }
-                                    Some("list_instances") => {
-                                        // Get target instance ID from the IPC message if provided
-                                        let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
-                                            match Uuid::parse_str(target_id_str) {
-                                                Ok(id) => {
-                                                    tracing::info!("IPC list_instances using target_instance_id: {}", id);
-                                                    id
-                                                },
-                                                Err(e) => {
-                                                    tracing::warn!("Failed to parse target_instance_id '{}': {}, using random UUID", target_id_str, e);
-                                                    Uuid::new_v4()
-                                                }
-                                            }
-                                        } else {
-                                            let random_id = Uuid::new_v4();
-                                            tracing::info!("IPC list_instances using random UUID: {} (no target_instance_id provided)", random_id);
-                                            random_id
-                                        };
-                                        
-                                        let _ = app_tx.send(ClaudeMessage::VedaListInstances {
-                                            instance_id,
-                                        }).await;
-                                        
-                                        "✅ Listing instances (check Veda UI)".to_string()
-                                    }
-                                    Some("close_instance") => {
-                                        let instance_name = msg["instance_name"].as_str().unwrap_or("");
-                                        
-                                        // Get target instance ID from the IPC message if provided
-                                        let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
-                                            match Uuid::parse_str(target_id_str) {
-                                                Ok(id) => {
-                                                    tracing::info!("IPC close_instance using target_instance_id: {}", id);
-                                                    id
-                                                },
-                                                Err(e) => {
-                                                    tracing::warn!("Failed to parse target_instance_id '{}': {}, using random UUID", target_id_str, e);
-                                                    Uuid::new_v4()
-                                                }
-                                            }
-                                        } else {
-                                            let random_id = Uuid::new_v4();
-                                            tracing::info!("IPC close_instance using random UUID: {} (no target_instance_id provided)", random_id);
-                                            random_id
-                                        };
-                                        
-                                        let _ = app_tx.send(ClaudeMessage::VedaCloseInstance {
-                                            instance_id,
-                                            target_instance_name: instance_name.to_string(),
-                                        }).await;
-                                        
-                                        format!("✅ Closing instance: {}", instance_name)
-                                    }
-                                    _ => "❌ Unknown command".to_string(),
-                            };
-                            
-                            let _ = writer.write_all(response.as_bytes()).await;
+                    // Get target instance ID from the IPC message if provided
+                    let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
+                        match Uuid::parse_str(target_id_str) {
+                            Ok(id) => id,
+                            Err(e) => {
+                                tracing::warn!("Failed to parse target_instance_id '{}': {}", target_id_str, e);
+                                Uuid::new_v4()
+                            }
                         }
+                    } else {
+                        Uuid::new_v4()
+                    };
+                    
+                    // Update shared registry
+                    if let Err(e) = crate::shared_ipc::RegistryClient::increment_instances(session_id, num_instances as u32).await {
+                        tracing::error!("Failed to update registry: {}", e);
                     }
-                });
-            }
-            Err(e) => {
-                tracing::error!("Failed to accept IPC connection: {}", e);
-            }
+                    
+                    // Send message to appropriate Veda instance
+                    let _ = app_tx.send(ClaudeMessage::VedaSpawnInstances {
+                        instance_id,
+                        task_description: task_desc.to_string(),
+                        num_instances,
+                    }).await;
+                    
+                    format!("✅ Spawning {} instances for task: {}", num_instances, task_desc)
+                }
+                Some("list_instances") => {
+                    let session_id = msg["session_id"].as_str().unwrap_or("");
+                    
+                    // Query shared registry
+                    match crate::shared_ipc::RegistryClient::get_instances(session_id).await {
+                        Ok(count) => format!("✅ Session {} has {} child instances", session_id, count),
+                        Err(e) => format!("❌ Failed to query registry: {}", e),
+                    }
+                }
+                Some("close_instance") => {
+                    let instance_name = msg["instance_name"].as_str().unwrap_or("");
+                    let session_id = msg["session_id"].as_str().unwrap_or("");
+                    
+                    let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
+                        match Uuid::parse_str(target_id_str) {
+                            Ok(id) => id,
+                            Err(_) => Uuid::new_v4()
+                        }
+                    } else {
+                        Uuid::new_v4()
+                    };
+                    
+                    // Update shared registry
+                    if let Err(e) = crate::shared_ipc::RegistryClient::decrement_instances(session_id, 1).await {
+                        tracing::error!("Failed to update registry: {}", e);
+                    }
+                    
+                    let _ = app_tx.send(ClaudeMessage::VedaCloseInstance {
+                        instance_id,
+                        target_instance_name: instance_name.to_string(),
+                    }).await;
+                    
+                    format!("✅ Closing instance: {}", instance_name)
+                }
+                Some("registry_status") => {
+                    // List all active sessions
+                    match crate::shared_ipc::RegistryClient::list_all_sessions().await {
+                        Ok(sessions) => {
+                            let status_lines: Vec<String> = sessions.iter()
+                                .map(|(sid, count)| format!("  Session {}: {} instances", sid, count))
+                                .collect();
+                            format!("📊 Registry Status:\n{}", status_lines.join("\n"))
+                        }
+                        Err(e) => format!("❌ Failed to query registry: {}", e),
+                    }
+                }
+                Some("coordination_message") => {
+                    // Inter-Veda coordination message
+                    if let Ok(coord_msg) = serde_json::from_value::<crate::shared_ipc::VedaCoordinationMessage>(msg.clone()) {
+                        tracing::info!("Received coordination message from {} to {:?}: {}", 
+                            coord_msg.from, coord_msg.to, coord_msg.summary);
+                        
+                        // For now, route to the main app for processing
+                        // In the future, this could be smarter routing based on repository context
+                        let _ = app_tx.send(crate::claude::ClaudeMessage::CoordinationMessage {
+                            message: coord_msg,
+                        }).await;
+                        
+                        "✅ Coordination message routed".to_string()
+                    } else {
+                        "❌ Invalid coordination message format".to_string()
+                    }
+                }
+                _ => "❌ Unknown command".to_string(),
+            };
+            
+            let _ = writer.write_all(response.as_bytes()).await;
+            let _ = writer.write_all(b"\n").await;
         }
+        
+        line.clear();
     }
 }
 
@@ -3076,7 +3127,6 @@ async fn main() -> Result<()> {
             tokio::spawn(async move {
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                 let _ = tx.send(ClaudeMessage::StreamText {
-                    instance_id,
                     text: auto_task,
                     session_id: None,
                 }).await;

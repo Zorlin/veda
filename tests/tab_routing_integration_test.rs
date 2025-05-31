@@ -25,7 +25,8 @@ fn test_end_to_end_tab_routing() {
     
     // Each Claude process calls veda_spawn_instances
     let mut ipc_messages = vec![];
-    for (name, env) in &claude_processes {
+    for (name, instance_id) in &tabs {
+        let env = claude_processes.get(&name.to_string()).unwrap();
         let target_id = env.get("VEDA_TARGET_INSTANCE_ID").unwrap();
         
         let ipc_msg = json!({
@@ -36,7 +37,7 @@ fn test_end_to_end_tab_routing() {
             "target_instance_id": target_id
         });
         
-        ipc_messages.push((name.clone(), ipc_msg));
+        ipc_messages.push((name.to_string(), ipc_msg));
     }
     
     // Verify each IPC message has the correct instance ID

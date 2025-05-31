@@ -205,11 +205,10 @@ fn test_main_tab_overflow_detection() {
     let main_tab_count = counts[0].1;
     let other_tab_avg = (counts[1].1 + counts[2].1 + counts[3].1) / 3;
     
-    // This assertion should FAIL if the bug exists
-    // (main tab has significantly more messages than others)
+    // FAIL HARD if the bug exists
     assert!(
         main_tab_count <= other_tab_avg * 2,
-        "Main tab has {} messages while others average {}, indicating overflow bug",
+        "CRITICAL BUG: Main tab has {} messages while others average {} - tab routing is broken!",
         main_tab_count,
         other_tab_avg
     );

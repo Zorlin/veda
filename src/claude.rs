@@ -9,14 +9,14 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub enum ClaudeMessage {
-    StreamStart { instance_id: Uuid, session_id: Option<String> },
-    StreamText { instance_id: Uuid, text: String, session_id: Option<String> },
-    StreamEnd { instance_id: Uuid, session_id: Option<String> },
-    Error { instance_id: Uuid, error: String, session_id: Option<String> },
-    Exited { instance_id: Uuid, code: Option<i32>, session_id: Option<String> },
-    ToolUse { instance_id: Uuid, tool_name: String, session_id: Option<String> },
-    SessionStarted { instance_id: Uuid, session_id: String },
-    ToolPermissionDenied { instance_id: Uuid, tool_name: String, session_id: Option<String> },
+    StreamStart { session_id: Option<String> },
+    StreamText { text: String, session_id: Option<String> },
+    StreamEnd { session_id: Option<String> },
+    Error { error: String, session_id: Option<String> },
+    Exited { code: Option<i32>, session_id: Option<String> },
+    ToolUse { tool_name: String, session_id: Option<String> },
+    SessionStarted { session_id: String },
+    ToolPermissionDenied { tool_name: String, session_id: Option<String> },
     // Instance management MCP calls
     VedaSpawnInstances { instance_id: Uuid, task_description: String, num_instances: u8 },
     VedaListInstances { instance_id: Uuid },
@@ -28,6 +28,10 @@ pub enum ClaudeMessage {
         num_instances: usize, 
         working_dir: String,
         is_ipc: bool,
+    },
+    // Inter-Veda coordination message
+    CoordinationMessage { 
+        message: crate::shared_ipc::VedaCoordinationMessage,
     },
 }
 
@@ -109,11 +113,10 @@ pub async fn enable_claude_tool(tool_name: &str) -> Result<()> {
 }
 
 pub async fn send_to_claude(
-    instance_id: Uuid,
     message: String,
     tx: mpsc::Sender<ClaudeMessage>,
 ) -> Result<()> {
-    send_to_claude_with_session(instance_id, message, tx, None, None).await
+    send_to_claude_with_session(message, tx, None, None).await
 }
 
 impl ClaudeStreamEvent {
@@ -142,13 +145,12 @@ impl ClaudeStreamEvent {
 }
 
 pub async fn send_to_claude_with_session(
-    instance_id: Uuid,
     message: String,
     tx: mpsc::Sender<ClaudeMessage>,
     session_id: Option<String>,
     process_handle_storage: Option<Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>>,
 ) -> Result<()> {
-    tracing::info!("send_to_claude_with_session called for instance {} with message: {} (session: {:?})", instance_id, message, session_id);
+    tracing::info!("send_to_claude_with_session called with message: {} (session: {:?})", message, session_id);
     
     // Build command args based on whether we have a session ID
     let mut cmd = AsyncCommand::new("claude");
@@ -158,11 +160,9 @@ pub async fn send_to_claude_with_session(
         cmd.env("VEDA_SESSION_ID", veda_session_id);
     }
     
-    // ALWAYS set the target instance ID to THIS instance's ID
-    // This ensures that any MCP tools called by this Claude instance
-    // will have the correct instance ID for routing
-    cmd.env("VEDA_TARGET_INSTANCE_ID", instance_id.to_string());
-    tracing::info!("Setting VEDA_TARGET_INSTANCE_ID={} for Claude process", instance_id);
+    // For new conversations, start without session ID to get one from Claude
+    // For resuming, use the provided session ID
+    // We eliminate instance_id from the flow entirely
     
     let session_id_for_log = session_id.clone();
     if let Some(session) = session_id {
@@ -186,8 +186,8 @@ pub async fn send_to_claude_with_session(
         })?;
 
     let process_pid = cmd.id();
-    tracing::info!("Claude process spawned successfully with PID: {:?} for instance {} (session: {:?})", 
-        process_pid, instance_id, session_id_for_log);
+    tracing::info!("Claude process spawned successfully with PID: {:?} (session: {:?})", 
+        process_pid, session_id_for_log);
     
     // Extract stdout and stderr first, before storing the process handle
     let stdout = cmd.stdout.take().expect("Failed to open stdout");
@@ -197,18 +197,18 @@ pub async fn send_to_claude_with_session(
     if let Some(ref handle_storage) = process_handle_storage {
         let mut handle_guard = handle_storage.lock().await;
         *handle_guard = Some(cmd);
-        tracing::info!("Stored process handle (PID: {:?}) for instance {}", process_pid, instance_id);
+        tracing::info!("Stored process handle (PID: {:?})", process_pid);
     }
 
-    // Notify start
-    tx.send(ClaudeMessage::StreamStart { instance_id, session_id: None }).await?;
-    tracing::debug!("Sent StreamStart message for instance {}", instance_id);
+    // Notify start - use session_id for routing
+    tx.send(ClaudeMessage::StreamStart { session_id: session_id_for_log.clone() }).await?;
+    tracing::debug!("Sent StreamStart message for session {:?}", session_id_for_log);
 
     // Spawn task to read stdout
     let tx_stdout = tx.clone();
-    let id_stdout = instance_id;
+    let session_id_clone = session_id_for_log.clone();
     tokio::spawn(async move {
-        tracing::debug!("Starting stdout reader task for instance {}", id_stdout);
+        tracing::debug!("Starting stdout reader task for session {:?}", session_id_clone);
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         let mut line_count = 0;
@@ -224,9 +224,8 @@ pub async fn send_to_claude_with_session(
                     match event {
                         ClaudeStreamEvent::System { subtype, session_id } => {
                             if subtype == "init" {
-                                tracing::info!("Session started with ID: {} for instance {}", session_id, id_stdout);
+                                tracing::info!("Session started with ID: {}", session_id);
                                 let _ = tx_stdout.send(ClaudeMessage::SessionStarted {
-                                    instance_id: id_stdout,
                                     session_id,
                                 }).await;
                             }
@@ -236,9 +235,8 @@ pub async fn send_to_claude_with_session(
                             for content in message.content {
                                 match content {
                                     ContentItem::Text { text } => {
-                                        tracing::info!("Received assistant text for instance {}: {:?}", id_stdout, text);
+                                        tracing::info!("Received assistant text for session {:?}: {:?}", session_id, text);
                                         let _ = tx_stdout.send(ClaudeMessage::StreamText {
-                                            instance_id: id_stdout,
                                             text,
                                             session_id: Some(session_id.clone()),
                                         }).await;
@@ -247,6 +245,8 @@ pub async fn send_to_claude_with_session(
                                         tracing::info!("Claude attempting to use tool: {}", name);
                                         
                                         // Check for Veda instance management MCP calls
+                                        // Use a placeholder instance_id since tools still need it for socket communication
+                                        let placeholder_instance_id = Uuid::new_v4();
                                         match name.as_str() {
                                             "veda_spawn_instances" => {
                                                 let task_description = input.as_object()
@@ -260,14 +260,14 @@ pub async fn send_to_claude_with_session(
                                                     .unwrap_or(2) as u8; // Default to 2 additional instances
                                                 
                                                 let _ = tx_stdout.send(ClaudeMessage::VedaSpawnInstances {
-                                                    instance_id: id_stdout,
+                                                    instance_id: placeholder_instance_id,
                                                     task_description,
                                                     num_instances,
                                                 }).await;
                                             }
                                             "veda_list_instances" => {
                                                 let _ = tx_stdout.send(ClaudeMessage::VedaListInstances {
-                                                    instance_id: id_stdout,
+                                                    instance_id: placeholder_instance_id,
                                                 }).await;
                                             }
                                             "veda_close_instance" => {
@@ -278,14 +278,13 @@ pub async fn send_to_claude_with_session(
                                                     .to_string();
                                                 
                                                 let _ = tx_stdout.send(ClaudeMessage::VedaCloseInstance {
-                                                    instance_id: id_stdout,
+                                                    instance_id: placeholder_instance_id,
                                                     target_instance_name,
                                                 }).await;
                                             }
                                             _ => {
                                                 // Regular tool use
                                                 let _ = tx_stdout.send(ClaudeMessage::ToolUse {
-                                                    instance_id: id_stdout,
                                                     tool_name: name,
                                                     session_id: Some(session_id.clone()),
                                                 }).await;
@@ -299,13 +298,11 @@ pub async fn send_to_claude_with_session(
                             if !is_error {
                                 tracing::info!("Received result event, ending stream");
                                 let _ = tx_stdout.send(ClaudeMessage::StreamEnd {
-                                    instance_id: id_stdout,
                                     session_id: Some(session_id),
                                 }).await;
                             } else if let Some(error_msg) = result {
                                 tracing::error!("Error in result: {}", error_msg);
                                 let _ = tx_stdout.send(ClaudeMessage::Error {
-                                    instance_id: id_stdout,
                                     error: error_msg,
                                     session_id: Some(session_id),
                                 }).await;
@@ -314,7 +311,6 @@ pub async fn send_to_claude_with_session(
                         ClaudeStreamEvent::Error { error } => {
                             tracing::error!("Received error from Claude: {}", error.message);
                             let _ = tx_stdout.send(ClaudeMessage::Error {
-                                instance_id: id_stdout,
                                 error: error.message,
                                 session_id: None, // Error events don't have session_id
                             }).await;
@@ -324,7 +320,6 @@ pub async fn send_to_claude_with_session(
                             if let Some(tool_name) = ClaudeStreamEvent::extract_permission_denied_tool(&message) {
                                 tracing::info!("Tool permission denied for: {}", tool_name);
                                 let _ = tx_stdout.send(ClaudeMessage::ToolPermissionDenied {
-                                    instance_id: id_stdout,
                                     tool_name,
                                     session_id: Some(session_id),
                                 }).await;
@@ -344,9 +339,9 @@ pub async fn send_to_claude_with_session(
 
     // Spawn task to read stderr
     let tx_stderr = tx.clone();
-    let id_stderr = instance_id;
+    let session_id_stderr = session_id_for_log.clone();
     tokio::spawn(async move {
-        tracing::debug!("Starting stderr reader task for instance {}", id_stderr);
+        tracing::debug!("Starting stderr reader task for session {:?}", session_id_stderr);
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
         let mut line_count = 0;
@@ -359,9 +354,8 @@ pub async fn send_to_claude_with_session(
             if line.contains("error") || line.contains("Error") {
                 tracing::error!("Error from Claude stderr: {}", line);
                 let _ = tx_stderr.send(ClaudeMessage::Error {
-                    instance_id: id_stderr,
                     error: line,
-                    session_id: None,
+                    session_id: session_id_stderr.clone(),
                 }).await;
             } else {
                 // Log verbose output
@@ -372,10 +366,10 @@ pub async fn send_to_claude_with_session(
     });
 
     // Wait for the process to complete
-    let id_exit = instance_id;
+    let session_id_exit = session_id_for_log.clone();
     let handle_storage_clone = process_handle_storage.as_ref().map(|h| h.clone());
     tokio::spawn(async move {
-        tracing::debug!("Waiting for claude process to exit for instance {}", id_exit);
+        tracing::debug!("Waiting for claude process to exit for session {:?}", session_id_exit);
         
         let wait_result = if let Some(handle_storage) = handle_storage_clone {
             // Wait using the stored process handle
@@ -391,7 +385,7 @@ pub async fn send_to_claude_with_session(
         } else {
             // No process handle storage was provided, which means we can't wait for completion
             // This is not necessarily an error - just means SIGINT functionality won't be available
-            tracing::debug!("No process handle storage provided for instance {}, skipping wait", id_exit);
+            tracing::debug!("No process handle storage provided for session {:?}, skipping wait", session_id_exit);
             return; // Exit the spawn task early
         };
         
@@ -400,17 +394,15 @@ pub async fn send_to_claude_with_session(
                 let exit_code = status.code();
                 tracing::info!("Claude process exited with code: {:?}", exit_code);
                 let _ = tx.send(ClaudeMessage::Exited {
-                    instance_id: id_exit,
                     code: exit_code,
-                    session_id: None,
+                    session_id: session_id_exit.clone(),
                 }).await;
             }
             Err(e) => {
                 tracing::error!("Error waiting for claude process: {}", e);
                 let _ = tx.send(ClaudeMessage::Error {
-                    instance_id: id_exit,
                     error: e.to_string(),
-                    session_id: None,
+                    session_id: session_id_exit.clone(),
                 }).await;
             }
         }
@@ -473,9 +465,8 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(10);
         
         // Send different message types
-        tx.send(ClaudeMessage::StreamStart { instance_id: Uuid::new_v4(), session_id: None }).await.unwrap();
+        tx.send(ClaudeMessage::StreamStart { session_id: None }).await.unwrap();
         tx.send(ClaudeMessage::StreamText { 
-            instance_id: Uuid::new_v4(), 
             text: "Test".to_string(),
             session_id: None,
         }).await.unwrap();

@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod deepseek;
+pub mod shared_ipc;
 
 use chrono::Local;
 use uuid::Uuid;
