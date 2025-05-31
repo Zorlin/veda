@@ -2314,6 +2314,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                     // Clone values needed for the async task
                     let _working_dir_owned = working_dir.to_string();
                     let instance_name_owned = instance_name.clone();
+                    let instance_id_owned = instance_id; // Ensure the UUID is moved into the async closure
                     
                     tokio::spawn(async move {
                         // Wait a moment to ensure the UI has been updated
@@ -2329,16 +2330,16 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                             }
                         }
                         
-                        tracing::info!("Auto-starting Claude Code instance {} ({})", instance_name_owned, instance_id);
+                        tracing::info!("Auto-starting Claude Code instance {} ({})", instance_name_owned, instance_id_owned);
                         
                         // Spawn Claude Code instance with same parameters as main instance
                         // First set the instance-specific environment variable
-                        std::env::set_var("VEDA_TARGET_INSTANCE_ID", instance_id.to_string());
+                        std::env::set_var("VEDA_TARGET_INSTANCE_ID", instance_id_owned.to_string());
                         
-                        tracing::info!("🚀 About to spawn Claude Code for instance {} ({})", instance_id, instance_name_owned);
+                        tracing::info!("🚀 About to spawn Claude Code for instance {} ({})", instance_id_owned, instance_name_owned);
                         
                         let spawn_result = crate::claude::send_to_claude_with_session(
-                            instance_id,
+                            instance_id_owned,
                             "Continue implementation implementing MooseNG".to_string(),
                             tx.clone(),
                             None,
@@ -2348,7 +2349,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                         // Clean up the environment variable
                         std::env::remove_var("VEDA_TARGET_INSTANCE_ID");
                         
-                        tracing::info!("🏁 Claude Code spawn result for instance {} ({}): {:?}", instance_id, instance_name_owned, spawn_result.is_ok());
+                        tracing::info!("🏁 Claude Code spawn result for instance {} ({}): {:?}", instance_id_owned, instance_name_owned, spawn_result.is_ok());
                         
                         match spawn_result {
                             Ok(()) => {
@@ -2356,7 +2357,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                                 
                                 // Send success message to current instance
                                 let _ = tx.send(ClaudeMessage::StreamText {
-                                    instance_id,
+                                    instance_id: instance_id_owned,
                                     text: format!("✅ Started Claude Code instance for {}", instance_name_owned),
                                     session_id: None,
                                 }).await;
@@ -2365,7 +2366,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                                 tracing::error!("Failed to start Claude Code instance for {}: {}", instance_name_owned, e);
                                 // Send error message to the UI
                                 let _ = tx.send(ClaudeMessage::StreamText {
-                                    instance_id,
+                                    instance_id: instance_id_owned,
                                     text: format!("❌ Failed to start Claude Code instance: {}", e),
                                     session_id: None,
                                 }).await;
