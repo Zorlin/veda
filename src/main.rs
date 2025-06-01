@@ -27,6 +27,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 use serde_json;
 use tui_textarea::TextArea;
+use rand::Rng;
 
 use crate::claude::{ClaudeMessage, send_to_claude_with_session, enable_claude_tool};
 use crate::deepseek::{analyze_claude_message, generate_deepseek_response_stream, 
@@ -251,7 +252,6 @@ impl ClaudeInstance {
         
         // Double the delay up to 30 seconds max when user types
         self.stall_delay_seconds = (self.stall_delay_seconds * 2).min(30);
-        tracing::debug!("User input detected, stall delay increased to {} seconds", self.stall_delay_seconds);
     }
     
     fn get_recent_context(&self) -> (String, String) {
@@ -281,8 +281,6 @@ impl ClaudeInstance {
 struct App {
     // Global process ID (PID) for this Veda process
     instance_id: u32,
-    // Session ID for this Veda process
-    session_id: String,
     instances: Vec<ClaudeInstance>,
     current_tab: usize,
     auto_mode: bool,
@@ -541,12 +539,10 @@ Your response:"#,
         
         // Use the actual PID as the Veda process ID
         let instance_id = std::process::id();
-        let session_id = Uuid::new_v4().to_string();
-        tracing::info!("Veda process started with PID: {}, session ID: {}", instance_id, session_id);
+        tracing::info!("Veda process started with PID: {}", instance_id);
         
         Ok(Self {
             instance_id,
-            session_id,
             instances,
             current_tab: 0,
             auto_mode: true,  // Enable automode by default
@@ -1279,28 +1275,16 @@ This prompt appears only once per session. You now have full access to these pow
 
     async fn process_claude_messages(&mut self) {
         while let Ok(msg) = self.message_rx.try_recv() {
-            tracing::debug!("Processing message: {:?}", msg);
             match msg {
                 ClaudeMessage::StreamStart { session_id, .. } => {
                     tracing::info!("StreamStart for session {:?}", session_id);
                     // Don't create empty message - we'll create it when we get actual content
                 }
                 ClaudeMessage::StreamText { text, session_id } => {
-                    // Debug log current state
-                    tracing::info!("StreamText routing - session_id: {:?}", session_id);
-                    tracing::info!("Current tab instances:");
-                    for (i, inst) in self.instances.iter().enumerate() {
-                        tracing::info!("  Tab {}: name={}, id={}, session={:?}, is_current={}", 
-                            i, inst.name, inst.id, inst.session_id, i == self.current_tab);
-                    }
-                    
                     // Find instance by session_id only
                     let target_instance_index = if let Some(session_id_val) = &session_id {
-                        // Find by session_id ONLY
                         let by_session = self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val));
-                        if by_session.is_some() {
-                            tracing::info!("Found instance by session_id: {:?}", by_session);
-                        } else {
+                        if by_session.is_none() {
                             tracing::warn!("Session {} not found in any tab! Available sessions: {:?}", 
                                 session_id_val,
                                 self.instances.iter().map(|i| i.session_id.as_ref()).collect::<Vec<_>>()
@@ -1309,7 +1293,6 @@ This prompt appears only once per session. You now have full access to these pow
                         by_session
                     } else {
                         // No session_id - route to current tab as fallback for system messages
-                        tracing::info!("No session_id provided - routing system message to current tab ({})", self.current_tab);
                         Some(self.current_tab)
                     };
                     
@@ -1330,33 +1313,11 @@ This prompt appears only once per session. You now have full access to these pow
                             .unwrap_or_else(|| "Unknown tab".to_string())
                     };
                     
-                    tracing::debug!("📝 StreamText for session ({}): {:?}", tab_info, text.chars().take(50).collect::<String>());
                     
-                    // Enhanced debugging for session routing (debug level to reduce noise)
-                    if session_id.is_some() {
-                        let session_str = session_id.as_ref().unwrap();
-                        tracing::debug!("🔍 Session routing - looking for session: {}", session_str);
-                        for (i, inst) in self.instances.iter().enumerate() {
-                            if let Some(ref inst_session) = inst.session_id {
-                                tracing::debug!("  Tab {} ({}): session {} - {}", 
-                                    i + 1, inst.name, inst_session, 
-                                    if inst_session == session_str { "MATCH" } else { "no match" });
-                            } else {
-                                tracing::debug!("  Tab {} ({}): no session", i + 1, inst.name);
-                            }
-                        }
-                    }
                     // Hide todo list when new output arrives
                     self.hide_todo_list();
                     
                     if let Some(instance_idx) = target_instance_index {
-                        // DEBUG: Log which instance we're adding to
-                        tracing::warn!("Adding message to instance_idx: {}, instance_id: {}, name: {}, is_current_tab: {}", 
-                            instance_idx, 
-                            self.instances[instance_idx].id,
-                            self.instances[instance_idx].name,
-                            instance_idx == self.current_tab
-                        );
                         
                         let instance = &mut self.instances[instance_idx];
                         // Check if we should append to existing Claude message or create new one
@@ -1370,7 +1331,6 @@ This prompt appears only once per session. You now have full access to these pow
                         if should_create_new {
                             // Create a new Claude message
                             instance.add_message("Claude".to_string(), text.clone());
-                            tracing::debug!("Created new Claude message after tool use");
                             // Always trigger auto-scroll for new messages (background tabs get proper dimensions now)
                             instance.auto_scroll_with_width(Some(instance.last_message_area_height), Some(instance.last_terminal_width));
                             // Check if this is todo list data
@@ -1380,13 +1340,11 @@ This prompt appears only once per session. You now have full access to these pow
                             let needs_todo_parse = if let Some(last_msg) = instance.messages.last_mut() {
                                 if last_msg.sender == "Claude" {
                                     last_msg.content.push_str(&text);
-                                    tracing::debug!("Appended text to Claude message, total length: {}", last_msg.content.len());
                                     // Return the content to parse later
                                     Some(last_msg.content.clone())
                                 } else {
                                     // Shouldn't happen based on our check above, but just in case
                                     instance.add_message("Claude".to_string(), text.clone());
-                                    tracing::debug!("Created new Claude message");
                                     Some(text)
                                 }
                             } else {
@@ -2008,25 +1966,18 @@ Response:"#,
                         }
                     }
                 }
-                ClaudeMessage::VedaSpawnInstances { instance_id, task_description, num_instances } => {
-                    tracing::info!("Claude requested to spawn {} instances for task: {}", num_instances, task_description);
+                ClaudeMessage::VedaSpawnInstances { task_description, num_instances, session_id } => {
+                    tracing::info!("Claude requested to spawn {} instances for task: {} (session: {})", num_instances, task_description, session_id);
                     
-                    // Check if it's from IPC (not from a real instance)
-                    let is_ipc = self.instances.iter().find(|i| i.id == instance_id).is_none();
+                    // Find the exact source instance using the session ID - no fallbacks, no guessing
+                    let source_instance_index = self.instances.iter().position(|i| i.session_id.as_ref() == Some(&session_id))
+                        .expect(&format!("Session {} must exist in instances for spawning", session_id));
                     
-                    if !is_ipc {
-                        if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
-                            instance.add_message("Tool".to_string(), 
-                                format!("🤝 Spawning {} additional instances for task: {}", num_instances, task_description));
-                        }
-                    }
+                    let coord_instance_id = self.instances[source_instance_index].id;
+                    self.instances[source_instance_index].add_message("Tool".to_string(), 
+                        format!("🤝 Spawning {} additional instances for task: {}", num_instances, task_description));
                     
-                    // Use the first instance for coordination if IPC request
-                    let coord_instance_id = if is_ipc && !self.instances.is_empty() {
-                        self.instances[0].id
-                    } else {
-                        instance_id
-                    };
+                    tracing::info!("Using instance {} (tab {}) as coordination source for spawning", coord_instance_id, source_instance_index);
                     
                     // Clone necessary data for the background task
                     let task_desc_clone = task_description.clone();
@@ -2056,11 +2007,7 @@ Response:"#,
                         }).await;
                     });
                     
-                    // Immediately show that we're processing the request
-                    if is_ipc && !self.instances.is_empty() {
-                        self.instances[0].add_message("System".to_string(), 
-                            format!("⏳ Processing request to spawn {} instances...", num_instances));
-                    }
+                    // Processing message already added above when we identified the source instance
                     
                     // Spawn coordination in background to avoid blocking UI
                     tokio::spawn(async move {
@@ -2099,7 +2046,7 @@ Response:"#,
                                     task_description: breakdown,
                                     num_instances: num_instances_clone as usize,
                                     working_dir: current_dir,
-                                    is_ipc,
+                                    is_ipc: false, // All spawning is now direct, not IPC
                                 }).await {
                                     tracing::error!("Failed to send InternalCoordinateInstances message: {}", e);
                                 } else {
@@ -2107,64 +2054,44 @@ Response:"#,
                                 }
                             }
                             Ok(Err(e)) => {
-                                tracing::error!("Background coordination analysis error: {}", e);
+                                tracing::error!("Background coordination analysis failed: {}", e);
                                 
-                                // Check if this is the missing model error
-                                if e.to_string().contains("Missing Ollama model 'gemma3:12b'") {
-                                    // Show the error to the user instead of falling back
-                                    if let Err(send_err) = tx.send(ClaudeMessage::StreamText {
-                                        text: e.to_string(),
-                                        session_id: None, // Will be routed to the main tab
-                                    }).await {
-                                        tracing::error!("Failed to send missing model error message: {}", send_err);
-                                    }
-                                    return; // Don't spawn instances, just show the error
-                                }
-                                
-                                // For other errors, send fallback coordination message with intelligent task breakdown
-                                let fallback_breakdown = format!(
-                                    "SUBTASK_1: {} | SCOPE: Main project files | PRIORITY: High\nSUBTASK_2: Testing and validation | SCOPE: tests/ | PRIORITY: Medium\nSUBTASK_3: Documentation and cleanup | SCOPE: docs/, README.md | PRIORITY: Low", 
-                                    task_desc_clone
-                                );
-                                if let Err(e) = tx.send(ClaudeMessage::InternalCoordinateInstances {
-                                    main_instance_id: coord_instance_id,
-                                    task_description: fallback_breakdown,
-                                    num_instances: num_instances_clone as usize,
-                                    working_dir: current_dir,
-                                    is_ipc,
-                                }).await {
-                                    tracing::error!("Failed to send fallback InternalCoordinateInstances message: {}", e);
+                                // Always show the error to the user and fail gracefully
+                                let error_msg = if e.to_string().contains("Missing Ollama model 'gemma3:12b'") {
+                                    e.to_string()
                                 } else {
-                                    tracing::info!("Successfully sent fallback InternalCoordinateInstances message after analysis error");
+                                    format!("❌ SPAWN FAILED: Gemma3:12b analysis error: {}\n\nSpawning requires successful task analysis from Gemma3:12b model via Ollama. Please check your Ollama setup and try again.", e)
+                                };
+                                
+                                if let Err(send_err) = tx.send(ClaudeMessage::StreamText {
+                                    text: error_msg,
+                                    session_id: None, // Will be routed to the main tab
+                                }).await {
+                                    tracing::error!("Failed to send analysis error message: {}", send_err);
                                 }
+                                return; // Don't spawn instances without proper analysis
                             }
                             Err(_) => {
                                 tracing::error!("Gemma coordination analysis timed out after 1 minute");
-                                // Send fallback coordination message with intelligent task breakdown
-                                let fallback_breakdown = format!(
-                                    "SUBTASK_1: {} | SCOPE: Main project files | PRIORITY: High\nSUBTASK_2: Testing and validation | SCOPE: tests/ | PRIORITY: Medium\nSUBTASK_3: Documentation and cleanup | SCOPE: docs/, README.md | PRIORITY: Low", 
-                                    task_desc_clone
+                                
+                                // Always fail gracefully when timeout occurs - no fallback spawning
+                                let error_msg = format!(
+                                    "❌ SPAWN FAILED: Gemma3:12b analysis timed out after 1 minute\n\nTask analysis is required for intelligent instance spawning. Please ensure Ollama is running and responsive, then try again."
                                 );
-                                if let Err(e) = tx.send(ClaudeMessage::InternalCoordinateInstances {
-                                    main_instance_id: coord_instance_id,
-                                    task_description: fallback_breakdown,
-                                    num_instances: num_instances_clone as usize,
-                                    working_dir: current_dir,
-                                    is_ipc,
+                                
+                                if let Err(send_err) = tx.send(ClaudeMessage::StreamText {
+                                    text: error_msg,
+                                    session_id: None, // Will be routed to the main tab
                                 }).await {
-                                    tracing::error!("Failed to send fallback InternalCoordinateInstances message: {}", e);
-                                } else {
-                                    tracing::info!("Successfully sent fallback InternalCoordinateInstances message after Gemma timeout");
+                                    tracing::error!("Failed to send timeout error message: {}", send_err);
                                 }
+                                return; // Don't spawn instances without proper analysis
                             }
                         }
                     });
                 }
-                ClaudeMessage::VedaListInstances { instance_id } => {
-                    tracing::info!("Claude requested instance list");
-                    
-                    // Check if it's from IPC
-                    let is_ipc = self.instances.iter().find(|i| i.id == instance_id).is_none();
+                ClaudeMessage::VedaListInstances { session_id } => {
+                    tracing::info!("Claude requested instance list (session: {})", session_id);
                     
                     // Collect instance information first
                     let mut instance_info = Vec::new();
@@ -2179,47 +2106,47 @@ Response:"#,
                     
                     let message = instance_info.join("\n");
                     
-                    // Send to appropriate instance
-                    if is_ipc && !self.instances.is_empty() {
-                        self.instances[0].add_message("System".to_string(), message);
-                    } else if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
-                        instance.add_message("Tool".to_string(), message);
-                    }
+                    // Find the source instance by session ID and send the message there
+                    let instance = self.instances.iter_mut().find(|i| i.session_id.as_ref() == Some(&session_id))
+                        .expect(&format!("Session {} must exist in instances for list request", session_id));
+                    instance.add_message("Tool".to_string(), message);
                 }
-                ClaudeMessage::VedaCloseInstance { instance_id, target_instance_name } => {
-                    tracing::info!("Claude requested to close instance: {}", target_instance_name);
+                ClaudeMessage::VedaCloseInstance { session_id } => {
+                    tracing::info!("Claude requested to close its own instance (session: {})", session_id);
                     
-                    // Find the target instance by name and collect necessary info
-                    let target_index = self.instances.iter().position(|inst| inst.name == target_instance_name);
-                    let instances_len = self.instances.len();
+                    // Find the instance that made the request
+                    let target_index = self.instances.iter().position(|i| i.session_id.as_ref() == Some(&session_id))
+                        .expect(&format!("Session {} must exist in instances for close request", session_id));
                     
-                    let result_message = if let Some(target_idx) = target_index {
-                        if target_idx == 0 {
-                            "❌ Cannot close the main instance (Claude 1)".to_string()
-                        } else if instances_len <= 1 {
-                            "❌ Cannot close the last remaining instance".to_string()
-                        } else {
-                            let closed_name = self.instances[target_idx].name.clone();
-                            self.instances.remove(target_idx);
-                            
-                            // Adjust current tab if necessary
-                            if self.current_tab >= self.instances.len() {
-                                self.current_tab = self.instances.len() - 1;
-                            } else if self.current_tab > target_idx {
-                                self.current_tab -= 1;
-                            }
-                            
-                            self.sync_working_directory();
-                            format!("✅ Closed instance: {}", closed_name)
-                        }
+                    let result_message = if target_index == 0 {
+                        "❌ Cannot close the main instance (Tab 1)".to_string()
+                    } else if self.instances.len() <= 1 {
+                        "❌ Cannot close the last remaining instance".to_string()
                     } else {
-                        format!("❌ Instance '{}' not found", target_instance_name)
+                        let closed_name = self.instances[target_index].name.clone();
+                        
+                        // Send confirmation message before removing the instance
+                        self.instances[target_index].add_message("Tool".to_string(), 
+                            format!("✅ Closing instance: {}", closed_name));
+                        
+                        self.instances.remove(target_index);
+                        
+                        // Adjust current tab if necessary
+                        if self.current_tab >= self.instances.len() {
+                            self.current_tab = self.instances.len() - 1;
+                        } else if self.current_tab > target_index {
+                            self.current_tab -= 1;
+                        }
+                        
+                        self.sync_working_directory();
+                        tracing::info!("Successfully closed instance: {}", closed_name);
+                        return; // Instance is gone, no need to send result message
                     };
                     
-                    // Send the result message
-                    if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
-                        instance.add_message("Tool".to_string(), result_message);
-                    }
+                    // Only send error messages (success case returns early)
+                    let instance = self.instances.iter_mut().find(|i| i.session_id.as_ref() == Some(&session_id))
+                        .expect(&format!("Session {} must exist for error message", session_id));
+                    instance.add_message("Tool".to_string(), result_message);
                 }
                 ClaudeMessage::InternalCoordinateInstances { main_instance_id, task_description, num_instances, working_dir, is_ipc } => {
                     tracing::info!("Processing background coordination for {} instances", num_instances);
@@ -2282,7 +2209,6 @@ Response:"#,
             };
             
             if should_log {
-                tracing::debug!("Skipping stall detection - coordination in progress");
                 self.last_coordination_skip_log = Some(now);
             }
             return; // Don't check for stalls while coordination is in progress
@@ -2348,7 +2274,6 @@ Response:"#,
 
     async fn analyze_task_for_coordination(&mut self, claude_message: &str) -> bool {
         if !self.coordination_enabled {
-            tracing::debug!("Coordination disabled, skipping analysis");
             return false;
         }
         
@@ -2539,144 +2464,15 @@ Your response:"#,
         tracing::warn!("Extracted subtasks: {:?}", subtasks);
         
         if subtasks.is_empty() {
-            tracing::warn!("No subtasks found in breakdown, attempting to parse it better for Gemma guidance");
+            tracing::error!("No valid subtasks found in breakdown. Cannot spawn instances without proper task analysis.");
+            tracing::warn!("Received breakdown: {:?}", breakdown);
             
-            // Try to extract meaningful task info even from failed Gemma analysis
-            let task_info = if breakdown.starts_with("ERROR:") {
-                "General development tasks"
-            } else if breakdown.contains("Parallel task execution requested") {
-                breakdown.split(':').last().unwrap_or(breakdown).trim()
-            } else {
-                breakdown
-            };
-            
-            // Instead of generic instances, create structured fallback subtasks
-            let fallback_subtasks = vec![
-                format!("SUBTASK_1: {} - Core implementation | SCOPE: Main source files | PRIORITY: High", task_info),
-                format!("SUBTASK_2: {} - Testing and validation | SCOPE: tests/ directory | PRIORITY: Medium", task_info),
-                format!("SUBTASK_3: {} - Documentation and integration | SCOPE: docs/, README.md | PRIORITY: Low", task_info),
-            ];
-            
-            if requested_count > 0 {
-                let starting_count = self.instances.len();
-                for i in 0..requested_count.min(self.max_instances - self.instances.len()).min(fallback_subtasks.len()) {
-                    let subtask_line = &fallback_subtasks[i];
-                    let instance_name = format!("Veda-{}", starting_count + 1 + i);
-                    
-                    // Parse the fallback subtask like a real Gemma result
-                    let task_parts: Vec<&str> = subtask_line.split(" | ").collect();
-                    let task_desc = task_parts.get(0)
-                        .unwrap_or(&"")
-                        .trim_start_matches("SUBTASK_")
-                        .trim_start_matches("1: ")
-                        .trim_start_matches("2: ")
-                        .trim_start_matches("3: ");
-                    
-                    let scope = task_parts.iter()
-                        .find(|part| part.starts_with("SCOPE:"))
-                        .map(|s| s.trim_start_matches("SCOPE:").trim())
-                        .unwrap_or("No specific scope");
-                        
-                    let priority = task_parts.iter()
-                        .find(|part| part.starts_with("PRIORITY:"))
-                        .map(|s| s.trim_start_matches("PRIORITY:").trim())
-                        .unwrap_or("Medium");
-                    
-                    let smart_task = format!("Work on: {}", task_desc);
-                    
-                    let coordination_message = format!(
-                        r#"{}
-
-🤝 MULTI-INSTANCE COORDINATION MODE
-
-You are part of a coordinated team of Claude instances working on a shared codebase.
-
-YOUR ASSIGNED TASK: {}
-SCOPE: {}
-PRIORITY: {}
-WORKING DIRECTORY: {}
-
-COORDINATION PROTOCOL:
-1. Use TaskMaster AI tools to stay in sync:
-   - mcp__taskmaster-ai__get_tasks: Check current task status
-   - mcp__taskmaster-ai__set_task_status: Mark tasks done/in-progress
-   - mcp__taskmaster-ai__add_task: Add discovered subtasks
-   
-2. Focus on your assigned work to avoid conflicts
-3. Update main instance (Tab 1) with major progress
-4. Use TaskMaster to communicate completion status
-
-IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
-                        Self::create_capabilities_prompt(),
-                        smart_task,
-                        scope,
-                        priority,
-                        working_dir
-                    );
-                    
-                    // Create the ClaudeInstance first so we have a real instance ID
-                    let mut new_instance = ClaudeInstance::new(instance_name.clone());
-                    new_instance.working_directory = working_dir.to_string();
-                    new_instance.add_message("System".to_string(), coordination_message.clone());
-                    
-                    let instance_id = new_instance.id; // Get the real instance ID
-                    tracing::info!("Creating new tab: {} with instance_id: {}", instance_name, instance_id);
-                    self.instances.push(new_instance);
-                    // Session ID will be assigned when user first sends a message
-                    
-                    tracing::info!("Starting Claude Code instance for: {}", smart_task);
-                    
-                    // Auto-start the Claude Code process with the real instance ID
-                    let tx = self.message_tx.clone();
-                    let instance_name_owned = instance_name.clone();
-                    let coordination_message_owned = coordination_message.clone();
-                    let instance_id_owned = instance_id; // Use the real instance ID
-                    
-                    // Create process handle for the spawned instance before spawning
-                    let process_handle = Arc::new(tokio::sync::Mutex::new(None));
-                    self.instances.last_mut().unwrap().process_handle = Some(process_handle.clone());
-                    
-                    tokio::spawn(async move {
-                        // Wait a moment to ensure the UI has been updated
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        
-                        // Pre-enable essential tools for the spawned instance
-                        let essential_tools = ["Edit", "MultiEdit", "Read", "Write", "Bash", "TodoRead", "TodoWrite", "Glob", "Grep", "LS"];
-                        for tool in essential_tools.iter() {
-                            if let Err(e) = enable_claude_tool(tool).await {
-                                tracing::warn!("Failed to pre-enable tool {} for generic instance: {}", tool, e);
-                            } else {
-                                tracing::debug!("Pre-enabled tool {} for generic instance", tool);
-                            }
-                        }
-                        
-                        tracing::info!("🚀 Auto-starting Claude Code for instance {} ({})", instance_id_owned, instance_name_owned);
-                        
-                        // Spawn Claude Code instance with the real instance ID and process handle
-                        let spawn_result = crate::claude::send_to_claude_with_session(
-                            coordination_message_owned,
-                            tx.clone(),
-                            None, // No session ID - let Claude generate one
-                            Some(process_handle), // Pass the process handle
-                            Some(instance_id_owned), // Target tab ID for session assignment
-                        ).await;
-                        
-                        tracing::info!("🏁 Claude Code spawn result for {} ({}): {:?}", instance_name_owned, instance_id_owned, spawn_result.is_ok());
-                        
-                        match spawn_result {
-                            Ok(()) => {
-                                tracing::info!("✅ Successfully started Claude Code instance for {} ({})", instance_name_owned, instance_id_owned);
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to start Claude Code instance for {} ({}): {}", instance_name_owned, instance_id_owned, e);
-                            }
-                        }
-                    });
-                }
-                
-                // Don't switch tabs - let user manually switch to new tabs when they appear
+            // Add message to main instance explaining the failure
+            if let Some(main_instance) = self.instances.iter_mut().find(|i| i.id == main_instance_id) {
+                main_instance.add_message("System".to_string(), 
+                    "❌ Spawning failed: No valid subtasks found in Gemma3:12b analysis. Please ensure Ollama is working properly.".to_string());
             }
-            return;
+            return; // Don't spawn instances without proper task breakdown
         }
         
         // Determine how many instances to spawn
@@ -2775,14 +2571,17 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
             // Auto-start the instance with its task in the background
             let tx = self.message_tx.clone();
             let task_instruction = format!(
-                "Please begin working on your assigned subtask: {}\n\nScope: {}\nPriority: {}\n\nStart by using mcp__taskmaster-ai__get_tasks to check the current project status, then focus on your specific scope.",
-                task_desc, scope, priority
+                "You are working on: {}\n\nYour specific assignment: {}\nScope: {}\nPriority: {}\n\nStart by understanding the codebase and focusing on your assigned work. Use TaskMaster tools to coordinate with other instances.",
+                breakdown, task_desc, scope, priority
             );
             
             let instance_id_copy = instance_id;
             let instance_name_copy2 = instance_name_copy.clone();
             // Capture coordinator's session ID for status messages
-            let coordinator_session_id = self.instances[0].session_id.clone();
+            let coordinator_session_id = self.instances.iter()
+                .find(|i| i.id == main_instance_id)
+                .map(|i| i.session_id.clone())
+                .unwrap_or_else(|| self.instances[0].session_id.clone());
             
             // Start the Claude process for this instance automatically
             tokio::spawn(async move {
@@ -2937,7 +2736,7 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
     }
 }
 
-async fn start_ipc_server(app_tx: mpsc::Sender<ClaudeMessage>, session_id: String) {
+async fn start_ipc_server(app_tx: mpsc::Sender<ClaudeMessage>) {
     use tokio::net::{UnixListener, UnixStream};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use crate::shared_ipc::RegistryClient;
@@ -3011,9 +2810,9 @@ async fn handle_shared_ipc_connection(mut socket: tokio::net::UnixStream, app_tx
                     
                     // Send message to appropriate Veda instance
                     let _ = app_tx.send(ClaudeMessage::VedaSpawnInstances {
-                        instance_id,
                         task_description: task_desc.to_string(),
                         num_instances,
+                        session_id: session_id.to_string(),
                     }).await;
                     
                     format!("✅ Spawning {} instances for task: {}", num_instances, task_desc)
@@ -3046,8 +2845,7 @@ async fn handle_shared_ipc_connection(mut socket: tokio::net::UnixStream, app_tx
                     }
                     
                     let _ = app_tx.send(ClaudeMessage::VedaCloseInstance {
-                        instance_id,
-                        target_instance_name: instance_name.to_string(),
+                        session_id: session_id.to_string(),
                     }).await;
                     
                     format!("✅ Closing instance: {}", instance_name)
@@ -3113,9 +2911,9 @@ async fn perform_gemma_analysis(prompt: &str) -> Result<String> {
     
     let client = reqwest::Client::new();
     
-    // Retry up to 3 times with shorter timeout per request
+    // Enhanced retry with exponential backoff - more aggressive retry for critical spawning
     let mut retry_count = 0;
-    let max_retries = 3;
+    let max_retries = 5; // Increased retries for better reliability
     
     loop {
         match client
@@ -3172,11 +2970,14 @@ async fn perform_gemma_analysis(prompt: &str) -> Result<String> {
             }
         }
         
-        // Exponential backoff: 1s, 2s, 4s, 8s, etc. (capped at 60s)
+        // Enhanced exponential backoff: 2s, 4s, 8s, 16s, 32s with jitter
         retry_count += 1;
-        let delay_secs = std::cmp::min(1u64 << (retry_count - 1), 60);
-        tracing::info!("Retrying Ollama request in {} seconds...", delay_secs);
-        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+        let base_delay = std::cmp::min(2u64 << (retry_count - 1), 30); // Cap at 30s for faster recovery
+        // Add jitter to prevent thundering herd if multiple processes retry
+        let jitter = rand::thread_rng().gen_range(0..1000); // 0-999ms jitter
+        let delay_ms = (base_delay * 1000) + jitter;
+        tracing::info!("Retrying Ollama request in {:.1}s (attempt {}/{})...", delay_ms as f64 / 1000.0, retry_count, max_retries);
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
     }
 }
 
@@ -3254,19 +3055,18 @@ async fn main() -> Result<()> {
         }
     }
     
-    // Set the session ID as environment variable for child processes
-    std::env::set_var("VEDA_SESSION_ID", &app.session_id);
+    // Set the PID as environment variable for child processes
+    std::env::set_var("VEDA_PID", &app.instance_id.to_string());
     
-    // Get session ID and start IPC server
-    let session_id = app.session_id.clone();
+    // Start IPC server - it will handle Claude session ID routing
     let ipc_tx = app.message_tx.clone();
     
     // Start the IPC server in the background
     tokio::spawn(async move {
-        start_ipc_server(ipc_tx, session_id).await;
+        start_ipc_server(ipc_tx).await;
     });
     
-    tracing::info!("Started Veda with session ID: {}", app.session_id);
+    tracing::info!("Started Veda with PID: {}", app.instance_id);
 
     // Run the UI - keep _guard alive by moving it into the async block
     let res = run_app(&mut terminal, &mut app, _guard).await;
@@ -3286,7 +3086,7 @@ async fn main() -> Result<()> {
     }
     
     // Clean up Unix socket
-    let socket_path = format!("/tmp/veda-{}.sock", app.session_id);
+    let socket_path = format!("/tmp/veda-{}.sock", app.instance_id);
     let _ = std::fs::remove_file(&socket_path);
     tracing::info!("Cleaned up socket: {}", socket_path);
 
@@ -3647,17 +3447,6 @@ fn ui(f: &mut Frame, app: &mut App) {
         // Update scroll position for the current tab only
         instance.auto_scroll_with_width(Some(message_area_height), Some(message_area_width));
         
-        // Debug check for empty display bug
-        if !instance.messages.is_empty() {
-            tracing::debug!("Rendering tab {} with {} messages", app.current_tab, instance.messages.len());
-            if instance.messages.len() > 5 {
-                // Log a sample of messages to verify they exist
-                tracing::debug!("Sample messages: first={:?}, last={:?}", 
-                    instance.messages.first().map(|m| format!("{}: {}", m.sender, m.content.chars().take(50).collect::<String>())),
-                    instance.messages.last().map(|m| format!("{}: {}", m.sender, m.content.chars().take(50).collect::<String>()))
-                );
-            }
-        }
         
         let mut all_lines = Vec::new();
         

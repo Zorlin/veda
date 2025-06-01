@@ -295,9 +295,9 @@ async fn handle_registry_connection(
                             // If we have app_tx (same process), send directly instead of through socket
                             if let Some(ref app_tx) = app_tx {
                                 let spawn_msg = crate::claude::ClaudeMessage::VedaSpawnInstances {
-                                    instance_id: uuid::Uuid::new_v4(),
                                     task_description: task_description.to_string(),
                                     num_instances: num_instances as u8,
+                                    session_id: session_id.to_string(),
                                 };
                                 
                                 if let Err(e) = app_tx.send(spawn_msg).await {
@@ -540,11 +540,12 @@ pub async fn connect_to_registry_as_client(
                                     if routed_msg.get("message_type").and_then(|t| t.as_str()) == Some("spawn_instances") {
                                         let task_desc = routed_msg.get("task_description").and_then(|t| t.as_str()).unwrap_or("Coordination task");
                                         let num_instances = routed_msg.get("num_instances").and_then(|n| n.as_u64()).unwrap_or(2) as u8;
+                                        let session_id = routed_msg.get("session_id").and_then(|s| s.as_str()).unwrap_or("unknown");
                                         
                                         let spawn_msg = crate::claude::ClaudeMessage::VedaSpawnInstances {
-                                            instance_id: uuid::Uuid::new_v4(),
                                             task_description: task_desc.to_string(),
                                             num_instances,
+                                            session_id: session_id.to_string(),
                                         };
                                         
                                         if let Err(e) = app_tx.send(spawn_msg).await {

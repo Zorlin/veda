@@ -22,7 +22,10 @@
       "Bash(timeout 10 cargo check)",
       "Bash(rg:*)",
       "Bash(timeout 10 cargo build)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:docs.rs)"
     ]
   },
   "enableAllProjectMcpServers": true,

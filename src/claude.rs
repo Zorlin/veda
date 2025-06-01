@@ -18,9 +18,9 @@ pub enum ClaudeMessage {
     SessionStarted { session_id: String, target_tab_id: Option<uuid::Uuid> },
     ToolPermissionDenied { tool_name: String, session_id: Option<String> },
     // Instance management MCP calls
-    VedaSpawnInstances { instance_id: Uuid, task_description: String, num_instances: u8 },
-    VedaListInstances { instance_id: Uuid },
-    VedaCloseInstance { instance_id: Uuid, target_instance_name: String },
+    VedaSpawnInstances { task_description: String, num_instances: u8, session_id: String },
+    VedaListInstances { session_id: String },
+    VedaCloseInstance { session_id: String },
     // Internal message for background coordination
     InternalCoordinateInstances { 
         main_instance_id: Uuid, 
@@ -280,8 +280,6 @@ pub async fn send_to_claude_with_session(
                                         tracing::info!("Claude attempting to use tool: {}", name);
                                         
                                         // Check for Veda instance management MCP calls
-                                        // Use a placeholder instance_id since tools still need it for socket communication
-                                        let placeholder_instance_id = Uuid::new_v4();
                                         match name.as_str() {
                                             "veda_spawn_instances" => {
                                                 let task_description = input.as_object()
@@ -295,26 +293,19 @@ pub async fn send_to_claude_with_session(
                                                     .unwrap_or(2) as u8; // Default to 2 additional instances
                                                 
                                                 let _ = tx_stdout.send(ClaudeMessage::VedaSpawnInstances {
-                                                    instance_id: placeholder_instance_id,
                                                     task_description,
                                                     num_instances,
+                                                    session_id: session_id.clone(),
                                                 }).await;
                                             }
                                             "veda_list_instances" => {
                                                 let _ = tx_stdout.send(ClaudeMessage::VedaListInstances {
-                                                    instance_id: placeholder_instance_id,
+                                                    session_id: session_id.clone(),
                                                 }).await;
                                             }
                                             "veda_close_instance" => {
-                                                let target_instance_name = input.as_object()
-                                                    .and_then(|obj| obj.get("instance_name"))
-                                                    .and_then(|v| v.as_str())
-                                                    .unwrap_or("")
-                                                    .to_string();
-                                                
                                                 let _ = tx_stdout.send(ClaudeMessage::VedaCloseInstance {
-                                                    instance_id: placeholder_instance_id,
-                                                    target_instance_name,
+                                                    session_id: session_id.clone(),
                                                 }).await;
                                             }
                                             _ => {
