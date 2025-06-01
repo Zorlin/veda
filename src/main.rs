@@ -70,7 +70,7 @@ enum BackgroundTask {
     DocumentationGeneration,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum SliceState {
     Available,           // Ready for new tasks
     WorkingOnTask,      // Currently working on a user task
@@ -150,6 +150,9 @@ impl ClaudeInstance {
             last_terminal_width: 80, // Default terminal width
             last_message_area_height: 20, // Default message area height
             process_handle: None,
+            slice_state: SliceState::Available,
+            background_task: None,
+            spawned_instances: Vec::new(),
         }
     }
 
@@ -159,6 +162,34 @@ impl ClaudeInstance {
     
     fn add_system_message(&mut self, content: String) {
         self.add_message_with_flags("System".to_string(), content, false, false, true);
+    }
+    
+    fn assign_background_task(&mut self, task: BackgroundTask) {
+        self.slice_state = SliceState::BackgroundWork;
+        self.background_task = Some(task.clone());
+        
+        let task_description = match task {
+            BackgroundTask::ContinuousTesting => {
+                "🧪 **Background Task: Continuous Testing**\n\nI'm now running continuous tests while the main instances work on their tasks. I'll:\n1. Monitor test results continuously\n2. Report any failures immediately\n3. Run different test suites on a rotating basis\n4. Keep the codebase quality high\n\nStarting continuous testing loop..."
+            },
+            BackgroundTask::CodeQualityChecks => {
+                "📊 **Background Task: Code Quality Checks**\n\nI'm now performing code quality analysis while others work. I'll:\n1. Run linting and static analysis\n2. Check code style and formatting\n3. Monitor complexity metrics\n4. Suggest improvements\n\nStarting code quality analysis..."
+            },
+            BackgroundTask::PerformanceProfiling => {
+                "⚡ **Background Task: Performance Profiling**\n\nI'm now monitoring performance while others work. I'll:\n1. Profile critical code paths\n2. Monitor memory usage\n3. Check for performance regressions\n4. Suggest optimizations\n\nStarting performance profiling..."
+            },
+            BackgroundTask::SecurityScanning => {
+                "🔒 **Background Task: Security Scanning**\n\nI'm now scanning for security issues while others work. I'll:\n1. Check for known vulnerabilities\n2. Analyze dependencies for security issues\n3. Review code for security patterns\n4. Monitor for sensitive data exposure\n\nStarting security scanning..."
+            },
+            BackgroundTask::DependencyUpdates => {
+                "📦 **Background Task: Dependency Updates**\n\nI'm now monitoring dependencies while others work. I'll:\n1. Check for available updates\n2. Analyze update compatibility\n3. Monitor for security advisories\n4. Prepare update recommendations\n\nStarting dependency monitoring..."
+            },
+            BackgroundTask::DocumentationGeneration => {
+                "📚 **Background Task: Documentation Generation**\n\nI'm now updating documentation while others work. I'll:\n1. Generate API documentation\n2. Update README files\n3. Create usage examples\n4. Maintain technical documentation\n\nStarting documentation generation..."
+            },
+        };
+        
+        self.add_system_message(task_description.to_string());
     }
     
     fn add_message_with_flags(&mut self, sender: String, content: String, is_thinking: bool, is_collapsed: bool, is_system_generated: bool) {
@@ -653,7 +684,10 @@ Your response:"#,
     fn add_instance(&mut self) {
         let slice_num = self.instances.len(); // Zero-based indexing
         let instance_name = format!("Slice {}", slice_num);
-        let new_instance = ClaudeInstance::new(instance_name.clone());
+        let mut new_instance = ClaudeInstance::new(instance_name.clone());
+        
+        // Set manually created instances as available for background work
+        new_instance.slice_state = SliceState::Available;
         
         tracing::info!("Creating new Veda Slice: {}", instance_name);
         
@@ -666,6 +700,19 @@ Your response:"#,
     
     fn close_current_instance(&mut self) {
         if self.instances.len() > 1 {
+            let instance_id = self.instances[self.current_tab].id;
+            
+            // Remove this instance from any parent's spawned_instances list
+            for parent_instance in self.instances.iter_mut() {
+                parent_instance.spawned_instances.retain(|&spawned_id| spawned_id != instance_id);
+                
+                // If this parent was spawning and now has no spawned instances, update its state
+                if parent_instance.slice_state == SliceState::SpawningInstances && parent_instance.spawned_instances.is_empty() {
+                    parent_instance.slice_state = SliceState::Available;
+                    tracing::debug!("Parent instance {} finished spawning, setting to Available", parent_instance.id);
+                }
+            }
+            
             self.instances.remove(self.current_tab);
             // Adjust current tab if we removed the last one
             if self.current_tab >= self.instances.len() {
@@ -2261,6 +2308,10 @@ Response:"#,
                     let source_instance_index = self.instances.iter().position(|i| i.session_id.as_ref() == Some(&session_id))
                         .expect(&format!("Session {} must exist in instances for spawning", session_id));
                     
+                    // Mark the source instance as spawning and assign background work to available slices
+                    self.instances[source_instance_index].slice_state = SliceState::SpawningInstances;
+                    self.assign_background_work_if_available();
+                    
                     // Check capacity before proceeding
                     let current_slices = self.instances.len();
                     let max_slices = self.max_instances;
@@ -2984,7 +3035,17 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
             
             let instance_id = new_instance.id;
             let instance_name_copy = new_instance.name.clone();
+            
+            // Set the new instance's slice state as working on task
+            new_instance.slice_state = SliceState::WorkingOnTask;
+            
             self.instances.push(new_instance);
+            
+            // Track this instance as spawned by the parent
+            if let Some(parent_instance) = self.instances.iter_mut().find(|i| i.id == main_instance_id) {
+                parent_instance.spawned_instances.push(instance_id);
+                tracing::debug!("Tracked instance {} as spawned by parent {}", instance_id, main_instance_id);
+            }
             
             // Create and store process handle for the spawned instance
             let process_handle = Arc::new(tokio::sync::Mutex::new(None));
@@ -3163,6 +3224,200 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
             }
         }
         Ok(())
+    }
+
+    /// Select an appropriate background task based on current project needs
+    fn select_background_task(&self) -> BackgroundTask {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        // Use a simple rotation based on current time to distribute tasks
+        let mut hasher = DefaultHasher::new();
+        chrono::Local::now().timestamp().hash(&mut hasher);
+        let task_index = (hasher.finish() % 6) as usize;
+        
+        match task_index {
+            0 => BackgroundTask::ContinuousTesting,
+            1 => BackgroundTask::CodeQualityChecks,
+            2 => BackgroundTask::PerformanceProfiling,
+            3 => BackgroundTask::SecurityScanning,
+            4 => BackgroundTask::DependencyUpdates,
+            _ => BackgroundTask::DocumentationGeneration,
+        }
+    }
+
+    /// Find an available slice for background work (prioritize non-active slices)
+    fn find_available_slice_for_background_work(&mut self) -> Option<usize> {
+        // First, look for completely idle slices (Available state)
+        for (idx, instance) in self.instances.iter().enumerate() {
+            match instance.slice_state {
+                SliceState::Available => {
+                    // Skip the current active tab unless no other options
+                    if idx != self.current_tab {
+                        return Some(idx);
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        // If no idle slices, check if the current tab is available
+        if let Some(current_instance) = self.instances.get(self.current_tab) {
+            if matches!(current_instance.slice_state, SliceState::Available) {
+                return Some(self.current_tab);
+            }
+        }
+        
+        None
+    }
+
+    /// Assign background work to an available slice when others start spawning
+    fn assign_background_work_if_available(&mut self) {
+        if let Some(slice_idx) = self.find_available_slice_for_background_work() {
+            let background_task = self.select_background_task();
+            let task_name = match background_task {
+                BackgroundTask::ContinuousTesting => "Continuous Testing",
+                BackgroundTask::CodeQualityChecks => "Code Quality Checks", 
+                BackgroundTask::PerformanceProfiling => "Performance Profiling",
+                BackgroundTask::SecurityScanning => "Security Scanning",
+                BackgroundTask::DependencyUpdates => "Dependency Updates",
+                BackgroundTask::DocumentationGeneration => "Documentation Generation",
+            };
+            
+            tracing::info!("Assigning background task '{}' to slice {} while others spawn instances", task_name, slice_idx);
+            
+            if let Some(instance) = self.instances.get_mut(slice_idx) {
+                instance.assign_background_task(background_task.clone());
+                
+                // Start the background work by sending the appropriate prompt
+                let tx = self.message_tx.clone();
+                let session_id = instance.session_id.clone();
+                let background_prompt = self.create_background_task_prompt(&background_task);
+                
+                tokio::spawn(async move {
+                    if let Err(e) = crate::claude::send_to_claude_with_session(
+                        background_prompt,
+                        tx,
+                        session_id,
+                        None, // No process handle needed for background tasks
+                        None,
+                    ).await {
+                        tracing::error!("Failed to start background task: {}", e);
+                    }
+                });
+            }
+        } else {
+            tracing::debug!("No available slices for background work assignment");
+        }
+    }
+
+    /// Create a detailed prompt for the background task
+    fn create_background_task_prompt(&self, task: &BackgroundTask) -> String {
+        let working_dir = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| ".".to_string());
+        
+        match task {
+            BackgroundTask::ContinuousTesting => format!(
+                "🧪 **Background Task: Continuous Testing**\n\n\
+                While other instances work on development tasks, I need to continuously monitor and test the codebase.\n\n\
+                Working directory: {}\n\n\
+                My responsibilities:\n\
+                1. Run automated tests every few minutes\n\
+                2. Monitor for test failures and report immediately\n\
+                3. Run different test suites (unit, integration, etc.) on rotation\n\
+                4. Check test coverage and suggest improvements\n\
+                5. Report any build issues or compilation errors\n\n\
+                I should start by examining the project structure to understand what tests are available, then begin a continuous testing loop.\n\n\
+                Start working now - begin by exploring the test structure.",
+                working_dir
+            ),
+            BackgroundTask::CodeQualityChecks => format!(
+                "📊 **Background Task: Code Quality Analysis**\n\n\
+                While other instances work on development tasks, I need to continuously monitor code quality.\n\n\
+                Working directory: {}\n\n\
+                My responsibilities:\n\
+                1. Run linting tools (clippy, etc.) regularly\n\
+                2. Check code formatting and style consistency\n\
+                3. Monitor complexity metrics and suggest refactoring\n\
+                4. Review code for best practices and patterns\n\
+                5. Generate code quality reports\n\n\
+                I should start by examining the codebase structure and available quality tools, then begin monitoring.\n\n\
+                Start working now - begin by analyzing the current code quality.",
+                working_dir
+            ),
+            BackgroundTask::PerformanceProfiling => format!(
+                "⚡ **Background Task: Performance Monitoring**\n\n\
+                While other instances work on development tasks, I need to monitor and profile performance.\n\n\
+                Working directory: {}\n\n\
+                My responsibilities:\n\
+                1. Profile critical code paths for performance bottlenecks\n\
+                2. Monitor memory usage and detect leaks\n\
+                3. Benchmark key operations regularly\n\
+                4. Check for performance regressions\n\
+                5. Suggest optimizations and improvements\n\n\
+                I should start by understanding the performance-critical parts of the system, then begin profiling.\n\n\
+                Start working now - begin by identifying performance hotspots.",
+                working_dir
+            ),
+            BackgroundTask::SecurityScanning => format!(
+                "🔒 **Background Task: Security Scanning**\n\n\
+                While other instances work on development tasks, I need to continuously scan for security issues.\n\n\
+                Working directory: {}\n\n\
+                My responsibilities:\n\
+                1. Scan for known security vulnerabilities\n\
+                2. Check dependencies for security advisories\n\
+                3. Review code for security anti-patterns\n\
+                4. Monitor for sensitive data exposure\n\
+                5. Generate security reports and recommendations\n\n\
+                I should start by examining the dependencies and code for security issues, then begin monitoring.\n\n\
+                Start working now - begin by scanning for security vulnerabilities.",
+                working_dir
+            ),
+            BackgroundTask::DependencyUpdates => format!(
+                "📦 **Background Task: Dependency Management**\n\n\
+                While other instances work on development tasks, I need to monitor and manage dependencies.\n\n\
+                Working directory: {}\n\n\
+                My responsibilities:\n\
+                1. Check for available dependency updates\n\
+                2. Analyze update compatibility and breaking changes\n\
+                3. Monitor for security advisories in dependencies\n\
+                4. Prepare update recommendations with impact analysis\n\
+                5. Maintain dependency health reports\n\n\
+                I should start by examining the current dependencies and their versions, then begin monitoring.\n\n\
+                Start working now - begin by analyzing current dependencies.",
+                working_dir
+            ),
+            BackgroundTask::DocumentationGeneration => format!(
+                "📚 **Background Task: Documentation Maintenance**\n\n\
+                While other instances work on development tasks, I need to maintain and update documentation.\n\n\
+                Working directory: {}\n\n\
+                My responsibilities:\n\
+                1. Generate and update API documentation\n\
+                2. Maintain README files and usage guides\n\
+                3. Create and update code examples\n\
+                4. Keep technical documentation current\n\
+                5. Generate documentation reports and suggestions\n\n\
+                I should start by examining the current documentation state and identifying gaps, then begin updating.\n\n\
+                Start working now - begin by reviewing documentation completeness.",
+                working_dir
+            ),
+        }
+    }
+
+    fn stop_background_work_for_instance(&mut self, instance_id: Uuid) {
+        if let Some(instance) = self.instances.iter_mut().find(|i| i.id == instance_id) {
+            if instance.slice_state == SliceState::BackgroundWork {
+                instance.slice_state = SliceState::Available;
+                instance.background_task = None;
+                
+                // Send a message to the instance to stop background work
+                instance.add_message("System".to_string(), 
+                    "🛑 Background work assignment cancelled. You are now available for new tasks.".to_string());
+                
+                tracing::info!("Stopped background work for instance {}", instance_id);
+            }
+        }
     }
 }
 
