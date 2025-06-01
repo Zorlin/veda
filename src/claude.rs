@@ -12,11 +12,13 @@ pub enum ClaudeMessage {
     StreamStart { session_id: Option<String> },
     StreamText { text: String, session_id: Option<String> },
     StreamEnd { session_id: Option<String> },
+    SystemMessage { text: String, session_id: Option<String> },
     Error { error: String, session_id: Option<String> },
     Exited { code: Option<i32>, session_id: Option<String> },
     ToolUse { tool_name: String, session_id: Option<String> },
     SessionStarted { session_id: String, target_tab_id: Option<uuid::Uuid> },
     ToolPermissionDenied { tool_name: String, session_id: Option<String> },
+    ToolApproved { tool_name: String, session_id: Option<String> },
     // Instance management MCP calls
     VedaSpawnInstances { task_description: String, num_instances: u8, session_id: String },
     VedaListInstances { session_id: String },
@@ -152,7 +154,7 @@ pub async fn send_to_claude(
 
 impl ClaudeStreamEvent {
     /// Extract tool name from permission denied messages
-    fn extract_permission_denied_tool(message: &serde_json::Value) -> Option<String> {
+    pub fn extract_permission_denied_tool(message: &serde_json::Value) -> Option<String> {
         // Look for the structure: message.content[0].content contains permission text
         if let Some(content_array) = message.get("content").and_then(|c| c.as_array()) {
             for content_item in content_array {

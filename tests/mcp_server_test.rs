@@ -108,7 +108,7 @@ async fn test_tools_list() {
         .find(|tool| tool["name"] == "veda_spawn_instances")
         .unwrap();
     
-    assert_eq!(spawn_tool["description"], "Spawn additional Claude Code instances to work on a task in parallel");
+    assert_eq!(spawn_tool["description"], "Spawn additional Veda Slices to work on a task in parallel");
     assert!(spawn_tool["inputSchema"]["properties"]["task_description"].is_object());
     assert!(spawn_tool["inputSchema"]["properties"]["num_instances"].is_object());
     assert_eq!(spawn_tool["inputSchema"]["properties"]["num_instances"]["minimum"], 1);

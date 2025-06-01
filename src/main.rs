@@ -25,7 +25,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use serde_json;
+use serde_json::{self, json, Value};
 use tui_textarea::TextArea;
 use rand::Rng;
 
@@ -41,6 +41,8 @@ struct Message {
     // For DeepSeek messages
     is_thinking: bool,
     is_collapsed: bool,
+    // System-generated message (not from actual Claude output)
+    is_system_generated: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +60,24 @@ struct TodoListState {
     last_update: DateTime<Local>,
 }
 
+#[derive(Debug, Clone)]
+enum BackgroundTask {
+    ContinuousTesting,
+    CodeQualityChecks,
+    PerformanceProfiling,
+    SecurityScanning,
+    DependencyUpdates,
+    DocumentationGeneration,
+}
+
+#[derive(Debug, Clone)]
+enum SliceState {
+    Available,           // Ready for new tasks
+    WorkingOnTask,      // Currently working on a user task
+    SpawningInstances,  // Spawning other instances for parallel work
+    BackgroundWork,     // Performing background maintenance tasks
+}
+
 struct ClaudeInstance {
     id: Uuid,
     name: String,
@@ -73,6 +93,8 @@ struct ClaudeInstance {
     last_tool_attempts: Vec<String>,
     // Track successful tool usage to avoid unnecessary permission checks
     successful_tools: Vec<String>,
+    // Track tools that have been approved after permission denial
+    approved_tools: Vec<String>,
     // Claude session ID for resume
     session_id: Option<String>,
     // Working directory for this tab
@@ -87,6 +109,10 @@ struct ClaudeInstance {
     last_message_area_height: u16,
     // Process handle for interruption
     process_handle: Option<Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>>,
+    // Background task management
+    slice_state: SliceState,
+    background_task: Option<BackgroundTask>,
+    spawned_instances: Vec<Uuid>, // Track instances spawned by this slice
 }
 
 impl ClaudeInstance {
@@ -112,6 +138,7 @@ impl ClaudeInstance {
             scroll_offset: 0,
             last_tool_attempts: Vec::new(),
             successful_tools: Vec::new(),
+            approved_tools: Vec::new(),
             session_id: None,
             working_directory: std::env::current_dir()
                 .map(|p| p.display().to_string())
@@ -127,10 +154,14 @@ impl ClaudeInstance {
     }
 
     fn add_message(&mut self, sender: String, content: String) {
-        self.add_message_with_flags(sender, content, false, false);
+        self.add_message_with_flags(sender, content, false, false, false);
     }
     
-    fn add_message_with_flags(&mut self, sender: String, content: String, is_thinking: bool, is_collapsed: bool) {
+    fn add_system_message(&mut self, content: String) {
+        self.add_message_with_flags("System".to_string(), content, false, false, true);
+    }
+    
+    fn add_message_with_flags(&mut self, sender: String, content: String, is_thinking: bool, is_collapsed: bool, is_system_generated: bool) {
         let timestamp = Local::now().format("%H:%M:%S").to_string();
         self.messages.push(Message {
             timestamp,
@@ -138,6 +169,7 @@ impl ClaudeInstance {
             content,
             is_thinking,
             is_collapsed,
+            is_system_generated,
         });
         // Update activity when new messages arrive
         self.last_activity = Local::now();
@@ -155,60 +187,24 @@ impl ClaudeInstance {
         self.auto_scroll_with_width(message_area_height, None);
     }
     
-    fn auto_scroll_with_width(&mut self, message_area_height: Option<u16>, terminal_width: Option<u16>) {
-        // Count actual rendered lines
-        let mut total_lines = 0;
-        let term_width = terminal_width.unwrap_or(80).saturating_sub(2); // Account for borders
+    fn auto_scroll_with_width(&mut self, message_area_height: Option<u16>, _terminal_width: Option<u16>) {
+        // Simple approach: always scroll to bottom to show latest messages
+        // The scroll offset is how many lines to skip from the top
         
-        for msg in &self.messages {
-            if msg.sender == "DeepSeek" && msg.is_thinking && (msg.is_collapsed || !self.messages.is_empty()) {
-                // Collapsed thinking shows as one line
-                total_lines += 1;
-            } else {
-                // Build the full line as it will be rendered
-                let prefix = format!("{} {}: ", msg.timestamp, msg.sender);
-                let prefix_len = unicode_width::UnicodeWidthStr::width(prefix.as_str());
-                
-                // For first line of content
-                let content_lines: Vec<&str> = msg.content.lines().collect();
-                if content_lines.is_empty() || (content_lines.len() == 1 && content_lines[0].is_empty()) {
-                    // Empty message still takes one line
-                    total_lines += 1;
-                } else {
-                    // Calculate wrapped lines for the actual content
-                    for (i, line) in content_lines.iter().enumerate() {
-                        if i == 0 {
-                            // First line includes the prefix
-                            let first_line_width = prefix_len + unicode_width::UnicodeWidthStr::width(*line);
-                            let wrapped = (first_line_width as f32 / term_width as f32).ceil() as usize;
-                            total_lines += wrapped.max(1);
-                        } else {
-                            // Subsequent lines don't have prefix
-                            let line_width = unicode_width::UnicodeWidthStr::width(*line);
-                            if line_width == 0 {
-                                total_lines += 1; // Empty line
-                            } else {
-                                let wrapped = (line_width as f32 / term_width as f32).ceil() as usize;
-                                total_lines += wrapped.max(1);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Add empty line between messages
-            total_lines += 1;
+        // Count total lines (each message + empty line)
+        let total_lines = self.messages.len() * 2; // Each message + separator
+        
+        // Get visible area height
+        let visible_lines = message_area_height.unwrap_or(20).saturating_sub(2) as usize; // Subtract borders
+        
+        // Calculate scroll offset to show the last visible_lines
+        if total_lines > visible_lines {
+            // Scroll to show the bottom messages
+            self.scroll_offset = (total_lines - visible_lines) as u16;
+        } else {
+            // All messages fit, no scrolling needed
+            self.scroll_offset = 0;
         }
-        
-        // Use provided height or fallback to default  
-        let visible_lines = message_area_height.unwrap_or(20) as usize;
-        
-        // Account for borders (2 lines) and ensure we don't over-scroll
-        let actual_visible = visible_lines.saturating_sub(2);
-        
-        // TEMPORARY FIX: Disable auto-scroll until we fix the calculation
-        // The scroll calculation is broken and hiding all content
-        self.scroll_offset = 0;
     }
 
     fn get_selected_text(&self) -> Option<String> {
@@ -255,10 +251,12 @@ impl ClaudeInstance {
     }
     
     fn get_recent_context(&self) -> (String, String) {
-        // Get the last Claude message
+        // Get the last Claude message, excluding system-generated messages
         let claude_message = self.messages.iter()
             .rev()
-            .find(|m| m.sender == "Claude" && !m.content.is_empty())
+            .find(|m| m.sender == "Claude" && 
+                      !m.content.is_empty() && 
+                      !m.is_system_generated)
             .map(|m| m.content.clone())
             .unwrap_or_default();
             
@@ -314,6 +312,10 @@ struct App {
     // No complex mapping needed - shared registry handles cross-process coordination
     // Auto-task to send once main instance has session ID
     pending_auto_task: Option<String>,
+    // Show global aggregated view
+    show_global_view: bool,
+    // Temporary textarea for global view input
+    global_textarea: Option<TextArea<'static>>,
 }
 
 impl App {
@@ -530,9 +532,9 @@ Your response:"#,
     
     fn new() -> Result<Self> {
         let mut instances = Vec::new();
-        instances.push(ClaudeInstance::new("Veda-1".to_string()));
         
-        // No complex initialization needed
+        // Create the first slice (Slice 0) - nothing special about it
+        instances.push(ClaudeInstance::new("Slice 0".to_string()));
         
         let (tx, rx) = mpsc::channel(100);
         let (deepseek_tx, deepseek_rx) = mpsc::channel(100);
@@ -570,6 +572,8 @@ Your response:"#,
             last_enter_time: None,
             pending_session_messages: Vec::new(),
             pending_auto_task: None,
+            show_global_view: true, // Start with global view selected
+            global_textarea: None,
         })
     }
 
@@ -647,17 +651,17 @@ Your response:"#,
     }
 
     fn add_instance(&mut self) {
-        let instance_num = self.instances.len() + 1;
-        let instance_name = format!("Veda-{}", instance_num);
+        let slice_num = self.instances.len(); // Zero-based indexing
+        let instance_name = format!("Slice {}", slice_num);
         let new_instance = ClaudeInstance::new(instance_name.clone());
         
-        tracing::info!("Creating new tab: {}", instance_name);
+        tracing::info!("Creating new Veda Slice: {}", instance_name);
         
         self.instances.push(new_instance);
         self.current_tab = self.instances.len() - 1;
         
-        // Tab created - session ID will be assigned when user first sends a message
-        tracing::info!("✅ New tab {} created (session ID will be assigned on first use)", instance_name);
+        // Slice created - session ID will be assigned when user first sends a message
+        tracing::info!("✅ New Veda {} created (session ID will be assigned on first use)", instance_name);
     }
     
     fn close_current_instance(&mut self) {
@@ -684,19 +688,42 @@ Your response:"#,
 
     fn next_tab(&mut self) {
         if !self.instances.is_empty() {
-            self.current_tab = (self.current_tab + 1) % self.instances.len();
-            self.sync_working_directory();
+            if self.show_global_view {
+                // Switch from global to first slice
+                self.show_global_view = false;
+                self.current_tab = 0;
+            } else {
+                // Move to next slice
+                self.current_tab = (self.current_tab + 1) % self.instances.len();
+                if self.current_tab == 0 {
+                    // Wrapped around, go to global view
+                    self.show_global_view = true;
+                }
+            }
+            
+            if !self.show_global_view {
+                self.sync_working_directory();
+            }
         }
     }
 
     fn previous_tab(&mut self) {
         if !self.instances.is_empty() {
-            self.current_tab = if self.current_tab == 0 {
-                self.instances.len() - 1
+            if self.show_global_view {
+                // Switch from global to last slice
+                self.show_global_view = false;
+                self.current_tab = self.instances.len() - 1;
+            } else if self.current_tab == 0 {
+                // At first slice, go to global view
+                self.show_global_view = true;
             } else {
-                self.current_tab - 1
-            };
-            self.sync_working_directory();
+                // Move to previous slice
+                self.current_tab = self.current_tab - 1;
+            }
+            
+            if !self.show_global_view {
+                self.sync_working_directory();
+            }
         }
     }
 
@@ -773,10 +800,20 @@ You are running in Veda, a powerful Claude Code environment with enhanced coordi
 **🛠️ AVAILABLE MCP TOOLS:**
 • **TaskMaster AI**: Complete project management - use for planning, tracking, and coordinating tasks
   - `mcp__taskmaster-ai__*` tools for task management, PRD parsing, and project coordination
+  - **Research Mode**: Many TaskMaster tools support `research: true` parameter for Perplexity AI integration
+    - Provides up-to-date information, current best practices, and comprehensive analysis
+    - Use for: `parse_prd`, `add_task`, `update_task`, `expand_task`, and more
 • **Playwright**: Browser automation and testing
   - `mcp__playwright__*` tools for web interaction, testing, and automation
 • **DeepWiki**: Repository analysis and documentation
   - `mcp__deepwiki__*` tools for understanding codebases and documentation
+
+**🔬 PERPLEXITY RESEARCH CAPABILITIES:**
+TaskMaster AI integrates with Perplexity for enhanced research:
+• **PRD Parsing**: Use `research: true` for comprehensive task generation with current tech insights
+• **Task Creation**: Research mode provides detailed implementation strategies
+• **Task Updates**: Get latest best practices and solutions
+• **Complexity Analysis**: Research-backed analysis for better task breakdown
 
 **🤝 MULTI-INSTANCE COORDINATION:**
 You can spawn additional Claude instances for parallel processing:
@@ -796,12 +833,15 @@ You can spawn additional Claude instances for parallel processing:
 - Always check available tools with the right MCP prefixes
 - Use coordination for tasks that can be parallelized effectively
 - Leverage TaskMaster for project organization and progress tracking
+- Enable research mode for tasks requiring current information or best practices
 - Use Playwright for any web-related testing or automation needs
 
 This prompt appears only once per session. You now have full access to these powerful capabilities!"#.to_string()
     }
 
     async fn send_message(&mut self, message: String) {
+        tracing::info!("send_message called with: {}", message.chars().take(100).collect::<String>());
+        
         // Handle !cd command
         if message.trim().starts_with("!cd ") {
             let path = message.trim().strip_prefix("!cd ").unwrap_or("").trim();
@@ -813,6 +853,12 @@ This prompt appears only once per session. You now have full access to these pow
         if message.trim().starts_with("!max ") {
             let max_str = message.trim().strip_prefix("!max ").unwrap_or("").trim();
             self.handle_max_command(max_str).await;
+            return;
+        }
+        
+        // Check if we're in Global view - if so, broadcast to all slices
+        if self.show_global_view {
+            self.broadcast_to_all_slices(message).await;
             return;
         }
         
@@ -1018,6 +1064,134 @@ This prompt appears only once per session. You now have full access to these pow
         }
     }
 
+    async fn broadcast_to_all_slices(&mut self, message: String) {
+        tracing::info!("Broadcasting message from Global view to all slices");
+        
+        // Collect information about all slices for processing
+        let mut slice_infos = Vec::new();
+        for (idx, instance) in self.instances.iter().enumerate() {
+            let slice_info = (
+                idx,
+                instance.id,
+                instance.name.clone(),
+                instance.session_id.clone(),
+                instance.is_processing,
+                instance.process_handle.clone(),
+                instance.working_directory.clone(),
+            );
+            slice_infos.push(slice_info);
+        }
+        
+        // Add the message to all slices as a user message
+        for (idx, _, name, _, _, _, _) in &slice_infos {
+            if let Some(instance) = self.instances.get_mut(*idx) {
+                instance.add_message("You".to_string(), format!("[Global] {}", message.clone()));
+            }
+        }
+        
+        // Process each slice
+        for (idx, id, name, session_id, was_processing, process_handle, working_dir) in slice_infos {
+            tracing::info!("Broadcasting to {} (Session: {:?}, Processing: {})", 
+                         name, session_id, was_processing);
+            
+            // If the slice is processing, interrupt it first
+            if was_processing && process_handle.is_some() {
+                if let Some(handle) = process_handle {
+                    let mut handle_guard = handle.lock().await;
+                    if let Some(ref mut child) = *handle_guard {
+                        #[cfg(unix)]
+                        {
+                            use nix::sys::signal::{self, Signal};
+                            use nix::unistd::Pid;
+                            
+                            if let Some(pid) = child.id() {
+                                tracing::info!("Interrupting {} (PID: {}) before broadcasting", name, pid);
+                                match signal::kill(Pid::from_raw(pid as i32), Signal::SIGINT) {
+                                    Ok(_) => {
+                                        if let Some(instance) = self.instances.get_mut(idx) {
+                                            instance.add_message("System".to_string(), 
+                                                format!("⚡ Interrupted for global broadcast"));
+                                            instance.is_processing = false;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Failed to send SIGINT to {}: {}", name, e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Wait a moment for the interrupt to take effect
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+            
+            // Send the message to this slice
+            if let Some(session) = session_id {
+                // Slice already has a session, resume it with the message
+                let tx = self.message_tx.clone();
+                let context_message = format!("Working directory: {}\n\n[Global broadcast] {}", working_dir, message);
+                
+                // Get or create process handle for this slice
+                let process_handle = if let Some(instance) = self.instances.get_mut(idx) {
+                    instance.is_processing = true;
+                    if instance.process_handle.is_none() {
+                        let handle = Arc::new(tokio::sync::Mutex::new(None));
+                        instance.process_handle = Some(handle.clone());
+                        Some(handle)
+                    } else {
+                        instance.process_handle.clone()
+                    }
+                } else {
+                    None
+                };
+                
+                tokio::spawn(async move {
+                    tracing::info!("Sending broadcast to {} with session {:?}", name, session);
+                    if let Err(e) = send_to_claude_with_session(
+                        context_message,
+                        tx,
+                        Some(session),
+                        process_handle,
+                        None
+                    ).await {
+                        tracing::error!("Error broadcasting to {}: {}", name, e);
+                    }
+                });
+            } else {
+                // Slice doesn't have a session yet, start a new one
+                let tx = self.message_tx.clone();
+                let context_message = format!("Working directory: {}\n\n{}\n\n---\n\n[Global broadcast] {}", 
+                                            working_dir, Self::create_capabilities_prompt(), message);
+                
+                // Create process handle for this slice
+                let process_handle = if let Some(instance) = self.instances.get_mut(idx) {
+                    instance.is_processing = true;
+                    let handle = Arc::new(tokio::sync::Mutex::new(None));
+                    instance.process_handle = Some(handle.clone());
+                    Some(handle)
+                } else {
+                    None
+                };
+                
+                let target_id = id;
+                tokio::spawn(async move {
+                    tracing::info!("Starting new session for {} with broadcast", name);
+                    if let Err(e) = send_to_claude_with_session(
+                        context_message,
+                        tx,
+                        None,
+                        process_handle,
+                        Some(target_id)
+                    ).await {
+                        tracing::error!("Error starting session for {}: {}", name, e);
+                    }
+                });
+            }
+        }
+    }
+
     async fn shutdown_excess_instances(&mut self) {
         // Identify instances that should be shut down (beyond max_instances limit)
         if self.instances.len() <= self.max_instances {
@@ -1074,42 +1248,71 @@ This prompt appears only once per session. You now have full access to these pow
             }
         };
         
-        // Send SIGINT to the actual Claude process if we have a handle
+        // Send SIGINT to the actual Claude process in a non-blocking way
         if let Some(process_handle) = process_handle {
-            let mut handle_guard = process_handle.lock().await;
-            if let Some(ref mut child) = *handle_guard {
-                #[cfg(unix)]
-                {
-                    use nix::sys::signal::{self, Signal};
-                    use nix::unistd::Pid;
-                    
-                    if let Some(pid) = child.id() {
-                        tracing::info!("Sending SIGINT to Claude process with PID {}", pid);
-                        match signal::kill(Pid::from_raw(pid as i32), Signal::SIGINT) {
-                            Ok(_) => {
-                                if let Some(instance) = self.current_instance_mut() {
-                                    instance.add_message("System".to_string(), 
-                                        "📡 SIGINT sent to Claude process".to_string());
+            // Clone the handle for potential background use
+            let process_handle_clone = process_handle.clone();
+            
+            // Try to get the lock without blocking the UI
+            if let Ok(mut handle_guard) = process_handle.try_lock() {
+                if let Some(ref mut child) = *handle_guard {
+                    #[cfg(unix)]
+                    {
+                        use nix::sys::signal::{self, Signal};
+                        use nix::unistd::Pid;
+                        
+                        if let Some(pid) = child.id() {
+                            tracing::info!("Sending SIGINT to Claude process with PID {}", pid);
+                            match signal::kill(Pid::from_raw(pid as i32), Signal::SIGINT) {
+                                Ok(_) => {
+                                    if let Some(instance) = self.current_instance_mut() {
+                                        instance.add_message("System".to_string(), 
+                                            "📡 SIGINT sent to Claude process".to_string());
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to send SIGINT to process {}: {}", pid, e);
-                                if let Some(instance) = self.current_instance_mut() {
-                                    instance.add_message("System".to_string(), 
-                                        format!("⚠️ Failed to send interrupt signal: {}", e));
+                                Err(e) => {
+                                    tracing::error!("Failed to send SIGINT to process {}: {}", pid, e);
+                                    if let Some(instance) = self.current_instance_mut() {
+                                        instance.add_message("System".to_string(), 
+                                            format!("⚠️ Failed to send interrupt signal: {}", e));
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                
-                #[cfg(not(unix))]
-                {
-                    tracing::warn!("SIGINT not supported on this platform, process will continue");
-                    if let Some(instance) = self.current_instance_mut() {
-                        instance.add_message("System".to_string(), 
-                            "⚠️ Process interruption not supported on this platform".to_string());
+                    
+                    #[cfg(not(unix))]
+                    {
+                        tracing::warn!("SIGINT not supported on this platform, process will continue");
+                        if let Some(instance) = self.current_instance_mut() {
+                            instance.add_message("System".to_string(), 
+                                "⚠️ Process interruption not supported on this platform".to_string());
+                        }
                     }
+                }
+            } else {
+                // If we can't get the lock immediately, spawn a background task
+                tracing::info!("Process handle locked, sending interrupt in background");
+                tokio::spawn(async move {
+                    let mut handle_guard = process_handle_clone.lock().await;
+                    if let Some(ref mut child) = *handle_guard {
+                        #[cfg(unix)]
+                        {
+                            use nix::sys::signal::{self, Signal};
+                            use nix::unistd::Pid;
+                            
+                            if let Some(pid) = child.id() {
+                                let pid_u32: u32 = pid;
+                                tracing::info!("Background SIGINT to Claude process with PID {}", pid_u32);
+                                let _ = signal::kill(Pid::from_raw(pid_u32 as i32), Signal::SIGINT);
+                            }
+                        }
+                    }
+                });
+                
+                if let Some(instance) = self.current_instance_mut() {
+                    instance.add_message("System".to_string(), 
+                        "📡 Interrupt signal scheduled (background)".to_string());
                 }
             }
         } else {
@@ -1184,7 +1387,8 @@ This prompt appears only once per session. You now have full access to these pow
                             "DeepSeek".to_string(), 
                             String::new(), 
                             is_thinking,
-                            false
+                            false,
+                            false  // Not system-generated, this is actual DeepSeek output
                         );
                     }
                 }
@@ -1212,7 +1416,8 @@ This prompt appears only once per session. You now have full access to these pow
                                 "DeepSeek".to_string(),
                                 text,
                                 is_thinking,
-                                false
+                                false,
+                                false  // Not system-generated, this is actual DeepSeek output
                             );
                             false // add_message_with_flags already scrolls
                         };
@@ -1275,12 +1480,15 @@ This prompt appears only once per session. You now have full access to these pow
 
     async fn process_claude_messages(&mut self) {
         while let Ok(msg) = self.message_rx.try_recv() {
+            tracing::debug!("Received Claude message: {:?}", msg);
             match msg {
                 ClaudeMessage::StreamStart { session_id, .. } => {
                     tracing::info!("StreamStart for session {:?}", session_id);
                     // Don't create empty message - we'll create it when we get actual content
                 }
                 ClaudeMessage::StreamText { text, session_id } => {
+                    tracing::debug!("Processing StreamText message: {} chars, session_id: {:?}", text.len(), session_id);
+                    
                     // Find instance by session_id only
                     let target_instance_index = if let Some(session_id_val) = &session_id {
                         let by_session = self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val));
@@ -1299,6 +1507,16 @@ This prompt appears only once per session. You now have full access to these pow
                     // If we still can't find the instance and have a session_id, buffer the message
                     if target_instance_index.is_none() && session_id.is_some() {
                         let session_id_val = session_id.as_ref().unwrap();
+                        
+                        // Add buffer size limit to prevent unbounded growth
+                        const MAX_BUFFER_SIZE: usize = 100;
+                        if self.pending_session_messages.len() >= MAX_BUFFER_SIZE {
+                            tracing::error!("❌ Pending session messages buffer full ({} messages) - dropping message for orphaned session {}", 
+                                          MAX_BUFFER_SIZE, session_id_val);
+                            tracing::error!("   This session appears to be orphaned. Consider restarting Veda to clear the buffer.");
+                            continue;
+                        }
+                        
                         tracing::warn!("⚠️  Failed to route StreamText: session_id={} - buffering message", session_id_val);
                         self.pending_session_messages.push((self.instance_id, text.clone(), session_id_val.clone()));
                         tracing::info!("📦 Buffered message for session {} (buffer size: {})", session_id_val, self.pending_session_messages.len());
@@ -1362,12 +1580,21 @@ This prompt appears only once per session. You now have full access to these pow
                     } else {
                         // Failed to route message - could be a race condition where session hasn't been established yet
                         if let Some(ref session_id_val) = session_id {
-                            tracing::warn!("⚠️  Failed to route StreamText: session_id={} - buffering message", session_id_val);
-                            tracing::warn!("   Available instances: {:?}", 
-                                self.instances.iter().map(|i| (i.id, i.name.clone(), i.session_id.clone())).collect::<Vec<_>>());
-                            // Buffer the message for when the session gets established
-                            self.pending_session_messages.push((self.instance_id, text.clone(), session_id_val.clone()));
-                            tracing::info!("📦 Buffered message for session {} (buffer size: {})", session_id_val, self.pending_session_messages.len());
+                            // Add buffer size limit to prevent unbounded growth
+                            const MAX_BUFFER_SIZE: usize = 100;
+                            if self.pending_session_messages.len() >= MAX_BUFFER_SIZE {
+                                tracing::error!("❌ Pending session messages buffer full ({} messages) - dropping message for orphaned session {}", 
+                                              MAX_BUFFER_SIZE, session_id_val);
+                                tracing::error!("   This session appears to be orphaned. Available instances: {:?}", 
+                                    self.instances.iter().map(|i| (i.id, i.name.clone(), i.session_id.clone())).collect::<Vec<_>>());
+                            } else {
+                                tracing::warn!("⚠️  Failed to route StreamText: session_id={} - buffering message", session_id_val);
+                                tracing::warn!("   Available instances: {:?}", 
+                                    self.instances.iter().map(|i| (i.id, i.name.clone(), i.session_id.clone())).collect::<Vec<_>>());
+                                // Buffer the message for when the session gets established
+                                self.pending_session_messages.push((self.instance_id, text.clone(), session_id_val.clone()));
+                                tracing::info!("📦 Buffered message for session {} (buffer size: {})", session_id_val, self.pending_session_messages.len());
+                            }
                         } else {
                             tracing::error!("❌ No session_id provided - cannot route or buffer message");
                             tracing::error!("   Available instances: {:?}", 
@@ -1548,6 +1775,8 @@ Response:"#,
                             });
                             
                             return; // Don't continue with normal automode processing
+                        } else {
+                            tracing::info!("Task analysis determined coordination not beneficial");
                         }
                         } else {
                             tracing::debug!("Coordination already in progress, skipping automode coordination analysis");
@@ -1608,15 +1837,16 @@ Response:"#,
                                             Ok(Some(tools)) => {
                                                 tracing::info!("Automode: Claude needs permission for tools: {:?}", tools);
                                                 
-                                                // Enable each tool that Claude needs
+                                                // Enable each tool that Claude needs by sending ToolApproved messages
                                                 let mut enabled_tools = Vec::new();
                                                 for tool in &tools {
-                                                    if let Err(e) = enable_claude_tool(tool).await {
-                                                        tracing::error!("Failed to enable tool {}: {}", tool, e);
-                                                    } else {
-                                                        tracing::info!("Successfully enabled tool: {}", tool);
-                                                        enabled_tools.push(tool.clone());
-                                                    }
+                                                    // Send ToolApproved message instead of using broken claude config command
+                                                    let _ = tx.send(ClaudeMessage::ToolApproved {
+                                                        tool_name: tool.clone(),
+                                                        session_id: Some(session_id.clone()),
+                                                    }).await;
+                                                    tracing::info!("Successfully approved tool: {}", tool);
+                                                    enabled_tools.push(tool.clone());
                                                 }
                                                 
                                                 if !enabled_tools.is_empty() {
@@ -1717,6 +1947,21 @@ Response:"#,
                         }
                     }
                 }
+                ClaudeMessage::SystemMessage { text, session_id } => {
+                    // Handle system-generated messages (like spawn confirmations)
+                    let target_instance_index = if let Some(session_id_val) = &session_id {
+                        self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                    } else {
+                        Some(self.current_tab)
+                    };
+                    
+                    if let Some(instance_idx) = target_instance_index {
+                        let instance = &mut self.instances[instance_idx];
+                        instance.add_system_message(text);
+                        // Trigger auto-scroll for system messages
+                        instance.auto_scroll_with_width(Some(instance.last_message_area_height), Some(instance.last_terminal_width));
+                    }
+                }
                 ClaudeMessage::Error { error, session_id } => {
                     tracing::error!("Error for session {:?}: {}", session_id, error);
                     // Find instance using session_id only
@@ -1806,7 +2051,24 @@ Response:"#,
                         idx
                     };
                     
-                    self.assign_session_to_instance(target_instance_index, session_id);
+                    // Only assign session if we found a valid instance
+                    if let Some(instance_idx) = target_instance_index {
+                        // Check if we're within the max instances limit
+                        if instance_idx < self.max_instances {
+                            self.assign_session_to_instance(Some(instance_idx), session_id);
+                        } else {
+                            tracing::error!("❌ Cannot assign session {} - instance index {} exceeds max_instances limit of {}", 
+                                          session_id, instance_idx, self.max_instances);
+                        }
+                    } else {
+                        tracing::error!("❌ Cannot assign session {} - no available instance found (all {} instances have sessions)", 
+                                      session_id, self.instances.len());
+                        // If we're at max capacity, log additional info
+                        if self.instances.len() >= self.max_instances {
+                            tracing::error!("   Already at maximum instance capacity ({}/{})", 
+                                          self.instances.len(), self.max_instances);
+                        }
+                    }
                 }
                 ClaudeMessage::ToolPermissionDenied { tool_name, session_id, .. } => {
                     tracing::info!("Tool permission denied for session {:?}: {}", session_id, tool_name);
@@ -1833,6 +2095,7 @@ Response:"#,
                             let session_id_copy = instance.session_id.clone();
                             let process_handle = instance.process_handle.clone();
                             let tx = self.message_tx.clone();
+                            let target_instance_index_copy = target_instance_index;
                             
                             tokio::spawn(async move {
                                 tracing::info!("Automode: Analyzing safety of tool: {}", tool_name_copy);
@@ -1841,19 +2104,20 @@ Response:"#,
                                     Ok(true) => {
                                         tracing::info!("DeepSeek approved enabling tool: {}", tool_name_copy);
                                         
-                                        // Enable the tool
-                                        if let Err(e) = enable_claude_tool(&tool_name_copy).await {
-                                            tracing::error!("Failed to enable tool {}: {}", tool_name_copy, e);
-                                            let _ = tx.send(ClaudeMessage::StreamText {
-                                                text: format!("❌ Failed to enable {}: {}", tool_name_copy, e),
-                                                session_id: session_id_copy.clone(),
-                                            }).await;
-                                        } else {
-                                            tracing::info!("Successfully enabled tool: {}", tool_name_copy);
-                                            let _ = tx.send(ClaudeMessage::StreamText {
-                                                text: format!("🔧 Automode: Safely enabled tool: {}", tool_name_copy),
-                                                session_id: session_id_copy.clone(),
-                                            }).await;
+                                        // Instead of trying to enable the tool via Claude CLI (which doesn't work),
+                                        // we'll just track that it's approved and notify Claude after restart
+                                        tracing::info!("Tool {} approved by DeepSeek safety analysis", tool_name_copy);
+                                        
+                                        // Send tool approval message to main app
+                                        let _ = tx.send(ClaudeMessage::ToolApproved {
+                                            tool_name: tool_name_copy.clone(),
+                                            session_id: session_id_copy.clone(),
+                                        }).await;
+                                        
+                                        let _ = tx.send(ClaudeMessage::StreamText {
+                                            text: format!("🔧 Automode: Tool {} approved and will be available after restart", tool_name_copy),
+                                            session_id: session_id_copy.clone(),
+                                        }).await;
                                             
                                             // Kill the current process if it exists
                                             if process_handle.is_none() {
@@ -1923,6 +2187,8 @@ Response:"#,
                                             }
                                             
                                             // Resume the session with tool enablement message
+                                            // Note: We can't access self.instances here in the spawned task,
+                                            // so we'll use a simple message for now
                                             let response = format!("I've enabled the {} tool for you. Please try using it again.", tool_name_copy);
                                             
                                             // Create a new process handle for the resumed session
@@ -1945,7 +2211,6 @@ Response:"#,
                                             } else {
                                                 tracing::info!("Successfully initiated session resume for {:?} with tool {} enabled", session_id_copy, tool_name_copy);
                                             }
-                                        }
                                     }
                                     Ok(false) => {
                                         tracing::warn!("DeepSeek determined tool {} is unsafe to enable", tool_name_copy);
@@ -1966,18 +2231,65 @@ Response:"#,
                         }
                     }
                 }
+                ClaudeMessage::ToolApproved { tool_name, session_id } => {
+                    tracing::info!("Tool {} approved for session {:?}", tool_name, session_id);
+                    
+                    // Find instance by session_id and add to approved tools list
+                    let target_instance_index = if let Some(session_id_val) = &session_id {
+                        self.instances.iter().position(|i| i.session_id.as_ref() == Some(session_id_val))
+                    } else {
+                        Some(0) // Fallback to first instance
+                    };
+                    
+                    if let Some(index) = target_instance_index {
+                        let instance = &mut self.instances[index];
+                        // Add to approved tools list if not already there
+                        if !instance.approved_tools.contains(&tool_name) {
+                            instance.approved_tools.push(tool_name.clone());
+                            tracing::info!("Added '{}' to approved tools list for session {:?}", tool_name, session_id);
+                        }
+                        // Also add to successful tools to avoid future permission checks
+                        if !instance.successful_tools.contains(&tool_name) {
+                            instance.successful_tools.push(tool_name.clone());
+                        }
+                    }
+                }
                 ClaudeMessage::VedaSpawnInstances { task_description, num_instances, session_id } => {
-                    tracing::info!("Claude requested to spawn {} instances for task: {} (session: {})", num_instances, task_description, session_id);
+                    tracing::info!("Claude requested to spawn {} Veda Slices for task: {} (session: {})", num_instances, task_description, session_id);
                     
                     // Find the exact source instance using the session ID - no fallbacks, no guessing
                     let source_instance_index = self.instances.iter().position(|i| i.session_id.as_ref() == Some(&session_id))
                         .expect(&format!("Session {} must exist in instances for spawning", session_id));
                     
+                    // Check capacity before proceeding
+                    let current_slices = self.instances.len();
+                    let max_slices = self.max_instances;
+                    let available_slots = if current_slices < max_slices {
+                        max_slices - current_slices
+                    } else {
+                        0
+                    };
+                    
+                    if num_instances as usize > available_slots {
+                        // Cannot spawn requested number of slices
+                        let error_msg = if available_slots > 0 {
+                            format!("❌ Cannot spawn {} Veda Slices. Currently at {}/{} slices. You can spawn up to {} more slice(s).", 
+                                    num_instances, current_slices, max_slices, available_slots)
+                        } else {
+                            format!("❌ Cannot spawn any Veda Slices. Already at maximum capacity ({}/{} slices).", 
+                                    current_slices, max_slices)
+                        };
+                        
+                        self.instances[source_instance_index].add_message("Tool".to_string(), error_msg);
+                        tracing::warn!("Rejecting spawn request: {} Veda Slices requested, {} available slots", num_instances, available_slots);
+                        return; // Exit early, don't proceed with spawning
+                    }
+                    
                     let coord_instance_id = self.instances[source_instance_index].id;
                     self.instances[source_instance_index].add_message("Tool".to_string(), 
-                        format!("🤝 Spawning {} additional instances for task: {}", num_instances, task_description));
+                        format!("🤝 Spawning {} additional Veda Slices for task: {}", num_instances, task_description));
                     
-                    tracing::info!("Using instance {} (tab {}) as coordination source for spawning", coord_instance_id, source_instance_index);
+                    tracing::info!("Using Veda Slice {} (tab {}) as coordination source for spawning", coord_instance_id, source_instance_index);
                     
                     // Clone necessary data for the background task
                     let task_desc_clone = task_description.clone();
@@ -2036,7 +2348,7 @@ Response:"#,
                             current_dir
                         );
                         
-                        // Perform the analysis with reasonable timeout for Gemma3:12b (much faster than DeepSeek)
+                        // Perform the analysis with reasonable timeout for Ollama (much faster than DeepSeek)
                         let analysis_timeout = tokio::time::Duration::from_secs(60); // 1 minute max for coordination
                         match tokio::time::timeout(analysis_timeout, perform_gemma_analysis(&breakdown_prompt)).await {
                             Ok(Ok(breakdown)) => {
@@ -2060,7 +2372,7 @@ Response:"#,
                                 let error_msg = if e.to_string().contains("Missing Ollama model 'gemma3:12b'") {
                                     e.to_string()
                                 } else {
-                                    format!("❌ SPAWN FAILED: Gemma3:12b analysis error: {}\n\nSpawning requires successful task analysis from Gemma3:12b model via Ollama. Please check your Ollama setup and try again.", e)
+                                    format!("❌ SPAWN FAILED: Ollama analysis error: {}\n\nSpawning requires successful task analysis from Ollama. Please check your Ollama setup and try again.", e)
                                 };
                                 
                                 if let Err(send_err) = tx.send(ClaudeMessage::StreamText {
@@ -2072,11 +2384,11 @@ Response:"#,
                                 return; // Don't spawn instances without proper analysis
                             }
                             Err(_) => {
-                                tracing::error!("Gemma coordination analysis timed out after 1 minute");
+                                tracing::error!("Ollama coordination analysis timed out after 1 minute");
                                 
                                 // Always fail gracefully when timeout occurs - no fallback spawning
                                 let error_msg = format!(
-                                    "❌ SPAWN FAILED: Gemma3:12b analysis timed out after 1 minute\n\nTask analysis is required for intelligent instance spawning. Please ensure Ollama is running and responsive, then try again."
+                                    "❌ SPAWN FAILED: Ollama analysis timed out after 1 minute\n\nTask analysis is required for intelligent instance spawning. Please ensure Ollama is running and responsive, then try again."
                                 );
                                 
                                 if let Err(send_err) = tx.send(ClaudeMessage::StreamText {
@@ -2301,13 +2613,28 @@ Response:"#,
             }
         }
         
-        // Use DeepSeek to analyze if task would benefit from multiple instances
-        tracing::info!("Analyzing coordination potential with DeepSeek for message length: {}", claude_message.len());
+        // Gather context for comprehensive analysis
+        let initial_user_prompt = self.get_initial_user_prompt();
+        let recent_conversation = self.get_recent_conversation_context();
+        let taskmaster_context = self.get_taskmaster_context().await;
+        
+        // Use Ollama analysis (not the entire conversation, just recent context + initial prompt)
+        tracing::info!("Analyzing coordination potential with Ollama - Recent conversation: {} chars, Initial prompt: {} chars, TaskMaster: {} chars", 
+                      recent_conversation.len(), 
+                      initial_user_prompt.as_ref().map_or(0, |s| s.len()),
+                      taskmaster_context.len());
         
         let analysis_prompt = format!(
-            r#"Analyze if this Claude message indicates a task that would benefit from multiple parallel Claude Code instances working together:
+            r#"Analyze if this task would benefit from multiple parallel Claude Code instances working together.
 
-Claude's message: "{}"
+INITIAL USER REQUEST:
+{initial_prompt}
+
+RECENT CONVERSATION (last 3 exchanges):
+{recent_conversation}
+
+TASKMASTER PROJECT STATE:
+{taskmaster_state}
 
 Consider these factors for PARALLEL INSTANCES (respond COORDINATE_BENEFICIAL if ANY apply):
 1. Multiple independent components/modules that can be worked on separately
@@ -2316,8 +2643,17 @@ Consider these factors for PARALLEL INSTANCES (respond COORDINATE_BENEFICIAL if 
 4. Testing multiple components simultaneously without interference
 5. Documentation generation across multiple independent areas
 6. Refactoring that can be divided by file/module boundaries
-7. Claude mentions working on multiple files/directories
+7. Multiple files/directories mentioned that can be worked on independently
 8. Task involves parallel development streams
+9. TaskMaster shows multiple pending tasks that could be parallelized
+10. Initial user request mentions multiple independent objectives
+
+ANALYSIS CRITERIA:
+- Focus on the initial request and recent conversation context
+- Look for natural separation boundaries in the work
+- Identify if multiple independent work streams exist
+- Assess if tasks can be done simultaneously without conflicts
+- Consider TaskMaster tasks that could be parallelized
 
 IMPORTANT: Independent, separable tasks are IDEAL for parallel instances!
 
@@ -2326,31 +2662,124 @@ COORDINATE_BENEFICIAL: [Brief reason - focus on independence and separability]
 SINGLE_INSTANCE_SUFFICIENT: [Brief reason - only if tasks are tightly coupled/interdependent]
 
 Your response:"#,
-            claude_message
+            initial_prompt = initial_user_prompt.as_ref().map_or("No initial prompt found".to_string(), |p| p.clone()),
+            recent_conversation = recent_conversation,
+            taskmaster_state = taskmaster_context
         );
         
-        // Quick local analysis using DeepSeek with timeout protection
+        // Quick local analysis using Ollama/Gemma with timeout protection
         let analysis_timeout = tokio::time::Duration::from_secs(60); // Allow up to 60 seconds for analysis
         match tokio::time::timeout(analysis_timeout, self.quick_deepseek_analysis(&analysis_prompt)).await {
             Ok(Ok(response)) => {
-                tracing::info!("DeepSeek coordination analysis response: {}", response);
+                tracing::info!("Ollama coordination analysis response: {}", response);
                 if response.contains("COORDINATE_BENEFICIAL") {
-                    tracing::info!("DeepSeek recommends coordination for task");
+                    tracing::info!("Ollama recommends coordination for task");
                     true
                 } else {
-                    tracing::debug!("DeepSeek says single instance sufficient: {}", response);
+                    tracing::debug!("Ollama says single instance sufficient: {}", response);
                     false
                 }
             }
             Ok(Err(e)) => {
-                tracing::warn!("DeepSeek analysis failed: {}, skipping coordination", e);
+                tracing::warn!("Ollama analysis failed: {}, skipping coordination", e);
                 false
             }
             Err(_) => {
-                tracing::warn!("DeepSeek analysis timed out after 60s, skipping coordination");
+                tracing::warn!("Ollama analysis timed out after 60s, skipping coordination");
                 false
             }
         }
+    }
+
+    fn get_initial_user_prompt(&self) -> Option<String> {
+        // Look for the first user message in the current instance's conversation
+        if let Some(instance) = self.current_instance() {
+            for message in &instance.messages {
+                if message.sender == "You" && !message.content.trim().is_empty() {
+                    return Some(message.content.clone());
+                }
+            }
+        }
+        None
+    }
+
+    fn get_recent_conversation_context(&self) -> String {
+        // Get the last 3 back-and-forth exchanges (up to 6 messages total)
+        if let Some(instance) = self.current_instance() {
+            let messages: Vec<String> = instance.messages
+                .iter()
+                .rev()  // Start from most recent
+                .take(6)  // Take last 6 messages max
+                .filter(|msg| !msg.is_system_generated && (msg.sender == "You" || msg.sender == "Claude"))
+                .map(|msg| format!("{}: {}", msg.sender, msg.content.chars().take(500).collect::<String>()))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()  // Reverse back to chronological order
+                .collect();
+
+            if messages.is_empty() {
+                "No recent conversation found".to_string()
+            } else {
+                format!("Recent conversation (last {} messages):\n{}", messages.len(), messages.join("\n\n"))
+            }
+        } else {
+            "No conversation context available".to_string()
+        }
+    }
+
+    async fn get_taskmaster_context(&self) -> String {
+        // Try to get current TaskMaster tasks for context
+        // This is a basic implementation - in practice, you might want to use MCP tools
+        let working_dir = if let Some(instance) = self.current_instance() {
+            &instance.working_directory
+        } else {
+            "."
+        };
+
+        // Check if there's a tasks.json file we can read
+        let tasks_path = format!("{}/tasks/tasks.json", working_dir);
+        if let Ok(tasks_content) = std::fs::read_to_string(&tasks_path) {
+            // Parse and summarize the tasks
+            if let Ok(tasks_json) = serde_json::from_str::<serde_json::Value>(&tasks_content) {
+                if let Some(tasks_array) = tasks_json.get("tasks").and_then(|t| t.as_array()) {
+                    let mut summary = format!("Found {} TaskMaster tasks:\n", tasks_array.len());
+                    
+                    for (i, task) in tasks_array.iter().take(10).enumerate() { // Limit to first 10 tasks
+                        if let (Some(title), Some(status)) = (
+                            task.get("title").and_then(|t| t.as_str()),
+                            task.get("status").and_then(|s| s.as_str())
+                        ) {
+                            summary.push_str(&format!("{}. [{}] {}\n", i + 1, status.to_uppercase(), title));
+                        }
+                    }
+                    
+                    if tasks_array.len() > 10 {
+                        summary.push_str(&format!("... and {} more tasks\n", tasks_array.len() - 10));
+                    }
+                    
+                    return summary;
+                }
+            }
+        }
+
+        // If no TaskMaster tasks found, check for project structure hints
+        let readme_paths = [
+            format!("{}/README.md", working_dir),
+            format!("{}/readme.md", working_dir),
+            format!("{}/README.txt", working_dir),
+        ];
+
+        for readme_path in &readme_paths {
+            if let Ok(readme_content) = std::fs::read_to_string(readme_path) {
+                // Extract first few lines for context
+                let lines: Vec<&str> = readme_content.lines().take(5).collect();
+                if !lines.is_empty() {
+                    return format!("Project README context:\n{}", lines.join("\n"));
+                }
+            }
+        }
+
+        "No TaskMaster tasks or project context found".to_string()
     }
     
     
@@ -2460,7 +2889,7 @@ Your response:"#,
             .collect();
         
         // Log the breakdown to understand why subtasks are empty
-        tracing::warn!("Gemma breakdown analysis result: {:?}", breakdown);
+        tracing::warn!("Ollama breakdown analysis result: {:?}", breakdown);
         tracing::warn!("Extracted subtasks: {:?}", subtasks);
         
         if subtasks.is_empty() {
@@ -2470,7 +2899,7 @@ Your response:"#,
             // Add message to main instance explaining the failure
             if let Some(main_instance) = self.instances.iter_mut().find(|i| i.id == main_instance_id) {
                 main_instance.add_message("System".to_string(), 
-                    "❌ Spawning failed: No valid subtasks found in Gemma3:12b analysis. Please ensure Ollama is working properly.".to_string());
+                    "❌ Spawning failed: No valid subtasks found in Ollama analysis. Please ensure Ollama is working properly.".to_string());
             }
             return; // Don't spawn instances without proper task breakdown
         }
@@ -2497,7 +2926,7 @@ Your response:"#,
             
             let subtask = subtasks.get(i % subtasks.len()).unwrap_or(&"General coordination task");
             
-            let instance_name = format!("Veda-{}", starting_count + 1 + i);
+            let instance_name = format!("Slice {}", starting_count + i); // Zero-based indexing
             let mut new_instance = ClaudeInstance::new(instance_name);
             new_instance.working_directory = working_dir.to_string();
             
@@ -2588,14 +3017,15 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                 // Wait a moment to ensure the UI has been updated
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 
-                // Pre-enable essential tools for the spawned instance
+                // Pre-enable essential tools for the spawned instance by sending ToolApproved messages
                 let essential_tools = ["Edit", "MultiEdit", "Read", "Write", "Bash", "TodoRead", "TodoWrite", "Glob", "Grep", "LS"];
                 for tool in essential_tools.iter() {
-                    if let Err(e) = enable_claude_tool(tool).await {
-                        tracing::warn!("Failed to pre-enable tool {} for spawned instance: {}", tool, e);
-                    } else {
-                        tracing::debug!("Pre-enabled tool {} for spawned instance", tool);
-                    }
+                    // Send ToolApproved message instead of using broken claude config command
+                    let _ = tx.send(ClaudeMessage::ToolApproved {
+                        tool_name: tool.to_string(),
+                        session_id: None, // For spawned instances, session_id will be set later
+                    }).await;
+                    tracing::debug!("Pre-approved tool {} for spawned instance", tool);
                 }
                 
                 tracing::info!("Auto-starting Claude Code instance {} ({}) with task", instance_name_copy2, instance_id_copy);
@@ -2614,7 +3044,7 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                         tracing::info!("✅ Successfully started Claude Code instance for {}", instance_name_copy2);
                         
                         // Send success message to coordinator instance  
-                        let _ = tx.send(ClaudeMessage::StreamText {
+                        let _ = tx.send(ClaudeMessage::SystemMessage {
                             text: format!("✅ Started Claude Code instance {} with task", instance_name_copy2),
                             session_id: coordinator_session_id.clone(),
                         }).await;
@@ -2622,7 +3052,7 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                     Err(e) => {
                         tracing::error!("Failed to start Claude Code instance for {}: {}", instance_name_copy2, e);
                         // Send error message to coordinator instance
-                        let _ = tx.send(ClaudeMessage::StreamText {
+                        let _ = tx.send(ClaudeMessage::SystemMessage {
                             text: format!("❌ Failed to start Claude Code instance: {}", e),
                             session_id: coordinator_session_id.clone(),
                         }).await;
@@ -2790,6 +3220,9 @@ async fn handle_shared_ipc_connection(mut socket: tokio::net::UnixStream, app_tx
                     let num_instances = msg["num_instances"].as_u64().unwrap_or(2) as u8;
                     let session_id = msg["session_id"].as_str().unwrap_or("");
                     
+                    // Note: The actual capacity check happens in the VedaSpawnInstances handler
+                    // which has access to the app state and can check current slice count
+                    
                     // Get target instance ID from the IPC message if provided
                     let instance_id = if let Some(target_id_str) = msg["target_instance_id"].as_str() {
                         match Uuid::parse_str(target_id_str) {
@@ -2815,7 +3248,7 @@ async fn handle_shared_ipc_connection(mut socket: tokio::net::UnixStream, app_tx
                         session_id: session_id.to_string(),
                     }).await;
                     
-                    format!("✅ Spawning {} instances for task: {}", num_instances, task_desc)
+                    format!("✅ Request to spawn {} instances sent for task: {}", num_instances, task_desc)
                 }
                 Some("list_instances") => {
                     let session_id = msg["session_id"].as_str().unwrap_or("");
@@ -2890,7 +3323,7 @@ async fn handle_shared_ipc_connection(mut socket: tokio::net::UnixStream, app_tx
     }
 }
 
-// Standalone function for background Gemma analysis
+// Standalone function for background Ollama analysis
 async fn perform_gemma_analysis(prompt: &str) -> Result<String> {
     // Try with optimized prompt for faster response
     let optimized_prompt = format!(
@@ -2965,7 +3398,21 @@ async fn perform_gemma_analysis(prompt: &str) -> Result<String> {
             Err(e) => {
                 tracing::warn!("Failed to contact Ollama (attempt {}/{}): {}", retry_count + 1, max_retries, e);
                 if retry_count >= max_retries {
-                    return Err(anyhow::anyhow!("Failed to contact Ollama after {} retries: {}", max_retries, e));
+                    // Check if it's a connection error
+                    if e.to_string().contains("Connection refused") || e.to_string().contains("error trying to connect") {
+                        return Err(anyhow::anyhow!(
+                            "❌ SPAWN FAILED: Cannot connect to Ollama\n\n\
+                            Ollama is not running. To use Veda's multi-instance spawning feature:\n\
+                            \n\
+                            1. Install Ollama from https://ollama.ai\n\
+                            2. Start Ollama by running: ollama serve\n\
+                            3. Install the required model: ollama pull gemma3:12b\n\
+                            \n\
+                            Without Ollama, spawning additional Veda Slices will not work."
+                        ));
+                    } else {
+                        return Err(anyhow::anyhow!("Failed to contact Ollama after {} retries: {}", max_retries, e));
+                    }
                 }
             }
         }
@@ -2983,6 +3430,12 @@ async fn perform_gemma_analysis(prompt: &str) -> Result<String> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Check if we're running in MCP server mode
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "--mcp-server" {
+        return run_mcp_server().await;
+    }
+    
     // Setup logging to debug.log in current working directory
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let log_file_path = cwd.join("debug.log");
@@ -3004,7 +3457,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_writer(non_blocking)
         .with_ansi(false)
-        .with_env_filter("veda_tui=debug")
+        .with_env_filter("debug")  // More permissive: log debug level for all modules
         .init();
     
     tracing::info!("Starting Veda TUI from directory: {:?}", cwd);
@@ -3093,6 +3546,278 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+async fn run_mcp_server() -> Result<()> {
+    use std::io::{BufRead, Write};
+    
+    // Set up simple logging for MCP server mode
+    eprintln!("[veda-mcp-server] Starting with session: {}", 
+        std::env::var("VEDA_SESSION_ID").unwrap_or_else(|_| "default".to_string())
+    );
+    
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    
+    let stdin = stdin.lock();
+    for line in stdin.lines() {
+        let line = line?;
+        let request: Value = serde_json::from_str(&line)?;
+        let response = process_mcp_request(&request).await;
+        
+        writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
+        stdout.flush()?;
+    }
+    
+    Ok(())
+}
+
+async fn process_mcp_request(request: &Value) -> Value {
+    match request["method"].as_str() {
+        Some("tools/list") => create_tools_list_response(&request["id"]),
+        Some("tools/call") => {
+            let tool_name = request["params"]["name"].as_str().unwrap_or("");
+            let tool_input = &request["params"]["arguments"];
+            create_tool_call_response(&request["id"], tool_name, tool_input).await
+        }
+        Some("initialize") => create_initialize_response(&request["id"]),
+        _ => create_error_response(&request["id"]),
+    }
+}
+
+fn create_tools_list_response(request_id: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "tools": [
+                {
+                    "name": "veda_spawn_instances",
+                    "description": "Spawn additional Veda Slices to work on a task in parallel",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "task_description": {
+                                "type": "string",
+                                "description": "Description of the task that will be divided among instances"
+                            },
+                            "num_instances": {
+                                "type": "number",
+                                "description": "Number of additional Veda Slices to spawn (1-3)",
+                                "minimum": 1,
+                                "maximum": 3
+                            }
+                        },
+                        "required": ["task_description"]
+                    }
+                },
+                {
+                    "name": "veda_list_instances",
+                    "description": "List all currently active Veda Slices",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "veda_close_instance",
+                    "description": "Close a specific Veda Slice by name",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "instance_name": {
+                                "type": "string",
+                                "description": "Name of the Veda Slice to close (e.g., 'Slice 2')"
+                            }
+                        },
+                        "required": ["instance_name"]
+                    }
+                }
+            ]
+        }
+    })
+}
+
+async fn create_tool_call_response(request_id: &Value, tool_name: &str, tool_input: &Value) -> Value {
+    // Get the session ID from environment
+    let veda_session = std::env::var("VEDA_SESSION_ID").unwrap_or_else(|_| "default".to_string());
+    
+    match tool_name {
+        "veda_spawn_instances" => {
+            // Send message to Veda via shared IPC
+            let ipc_message = json!({
+                "type": "spawn_instances",
+                "session_id": veda_session,
+                "task_description": tool_input["task_description"].as_str().unwrap_or(""),
+                "num_instances": tool_input["num_instances"].as_u64().unwrap_or(2)
+            });
+            
+            match send_to_veda_via_shared_ipc(&veda_session, &ipc_message).await {
+                Ok(response) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": response
+                                }
+                            ]
+                        }
+                    })
+                }
+                Err(e) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": format!("⚠️ Could not connect to Veda: {}. Make sure Veda is running.", e)
+                                }
+                            ]
+                        }
+                    })
+                }
+            }
+        }
+        "veda_list_instances" => {
+            let ipc_message = json!({
+                "type": "list_instances",
+                "session_id": veda_session
+            });
+            
+            match send_to_veda_via_shared_ipc(&veda_session, &ipc_message).await {
+                Ok(response) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": response
+                                }
+                            ]
+                        }
+                    })
+                }
+                Err(e) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": format!("⚠️ Could not connect to Veda: {}", e)
+                                }
+                            ]
+                        }
+                    })
+                }
+            }
+        }
+        "veda_close_instance" => {
+            let ipc_message = json!({
+                "type": "close_instance",
+                "session_id": veda_session,
+                "instance_name": tool_input["instance_name"].as_str().unwrap_or("")
+            });
+            
+            match send_to_veda_via_shared_ipc(&veda_session, &ipc_message).await {
+                Ok(response) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": response
+                                }
+                            ]
+                        }
+                    })
+                }
+                Err(e) => {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": format!("⚠️ Could not connect to Veda: {}", e)
+                                }
+                            ]
+                        }
+                    })
+                }
+            }
+        }
+        _ => {
+            json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32601,
+                    "message": "Method not found"
+                }
+            })
+        }
+    }
+}
+
+async fn send_to_veda_via_shared_ipc(session_id: &str, message: &Value) -> Result<String, Box<dyn std::error::Error>> {
+    use tokio::net::UnixStream;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    
+    // Use the same socket path as the shared IPC server
+    let socket_path = crate::shared_ipc::get_socket_path();
+    let mut stream = UnixStream::connect(&socket_path).await?;
+    
+    // Send message
+    let msg_str = serde_json::to_string(message)?;
+    stream.write_all(msg_str.as_bytes()).await?;
+    stream.write_all(b"\n").await?;
+    
+    // Read response
+    let mut buffer = vec![0; 4096];
+    let n = stream.read(&mut buffer).await?;
+    let response = String::from_utf8_lossy(&buffer[..n]).to_string();
+    
+    Ok(response)
+}
+
+fn create_initialize_response(request_id: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {
+                "tools": {}
+            },
+            "serverInfo": {
+                "name": "veda-mcp-server",
+                "version": "1.0.0"
+            }
+        }
+    })
+}
+
+fn create_error_response(request_id: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {
+            "code": -32601,
+            "message": "Method not found"
+        }
+    })
+}
+
 async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: tracing_appender::non_blocking::WorkerGuard) -> Result<()> {
     'outer: loop {
         // Process any Claude messages
@@ -3144,8 +3869,22 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: 
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
                 Event::Paste(data) => {
-                    // Handle paste event - insert text directly into textarea
-                    if let Some(instance) = app.current_instance_mut() {
+                    // Handle paste event based on current view
+                    if app.show_global_view {
+                        // Paste into global textarea
+                        if let Some(ref mut global_textarea) = app.global_textarea {
+                            tracing::debug!("Paste event detected in global view with {} characters", data.len());
+                            for ch in data.chars() {
+                                use ratatui::crossterm::event::{Event as RatatuiEvent, KeyEvent, KeyCode as RatatuiKeyCode, KeyModifiers as RatatuiKeyModifiers};
+                                let key_event = if ch == '\n' {
+                                    KeyEvent::new(RatatuiKeyCode::Enter, RatatuiKeyModifiers::NONE)
+                                } else {
+                                    KeyEvent::new(RatatuiKeyCode::Char(ch), RatatuiKeyModifiers::NONE)
+                                };
+                                global_textarea.input(RatatuiEvent::Key(key_event));
+                            }
+                        }
+                    } else if let Some(instance) = app.current_instance_mut() {
                         // Track user input for stall detection
                         instance.on_user_input();
                         tracing::debug!("Paste event detected with {} characters", data.len());
@@ -3199,105 +3938,126 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: 
                             }
                         }
                         (_, KeyCode::Enter) => {
-                            let now = std::time::Instant::now();
-                            
-                            // Handle triple-Enter interruption detection
-                            let should_interrupt = if let Some(last_time) = app.last_enter_time {
-                                if now.duration_since(last_time).as_millis() < 500 { // Within 500ms
-                                    app.enter_press_count += 1;
-                                    if app.enter_press_count >= 3 {
-                                        app.enter_press_count = 0;
-                                        true // Trigger interruption
+                            // Handle Enter based on current view
+                            if app.show_global_view {
+                                // Global view: extract message from global textarea and broadcast
+                                if let Some(ref mut global_textarea) = app.global_textarea {
+                                    if !global_textarea.is_empty() {
+                                        let message = global_textarea.lines().join("\n");
+                                        // Clear global textarea
+                                        app.global_textarea = Some(TextArea::default());
+                                        // Broadcast to all slices
+                                        app.broadcast_to_all_slices(message).await;
+                                    }
+                                }
+                            } else {
+                                // Regular slice view: existing Enter handling
+                                let now = std::time::Instant::now();
+                                
+                                // Handle triple-Enter interruption detection
+                                let should_interrupt = if let Some(last_time) = app.last_enter_time {
+                                    if now.duration_since(last_time).as_millis() < 500 { // Within 500ms
+                                        app.enter_press_count += 1;
+                                        if app.enter_press_count >= 3 {
+                                            app.enter_press_count = 0;
+                                            true // Trigger interruption
+                                        } else {
+                                            false
+                                        }
                                     } else {
+                                        app.enter_press_count = 1;
                                         false
                                     }
                                 } else {
                                     app.enter_press_count = 1;
                                     false
-                                }
-                            } else {
-                                app.enter_press_count = 1;
-                                false
-                            };
-                            app.last_enter_time = Some(now);
-                            
-                            if should_interrupt {
-                                // Triple-Enter: Interrupt current instance and process queue
-                                let (should_interrupt, current_message) = {
-                                    if let Some(instance) = app.current_instance_mut() {
-                                        if instance.is_processing {
-                                            tracing::info!("Triple-Enter detected: interrupting instance {}", instance.id);
-                                            // Extract current input if not empty
-                                            let current_message = if !instance.textarea.is_empty() {
-                                                let msg = instance.textarea.lines().join("\n");
+                                };
+                                app.last_enter_time = Some(now);
+                                
+                                if should_interrupt {
+                                    // Triple-Enter: Interrupt current instance and process queue
+                                    let (should_interrupt, current_message) = {
+                                        if let Some(instance) = app.current_instance_mut() {
+                                            if instance.is_processing {
+                                                tracing::info!("Triple-Enter detected: interrupting instance {}", instance.id);
+                                                // Extract current input if not empty
+                                                let current_message = if !instance.textarea.is_empty() {
+                                                    let msg = instance.textarea.lines().join("\n");
+                                                    instance.textarea = TextArea::default();
+                                                    instance.textarea.set_block(
+                                                        Block::default()
+                                                            .borders(Borders::ALL)
+                                                            .title("Input")
+                                                    );
+                                                    Some(msg)
+                                                } else {
+                                                    None
+                                                };
+                                                (true, current_message)
+                                            } else {
+                                                (false, None)
+                                            }
+                                        } else {
+                                            (false, None)
+                                        }
+                                    };
+                                    
+                                    if should_interrupt {
+                                        // Add current input to queue if exists
+                                        if let Some(msg) = current_message {
+                                            app.message_queue.push(msg);
+                                        }
+                                        // Send SIGINT to interrupt the process
+                                        app.interrupt_current_instance().await;
+                                    }
+                                } else {
+                                    // Regular Enter: Add to queue or send immediately
+                                    let (message, is_processing) = {
+                                        if let Some(instance) = app.current_instance_mut() {
+                                            if !instance.textarea.is_empty() {
+                                                let message = instance.textarea.lines().join("\n");
+                                                let is_processing = instance.is_processing;
                                                 instance.textarea = TextArea::default();
                                                 instance.textarea.set_block(
                                                     Block::default()
                                                         .borders(Borders::ALL)
                                                         .title("Input")
                                                 );
-                                                Some(msg)
+                                                (Some(message), is_processing)
                                             } else {
-                                                None
-                                            };
-                                            (true, current_message)
-                                        } else {
-                                            (false, None)
-                                        }
-                                    } else {
-                                        (false, None)
-                                    }
-                                };
-                                
-                                if should_interrupt {
-                                    // Add current input to queue if exists
-                                    if let Some(msg) = current_message {
-                                        app.message_queue.push(msg);
-                                    }
-                                    // Send SIGINT to interrupt the process
-                                    app.interrupt_current_instance().await;
-                                }
-                            } else {
-                                // Regular Enter: Add to queue or send immediately
-                                let (message, is_processing) = {
-                                    if let Some(instance) = app.current_instance_mut() {
-                                        if !instance.textarea.is_empty() {
-                                            let message = instance.textarea.lines().join("\n");
-                                            let is_processing = instance.is_processing;
-                                            instance.textarea = TextArea::default();
-                                            instance.textarea.set_block(
-                                                Block::default()
-                                                    .borders(Borders::ALL)
-                                                    .title("Input")
-                                            );
-                                            (Some(message), is_processing)
+                                                (None, false)
+                                            }
                                         } else {
                                             (None, false)
                                         }
-                                    } else {
-                                        (None, false)
-                                    }
-                                };
-                                
-                                if let Some(message) = message {
-                                    if is_processing {
-                                        // Instance is busy, add to queue
-                                        let queue_len = app.message_queue.len() + 1;
-                                        app.message_queue.push(message);
-                                        if let Some(instance) = app.current_instance_mut() {
-                                            instance.add_message("System".to_string(), 
-                                                format!("📬 Message queued ({} in queue)", queue_len));
+                                    };
+                                    
+                                    if let Some(message) = message {
+                                        if is_processing {
+                                            // Instance is busy, add to queue
+                                            let queue_len = app.message_queue.len() + 1;
+                                            app.message_queue.push(message);
+                                            if let Some(instance) = app.current_instance_mut() {
+                                                instance.add_message("System".to_string(), 
+                                                    format!("📬 Message queued ({} in queue)", queue_len));
+                                            }
+                                        } else {
+                                            // Instance is free, send immediately
+                                            app.send_message(message).await;
                                         }
-                                    } else {
-                                        // Instance is free, send immediately
-                                        app.send_message(message).await;
                                     }
                                 }
                             }
                         }
                         _ => {
-                            // Pass all other key events to the textarea
-                            if let Some(instance) = app.current_instance_mut() {
+                            // Pass all other key events to the appropriate textarea
+                            if app.show_global_view {
+                                // Input to global textarea
+                                if let Some(ref mut global_textarea) = app.global_textarea {
+                                    use ratatui::crossterm::event::Event as RatatuiEvent;
+                                    global_textarea.input(RatatuiEvent::Key(key));
+                                }
+                            } else if let Some(instance) = app.current_instance_mut() {
                                 // Track user input for stall detection
                                 instance.on_user_input();
                                 use ratatui::crossterm::event::Event as RatatuiEvent;
@@ -3318,7 +4078,16 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: 
                                     app.sync_working_directory();
                                     
                                     // Log tab switch with session info
-                                    if let Some(instance) = app.instances.get(i) {
+                                    // Account for Global view offset when getting instance
+                                    let instance_idx = if app.show_global_view && i > 0 {
+                                        i - 1  // Adjust for Global tab at index 0
+                                    } else {
+                                        i
+                                    };
+                                    
+                                    if i == 0 && app.show_global_view {
+                                        tracing::info!("Clicked Global tab at ({}, {})", mouse.column, mouse.row);
+                                    } else if let Some(instance) = app.instances.get(instance_idx) {
                                         tracing::info!("Clicked tab {} ({}) at ({}, {}) - Session: {:?}", 
                                             i, instance.name, mouse.column, mouse.row, instance.session_id);
                                     } else {
@@ -3395,15 +4164,18 @@ fn ui(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    // Header with tabs
-    let titles: Vec<Line> = app
-        .instances
+    // Header with tabs - prepend "Global" to the list
+    let mut titles: Vec<Line> = vec![Line::from("Global")];
+    titles.extend(app.instances
         .iter()
-        .map(|instance| Line::from(instance.name.clone()))
-        .collect();
+        .map(|instance| Line::from(instance.name.clone())));
+    
+    // Adjust selection - if current_tab is 0, we're on a real slice, so add 1 for the UI
+    let ui_selected_tab = if app.show_global_view { 0 } else { app.current_tab + 1 };
+    
     let tabs = Tabs::new(titles)
-        .block(Block::default().borders(Borders::ALL).title("Veda Claude Manager "))
-        .select(app.current_tab)
+        .block(Block::default().borders(Borders::ALL).title("Veda Slices "))
+        .select(ui_selected_tab)
         .style(Style::default().fg(Color::White))
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
     f.render_widget(tabs, chunks[0]);
@@ -3419,8 +4191,21 @@ fn ui(f: &mut Frame, app: &mut App) {
         };
         
         let mut current_x = tab_area.x;
+        
+        // Add Global tab rect
+        let global_width = "Global".len() as u16 + 2; // +2 for padding
+        let global_rect = Rect {
+            x: current_x,
+            y: tab_area.y,
+            width: global_width,
+            height: 1,
+        };
+        app.tab_rects.push(global_rect);
+        current_x += global_width;
+        
+        // Add slice tab rects
         for instance in &app.instances {
-            let tab_width = instance.name.len() as u16 + 2; // +2 for padding like " Claude 1 "
+            let tab_width = instance.name.len() as u16 + 2; // +2 for padding like " Slice 0 "
             let tab_rect = Rect {
                 x: current_x,
                 y: tab_area.y,
@@ -3443,14 +4228,197 @@ fn ui(f: &mut Frame, app: &mut App) {
         instance.last_terminal_width = message_area_width;
     }
     
-    if let Some(instance) = app.instances.get_mut(app.current_tab) {
-        // Update scroll position for the current tab only
+    // Determine which messages to show
+    let mut all_lines = Vec::new();
+    
+    if app.show_global_view {
+        // Global view: show messages from ALL slices with slice identifiers
+        for (slice_idx, instance) in app.instances.iter().enumerate() {
+            for (_msg_idx, msg) in instance.messages.iter().enumerate() {
+                // Add slice identifier prefix
+                let mut content = vec![
+                    Span::styled(format!("[Slice {}] ", slice_idx), Style::default().fg(Color::Magenta)),
+                    Span::styled(&msg.timestamp, Style::default().fg(Color::DarkGray)),
+                    Span::raw(" "),
+                    Span::styled(
+                        &msg.sender,
+                        match msg.sender.as_str() {
+                            "You" => Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                            "Tool" => Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                            "System" => Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+                            "Error" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            "DeepSeekError" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            "DeepSeek" | "Ollama" => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            _ => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        },
+                    ),
+                    Span::raw(": "),
+                ];
+                
+                // Handle special message types
+                if msg.sender == "DeepSeek" && msg.is_thinking {
+                    if msg.is_collapsed || !app.show_chain_of_thought {
+                        content.push(Span::styled(
+                            "[🤔 Chain of Thought - Click to expand]",
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        ));
+                    } else {
+                        content.push(Span::styled(
+                            &msg.content,
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        ));
+                    }
+                } else {
+                    // Sanitize and add content
+                    let safe_content = msg.content
+                        .chars()
+                        .map(|c| if c.is_control() && c != '\n' && c != '\t' { '?' } else { c })
+                        .collect::<String>();
+                    content.push(Span::raw(safe_content));
+                }
+                
+                // Create and add the line
+                all_lines.push(Line::from(content));
+                all_lines.push(Line::from("")); // Empty line for readability
+            }
+        }
+        
+        // Create the messages paragraph for global view (full area)
+        let messages_paragraph = Paragraph::new(all_lines)
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                "Global View - All Slices [Auto: {}] [CoT: {}] [Coord: {}]",
+                if app.auto_mode { "ON" } else { "OFF" },
+                if app.show_chain_of_thought { "ON" } else { "OFF" },
+                if app.coordination_enabled { "ON" } else { "OFF" },
+            )))
+            .style(Style::default().fg(Color::White))
+            .wrap(Wrap { trim: false })
+            .scroll((0, 0)); // TODO: Add global scroll offset
+        f.render_widget(messages_paragraph, chunks[1]);
+
+        // Overlay slice status pane if we have multiple slices (top-right corner)
+        if app.instances.len() > 1 {
+            let messages_area = chunks[1];
+            
+            // Calculate overlay size (max 1/5 width, dynamic height based on slice count)
+            let status_width = (messages_area.width / 5).max(20).min(35);
+            let status_height = (app.instances.len() as u16 * 3 + 2).min(messages_area.height.saturating_sub(2));
+            
+            // Position in top-right corner of messages area (inside borders)
+            let overlay_area = Rect {
+                x: messages_area.x + messages_area.width.saturating_sub(status_width + 1),
+                y: messages_area.y + 1, // Just inside the top border
+                width: status_width,
+                height: status_height,
+            };
+
+            // Clear the overlay area first
+            f.render_widget(Clear, overlay_area);
+            
+            let mut status_lines = Vec::new();
+            
+            for (idx, instance) in app.instances.iter().enumerate() {
+                // Determine current action based on processing state and recent messages
+                let action = if instance.is_processing {
+                    "Processing"
+                } else {
+                    // Look at the last few messages to infer action
+                    if let Some(last_msg) = instance.messages.last() {
+                        match last_msg.sender.as_str() {
+                            "Tool" => {
+                                // Parse tool output for action hints
+                                if last_msg.content.contains("Edit") || last_msg.content.contains("edit") {
+                                    "Editing"
+                                } else if last_msg.content.contains("Read") || last_msg.content.contains("read") {
+                                    "Reading"
+                                } else if last_msg.content.contains("Write") || last_msg.content.contains("write") {
+                                    "Writing"
+                                } else if last_msg.content.contains("Bash") || last_msg.content.contains("command") {
+                                    "Running"
+                                } else {
+                                    "Tool"
+                                }
+                            }
+                            "Claude" => "Thinking",
+                            "You" => "Waiting",
+                            _ => "Idle"
+                        }
+                    } else {
+                        "Idle"
+                    }
+                };
+
+                // Get working context (2 words max)
+                let context = if let Some(_session_id) = &instance.session_id {
+                    // Try to extract meaningful context from working directory
+                    if instance.working_directory.contains("veda") {
+                        "veda proj"
+                    } else if instance.working_directory.contains("src") {
+                        "src code"
+                    } else {
+                        "gen task"
+                    }
+                } else {
+                    "unstarted"
+                };
+
+                // Create compact status line for this slice
+                let status_color = if instance.is_processing {
+                    Color::Yellow
+                } else if instance.messages.is_empty() {
+                    Color::DarkGray
+                } else {
+                    Color::Green
+                };
+
+                status_lines.push(Line::from(vec![
+                    Span::styled(format!("S{}: ", idx), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(action, Style::default().fg(status_color)),
+                ]));
+                status_lines.push(Line::from(vec![
+                    Span::styled(format!("  {}", context), Style::default().fg(Color::White)),
+                ]));
+            }
+
+            let status_paragraph = Paragraph::new(status_lines)
+                .block(Block::default().borders(Borders::ALL).title("Status"))
+                .style(Style::default().fg(Color::White).bg(Color::Black))
+                .wrap(Wrap { trim: true });
+            f.render_widget(status_paragraph, overlay_area);
+        }
+        
+        // Input area in global view - now supports broadcasting
+        // Create a temporary textarea for global view
+        if app.global_textarea.is_none() {
+            app.global_textarea = Some(TextArea::default());
+        }
+        
+        if let Some(ref mut global_textarea) = app.global_textarea {
+            let global_input_title = if app.instances.iter().any(|i| i.is_processing) {
+                "Input (Broadcast to ALL slices) [Some slices processing - will interrupt]"
+            } else {
+                "Input (Broadcast to ALL slices)"
+            };
+            
+            global_textarea.set_block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(global_input_title)
+                    .border_style(Style::default().fg(Color::Yellow))
+            );
+            f.render_widget(global_textarea.widget(), chunks[2]);
+        }
+        
+    } else if let Some(instance) = app.instances.get_mut(app.current_tab) {
+        // Regular slice view - existing code
         instance.auto_scroll_with_width(Some(message_area_height), Some(message_area_width));
         
+        // Calculate which messages to show based on scroll offset
+        let skip_lines = instance.scroll_offset as usize / 2; // Each message takes 2 lines
+        let visible_messages = instance.messages.iter().skip(skip_lines);
         
-        let mut all_lines = Vec::new();
-        
-        for (i, msg) in instance.messages.iter().enumerate() {
+        for (i, msg) in visible_messages.enumerate() {
+            let actual_idx = i + skip_lines;
             let mut content = vec![
                 Span::styled(&msg.timestamp, Style::default().fg(Color::DarkGray)),
                 Span::raw(" "),
@@ -3462,7 +4430,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                         "System" => Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
                         "Error" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                         "DeepSeekError" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                        "DeepSeek" => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        "DeepSeek" | "Ollama" => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                         _ => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                     },
                 ),
@@ -3491,10 +4459,10 @@ fn ui(f: &mut Frame, app: &mut App) {
                 content.push(Span::raw(safe_content));
             }
             
-            // Apply selection highlighting
+            // Apply selection highlighting using actual message index
             let mut style = Style::default();
             if let (Some(start), Some(end)) = (instance.selection_start, instance.selection_end) {
-                let line_y = i as u16;
+                let line_y = actual_idx as u16;
                 let start_y = start.1.min(end.1);
                 let end_y = start.1.max(end.1);
                 
@@ -3509,18 +4477,16 @@ fn ui(f: &mut Frame, app: &mut App) {
             })) {
                 Ok(line) => {
                     all_lines.push(line);
-                    // Add empty line between messages for readability
-                    all_lines.push(Line::from(""));
+                    all_lines.push(Line::from("")); // Empty line for readability
                 }
                 Err(e) => {
                     tracing::error!("Failed to render message line {}: {:?}", i, e);
-                    // Add placeholder line to prevent UI corruption
                     all_lines.push(Line::from(format!("[Error rendering message {}]", i)));
                     all_lines.push(Line::from(""));
                 }
             }
         }
-
+        
         let current_dir = if let Ok(home) = std::env::var("HOME") {
             if instance.working_directory.starts_with(&home) {
                 instance.working_directory.replacen(&home, "~", 1)
@@ -3530,13 +4496,6 @@ fn ui(f: &mut Frame, app: &mut App) {
         } else {
             instance.working_directory.clone()
         };
-        // Debug check before rendering
-        if all_lines.is_empty() && !instance.messages.is_empty() {
-            tracing::error!("CRITICAL UI BUG: {} messages but no lines generated for rendering!", instance.messages.len());
-            tracing::error!("First message: {:?}", instance.messages.first());
-            // Add fallback content
-            all_lines.push(Line::from("[Error: Failed to render messages]"));
-        }
         
         let messages_paragraph = Paragraph::new(all_lines)
             .block(Block::default().borders(Borders::ALL).title(format!(
@@ -3555,10 +4514,9 @@ fn ui(f: &mut Frame, app: &mut App) {
                 }
             )))
             .style(Style::default().fg(Color::White))
-            .wrap(Wrap { trim: false })
-            .scroll((instance.scroll_offset, 0));
+            .wrap(Wrap { trim: false });
         f.render_widget(messages_paragraph, chunks[1]);
-
+        
         // Input area with tui-textarea
         let title = if instance.is_processing {
             if app.message_queue.is_empty() {

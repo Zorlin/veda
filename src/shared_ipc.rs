@@ -10,7 +10,7 @@ use tracing::{info, error, warn};
 use uuid;
 
 /// Get the appropriate socket path for the current OS
-fn get_socket_path() -> String {
+pub fn get_socket_path() -> String {
     #[cfg(target_os = "macos")]
     {
         // On macOS, use /tmp which is standard and accessible

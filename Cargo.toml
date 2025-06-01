@@ -7,12 +7,8 @@ description = "Terminal UI for managing Claude instances"
 license = "MIT"
 
 [[bin]]
-name = "veda-tui"
+name = "veda"
 path = "src/main.rs"
-
-[[bin]]
-name = "veda-mcp-server"
-path = "src/bin/veda-mcp-server.rs"
 
 [dependencies]
 # TUI framework

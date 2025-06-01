@@ -33,9 +33,9 @@ async fn test_ultimate_spawn_system_end_to_end() {
     tokio::spawn(async move {
         // Simulate registry receiving spawn request and routing directly to main process
         let spawn_msg = ClaudeMessage::VedaSpawnInstances {
-            instance_id: Uuid::new_v4(),
             task_description: "Ultimate test task".to_string(),
             num_instances: 3,
+            session_id: "test-session".to_string(),
         };
         
         if let Err(e) = tx_registry.send(spawn_msg).await {
