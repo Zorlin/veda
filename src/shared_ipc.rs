@@ -4,8 +4,10 @@ use tokio::sync::RwLock;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use anyhow::Result;
 use tracing::{info, error, warn};
+use uuid;
 
 /// Get the appropriate socket path for the current OS
 fn get_socket_path() -> String {
@@ -140,7 +142,7 @@ impl SharedInstanceRegistry {
 }
 
 /// Start the shared IPC server that multiple Veda instances can connect to
-pub async fn start_shared_ipc_server() -> Result<()> {
+pub async fn start_shared_ipc_server(app_tx: Option<tokio::sync::mpsc::Sender<crate::claude::ClaudeMessage>>) -> Result<()> {
     let socket_path = get_socket_path();
     
     // Remove existing socket if it exists
@@ -155,7 +157,8 @@ pub async fn start_shared_ipc_server() -> Result<()> {
         match listener.accept().await {
             Ok((socket, _)) => {
                 let registry = registry.clone();
-                tokio::spawn(handle_registry_connection(socket, registry));
+                let app_tx_clone = app_tx.clone();
+                tokio::spawn(handle_registry_connection(socket, registry, app_tx_clone));
             }
             Err(e) => {
                 error!("Failed to accept registry connection: {}", e);
@@ -167,6 +170,7 @@ pub async fn start_shared_ipc_server() -> Result<()> {
 async fn handle_registry_connection(
     mut socket: UnixStream,
     registry: SharedInstanceRegistry,
+    app_tx: Option<tokio::sync::mpsc::Sender<crate::claude::ClaudeMessage>>,
 ) {
     let (reader, mut writer) = socket.split();
     let mut reader = BufReader::new(reader);
@@ -177,8 +181,8 @@ async fn handle_registry_connection(
             break;
         }
         
-        match serde_json::from_str::<RegistryCommand>(&line) {
-            Ok(cmd) => {
+        // Try parsing as RegistryCommand first, then as MCP message
+        if let Ok(cmd) = serde_json::from_str::<RegistryCommand>(&line) {
                 let response = match cmd.command.as_str() {
                     "increment" => {
                         let count = cmd.value.unwrap_or(1);
@@ -273,10 +277,68 @@ async fn handle_registry_connection(
                     let _ = writer.write_all(response_json.as_bytes()).await;
                     let _ = writer.write_all(b"\n").await;
                 }
-            }
-            Err(e) => {
-                warn!("Failed to parse registry command: {}", e);
-            }
+        } else if let Ok(mcp_msg) = serde_json::from_str::<serde_json::Value>(&line) {
+            // Handle MCP-style messages
+            let response = if let Some(msg_type) = mcp_msg.get("type").and_then(|t| t.as_str()) {
+                match msg_type {
+                    "spawn_instances" => {
+                        let session_id = mcp_msg.get("session_id").and_then(|s| s.as_str()).unwrap_or("default");
+                        let num_instances = mcp_msg.get("num_instances").and_then(|n| n.as_u64()).unwrap_or(2) as u32;
+                        let task_description = mcp_msg.get("task_description").and_then(|s| s.as_str()).unwrap_or("Coordination task");
+                        
+                        let total = registry.increment_instances(session_id, num_instances).await;
+                        
+                        // Send spawn message to the main Veda process
+                        if let Some(veda_pid) = registry.get_session_pid(session_id).await {
+                            info!("Routing spawn message to Veda PID {} for session {}", veda_pid, session_id);
+                            
+                            // If we have app_tx (same process), send directly instead of through socket
+                            if let Some(ref app_tx) = app_tx {
+                                let spawn_msg = crate::claude::ClaudeMessage::VedaSpawnInstances {
+                                    instance_id: uuid::Uuid::new_v4(),
+                                    task_description: task_description.to_string(),
+                                    num_instances: num_instances as u8,
+                                };
+                                
+                                if let Err(e) = app_tx.send(spawn_msg).await {
+                                    warn!("Failed to send spawn message directly to main process: {}", e);
+                                }
+                            } else {
+                                // Fallback: send through socket for cross-process communication
+                                let routed_msg = json!({
+                                    "target_pid": veda_pid,
+                                    "message_type": "spawn_instances", 
+                                    "task_description": task_description,
+                                    "num_instances": num_instances
+                                });
+                                
+                                let _ = writer.write_all(format!("ROUTE_TO_PID:{}\n", serde_json::to_string(&routed_msg).unwrap_or_default()).as_bytes()).await;
+                            }
+                        }
+                        
+                        format!("✅ Spawning {} instances for session {}. Total: {}", num_instances, session_id, total)
+                    }
+                    "list_instances" => {
+                        let session_id = mcp_msg.get("session_id").and_then(|s| s.as_str()).unwrap_or("default");
+                        let count = registry.get_instances(session_id).await;
+                        let all_sessions = registry.get_all_sessions().await;
+                        format!("📋 Session '{}' has {} instances. All sessions: {:?}", session_id, count, all_sessions)
+                    }
+                    "close_instance" => {
+                        let session_id = mcp_msg.get("session_id").and_then(|s| s.as_str()).unwrap_or("default");
+                        let remaining = registry.decrement_instances(session_id, 1).await;
+                        format!("❌ Closed 1 instance for session {}. Remaining: {}", session_id, remaining)
+                    }
+                    _ => format!("❓ Unknown MCP message type: {}", msg_type)
+                }
+            } else {
+                "❓ Invalid MCP message format".to_string()
+            };
+            
+            let _ = writer.write_all(response.as_bytes()).await;
+            let _ = writer.write_all(b"\n").await;
+        } else {
+            warn!("Failed to parse message as either registry command or MCP message: {}", line);
         }
         
         line.clear();
@@ -438,3 +500,74 @@ impl RegistryClient {
         Ok(HashMap::new())
     }
 }
+
+/// Connect to the shared registry as a client to listen for routed messages
+pub async fn connect_to_registry_as_client(
+    app_tx: tokio::sync::mpsc::Sender<crate::claude::ClaudeMessage>,
+    veda_pid: u32,
+) -> Result<()> {
+    let socket_path = get_socket_path();
+    
+    loop {
+        match UnixStream::connect(&socket_path).await {
+            Ok(mut stream) => {
+                info!("Veda PID {} connected to registry as client", veda_pid);
+                
+                let (reader, mut writer) = stream.split();
+                let mut reader = BufReader::new(reader);
+                let mut line = String::new();
+                
+                // Send registration message
+                let register_msg = format!("{{\"command\":\"register_pid\",\"session_id\":\"{}\",\"value\":{}}}\n", 
+                    "client", veda_pid);
+                let _ = writer.write_all(register_msg.as_bytes()).await;
+                
+                // Listen for messages from registry
+                while reader.read_line(&mut line).await.is_ok() {
+                    if line.is_empty() {
+                        break;
+                    }
+                    
+                    // Check for routed messages
+                    if line.starts_with("ROUTE_TO_PID:") {
+                        let json_part = line.trim_start_matches("ROUTE_TO_PID:");
+                        if let Ok(routed_msg) = serde_json::from_str::<serde_json::Value>(json_part) {
+                            if let Some(target_pid) = routed_msg.get("target_pid").and_then(|p| p.as_u64()) {
+                                if target_pid as u32 == veda_pid {
+                                    // This message is for us!
+                                    info!("Received routed message for PID {}: {:?}", veda_pid, routed_msg);
+                                    
+                                    if routed_msg.get("message_type").and_then(|t| t.as_str()) == Some("spawn_instances") {
+                                        let task_desc = routed_msg.get("task_description").and_then(|t| t.as_str()).unwrap_or("Coordination task");
+                                        let num_instances = routed_msg.get("num_instances").and_then(|n| n.as_u64()).unwrap_or(2) as u8;
+                                        
+                                        let spawn_msg = crate::claude::ClaudeMessage::VedaSpawnInstances {
+                                            instance_id: uuid::Uuid::new_v4(),
+                                            task_description: task_desc.to_string(),
+                                            num_instances,
+                                        };
+                                        
+                                        if let Err(e) = app_tx.send(spawn_msg).await {
+                                            warn!("Failed to send spawn message to app: {}", e);
+                                        } else {
+                                            info!("Successfully routed spawn message to main app");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    line.clear();
+                }
+                
+                warn!("Registry connection lost for PID {}, reconnecting...", veda_pid);
+            }
+            Err(e) => {
+                warn!("Failed to connect to registry as client: {}, retrying in 5 seconds...", e);
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+        }
+    }
+}
+

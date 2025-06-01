@@ -15,7 +15,7 @@ pub enum ClaudeMessage {
     Error { error: String, session_id: Option<String> },
     Exited { code: Option<i32>, session_id: Option<String> },
     ToolUse { tool_name: String, session_id: Option<String> },
-    SessionStarted { session_id: String },
+    SessionStarted { session_id: String, target_tab_id: Option<uuid::Uuid> },
     ToolPermissionDenied { tool_name: String, session_id: Option<String> },
     // Instance management MCP calls
     VedaSpawnInstances { instance_id: Uuid, task_description: String, num_instances: u8 },
@@ -32,6 +32,11 @@ pub enum ClaudeMessage {
     // Inter-Veda coordination message
     CoordinationMessage { 
         message: crate::shared_ipc::VedaCoordinationMessage,
+    },
+    // Process handle update for tool auto-approval
+    ProcessHandleUpdate {
+        session_id: Option<String>,
+        process_handle: Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>,
     },
 }
 
@@ -89,9 +94,35 @@ pub struct ErrorInfo {
     pub message: String,
 }
 
+/// Check if a tool is already enabled in Claude's configuration
+pub async fn is_tool_enabled(tool_name: &str) -> Result<bool> {
+    let cmd = AsyncCommand::new("claude")
+        .arg("config")
+        .arg("get")
+        .arg("allowedTools")
+        .output()
+        .await?;
+    
+    if !cmd.status.success() {
+        tracing::warn!("Failed to check if tool {} is enabled", tool_name);
+        return Ok(false);
+    }
+    
+    let output = String::from_utf8_lossy(&cmd.stdout);
+    let is_enabled = output.contains(tool_name);
+    tracing::info!("Tool '{}' enabled status: {}", tool_name, is_enabled);
+    Ok(is_enabled)
+}
+
 /// Enable a tool in Claude's configuration
 pub async fn enable_claude_tool(tool_name: &str) -> Result<()> {
     tracing::info!("Enabling Claude tool: {}", tool_name);
+    
+    // Check if already enabled first
+    if let Ok(true) = is_tool_enabled(tool_name).await {
+        tracing::info!("Tool '{}' is already enabled, skipping", tool_name);
+        return Ok(());
+    }
     
     let cmd = AsyncCommand::new("claude")
         .arg("config")
@@ -116,7 +147,7 @@ pub async fn send_to_claude(
     message: String,
     tx: mpsc::Sender<ClaudeMessage>,
 ) -> Result<()> {
-    send_to_claude_with_session(message, tx, None, None).await
+    send_to_claude_with_session(message, tx, None, None, None).await
 }
 
 impl ClaudeStreamEvent {
@@ -149,6 +180,7 @@ pub async fn send_to_claude_with_session(
     tx: mpsc::Sender<ClaudeMessage>,
     session_id: Option<String>,
     process_handle_storage: Option<Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>>,
+    target_tab_id: Option<uuid::Uuid>,
 ) -> Result<()> {
     tracing::info!("send_to_claude_with_session called with message: {} (session: {:?})", message, session_id);
     
@@ -229,6 +261,7 @@ pub async fn send_to_claude_with_session(
                                 // Simple session started message - shared registry handles coordination
                                 let _ = tx_stdout.send(ClaudeMessage::SessionStarted {
                                     session_id,
+                                    target_tab_id,
                                 }).await;
                             }
                         }

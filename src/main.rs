@@ -205,18 +205,9 @@ impl ClaudeInstance {
         // Account for borders (2 lines) and ensure we don't over-scroll
         let actual_visible = visible_lines.saturating_sub(2);
         
-        if total_lines > actual_visible {
-            // Calculate scroll to show bottom content
-            // Subtract 1 to ensure the last line is visible
-            self.scroll_offset = (total_lines.saturating_sub(actual_visible)) as u16;
-            // Ensure scroll offset doesn't exceed reasonable bounds
-            if self.scroll_offset > 10000 {
-                tracing::error!("Excessive scroll offset detected: {}, resetting to safe value", self.scroll_offset);
-                self.scroll_offset = (total_lines.saturating_sub(actual_visible)).min(1000) as u16;
-            }
-        } else {
-            self.scroll_offset = 0;
-        }
+        // TEMPORARY FIX: Disable auto-scroll until we fix the calculation
+        // The scroll calculation is broken and hiding all content
+        self.scroll_offset = 0;
     }
 
     fn get_selected_text(&self) -> Option<String> {
@@ -889,7 +880,7 @@ This prompt appears only once per session. You now have full access to these pow
         // Send to Claude (no instance_id needed - only session_id for routing)
         tokio::spawn(async move {
             tracing::info!("Spawning send_to_claude task with session {:?} in dir {}", session_id, working_dir);
-            if let Err(e) = send_to_claude_with_session(context_message, tx, session_id, process_handle).await {
+            if let Err(e) = send_to_claude_with_session(context_message, tx, session_id, process_handle, None).await {
                 tracing::error!("Error sending to Claude: {}", e);
                 eprintln!("Error sending to Claude: {}", e);
             } else {
@@ -1264,7 +1255,7 @@ This prompt appears only once per session. You now have full access to these pow
                                     
                                     tokio::spawn(async move {
                                         tracing::info!("Sending DeepSeek verdict to Claude: {}", message_to_claude);
-                                        if let Err(e) = send_to_claude_with_session(message_to_claude, tx, Some(session_id), None).await {
+                                        if let Err(e) = send_to_claude_with_session(message_to_claude, tx, Some(session_id), None, None).await {
                                             tracing::error!("Failed to send DeepSeek response to Claude: {}", e);
                                         }
                                     });
@@ -1684,7 +1675,7 @@ Response:"#,
                                                         enabled_tools.join(", ")
                                                     );
                                                     
-                                                    if let Err(e) = send_to_claude_with_session(response, tx, Some(session_id), None).await {
+                                                    if let Err(e) = send_to_claude_with_session(response, tx, Some(session_id), None, None).await {
                                                         tracing::error!("Failed to send tool enablement message to Claude: {}", e);
                                                     }
                                                 }
@@ -1725,7 +1716,7 @@ Response:"#,
                                         if coordination_requested {
                                             // Send a message asking for user confirmation for coordination
                                             let coordination_response = "I can spawn additional Claude instances to work on this task in parallel. Would you like me to proceed with multi-instance coordination?";
-                                            if let Err(e) = send_to_claude_with_session(coordination_response.to_string(), tx.clone(), Some(session_id.clone()), None).await {
+                                            if let Err(e) = send_to_claude_with_session(coordination_response.to_string(), tx.clone(), Some(session_id.clone()), None, None).await {
                                                 tracing::error!("Failed to send coordination query: {}", e);
                                             }
                                         } else {
@@ -1842,12 +1833,20 @@ Response:"#,
                         }
                     }
                 }
-                ClaudeMessage::SessionStarted { session_id } => {
+                ClaudeMessage::SessionStarted { session_id, target_tab_id } => {
                     tracing::info!("🎬 SessionStarted received for session_id: {}", session_id);
                     
-                    // No target specified - find first instance without a session_id
-                    let target_instance_index = self.instances.iter().position(|i| i.session_id.is_none());
-                    tracing::info!("🔄 No target specified, using fallback assignment: {:?}", target_instance_index);
+                    let target_instance_index = if let Some(tab_id) = target_tab_id {
+                        // Find instance by tab ID
+                        let idx = self.instances.iter().position(|i| i.id == tab_id);
+                        tracing::info!("🔄 Target tab ID specified: {}, found instance: {:?}", tab_id, idx);
+                        idx
+                    } else {
+                        // Fallback: find first instance without a session_id
+                        let idx = self.instances.iter().position(|i| i.session_id.is_none());
+                        tracing::info!("🔄 No target specified, using fallback assignment: {:?}", idx);
+                        idx
+                    };
                     
                     self.assign_session_to_instance(target_instance_index, session_id);
                 }
@@ -1899,6 +1898,9 @@ Response:"#,
                                             }).await;
                                             
                                             // Kill the current process if it exists
+                                            if process_handle.is_none() {
+                                                tracing::error!("No process handle available for tool enablement interrupt!");
+                                            }
                                             let killed_process = if let Some(handle) = process_handle.clone() {
                                                 let mut handle_guard = handle.lock().await;
                                                 if let Some(ref mut child) = *handle_guard {
@@ -1968,14 +1970,19 @@ Response:"#,
                                             // Create a new process handle for the resumed session
                                             let new_handle = Arc::new(tokio::sync::Mutex::new(None));
                                             
-                                            // Update the instance's process handle
+                                            // Send message to update the instance's process handle in the main App
+                                            let _ = tx.send(ClaudeMessage::ProcessHandleUpdate {
+                                                session_id: session_id_copy.clone(),
+                                                process_handle: new_handle.clone(),
+                                            }).await;
+                                            
                                             let _ = tx.send(ClaudeMessage::StreamText {
                                                 text: format!("📝 Resuming session after enabling tool: {}", tool_name_copy),
                                                 session_id: session_id_copy.clone(),
                                             }).await;
                                             
                                             tracing::info!("Resuming session {:?} with tool {} enabled", session_id_copy, tool_name_copy);
-                                            if let Err(e) = send_to_claude_with_session(response, tx.clone(), session_id_copy.clone(), Some(new_handle.clone())).await {
+                                            if let Err(e) = send_to_claude_with_session(response, tx.clone(), session_id_copy.clone(), Some(new_handle.clone()), None).await {
                                                 tracing::error!("Failed to resume session {:?} with tool enablement: {}", session_id_copy, e);
                                             } else {
                                                 tracing::info!("Successfully initiated session resume for {:?} with tool {} enabled", session_id_copy, tool_name_copy);
@@ -2101,7 +2108,20 @@ Response:"#,
                             }
                             Ok(Err(e)) => {
                                 tracing::error!("Background coordination analysis error: {}", e);
-                                // Send fallback coordination message with intelligent task breakdown
+                                
+                                // Check if this is the missing model error
+                                if e.to_string().contains("Missing Ollama model 'gemma3:12b'") {
+                                    // Show the error to the user instead of falling back
+                                    if let Err(send_err) = tx.send(ClaudeMessage::StreamText {
+                                        text: e.to_string(),
+                                        session_id: None, // Will be routed to the main tab
+                                    }).await {
+                                        tracing::error!("Failed to send missing model error message: {}", send_err);
+                                    }
+                                    return; // Don't spawn instances, just show the error
+                                }
+                                
+                                // For other errors, send fallback coordination message with intelligent task breakdown
                                 let fallback_breakdown = format!(
                                     "SUBTASK_1: {} | SCOPE: Main project files | PRIORITY: High\nSUBTASK_2: Testing and validation | SCOPE: tests/ | PRIORITY: Medium\nSUBTASK_3: Documentation and cleanup | SCOPE: docs/, README.md | PRIORITY: Low", 
                                     task_desc_clone
@@ -2227,6 +2247,21 @@ Response:"#,
                                 message.from, 
                                 message.to.as_deref().unwrap_or("broadcast"),
                                 message.summary));
+                    }
+                }
+                ClaudeMessage::ProcessHandleUpdate { session_id, process_handle } => {
+                    tracing::info!("Updating process handle for session {:?}", session_id);
+                    
+                    // Find instance by session_id and update its process handle
+                    if let Some(session_id_val) = session_id {
+                        if let Some(instance) = self.instances.iter_mut().find(|i| i.session_id.as_ref() == Some(&session_id_val)) {
+                            instance.process_handle = Some(process_handle);
+                            tracing::info!("Successfully updated process handle for session {}", session_id_val);
+                        } else {
+                            tracing::warn!("Could not find instance with session_id {} to update process handle", session_id_val);
+                        }
+                    } else {
+                        tracing::warn!("ProcessHandleUpdate received without session_id");
                     }
                 }
             }
@@ -2432,9 +2467,25 @@ Your response:"#,
                             }
                         }
                     } else {
-                        tracing::warn!("Ollama API error: status {}", response.status());
+                        let status = response.status();
+                        tracing::warn!("Ollama API error: status {}", status);
+                        
+                        // Handle 404 as a specific case for missing model
+                        if status == reqwest::StatusCode::NOT_FOUND {
+                            return Err(anyhow::anyhow!(
+                                "❌ SPAWN FAILED: Missing Ollama model 'gemma3:12b'\n\n\
+                                To use Veda's multi-instance spawning feature, you need to install the gemma3:12b model:\n\
+                                \n\
+                                Run this command in your terminal:\n\
+                                ollama pull gemma3:12b\n\
+                                \n\
+                                This model is used for intelligent task breakdown and coordination between Claude instances.\n\
+                                Without it, spawning additional instances will not work."
+                            ));
+                        }
+                        
                         if retry_count >= max_retries {
-                            return Err(anyhow::anyhow!("Ollama API error after {} retries", max_retries));
+                            return Err(anyhow::anyhow!("Ollama API error after {} retries: status {}", max_retries, status));
                         }
                     }
                 }
@@ -2507,9 +2558,10 @@ Your response:"#,
             ];
             
             if requested_count > 0 {
+                let starting_count = self.instances.len();
                 for i in 0..requested_count.min(self.max_instances - self.instances.len()).min(fallback_subtasks.len()) {
                     let subtask_line = &fallback_subtasks[i];
-                    let instance_name = format!("Veda-{}", self.instances.len() + 1);
+                    let instance_name = format!("Veda-{}", starting_count + 1 + i);
                     
                     // Parse the fallback subtask like a real Gemma result
                     let task_parts: Vec<&str> = subtask_line.split(" | ").collect();
@@ -2580,6 +2632,10 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                     let coordination_message_owned = coordination_message.clone();
                     let instance_id_owned = instance_id; // Use the real instance ID
                     
+                    // Create process handle for the spawned instance before spawning
+                    let process_handle = Arc::new(tokio::sync::Mutex::new(None));
+                    self.instances.last_mut().unwrap().process_handle = Some(process_handle.clone());
+                    
                     tokio::spawn(async move {
                         // Wait a moment to ensure the UI has been updated
                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -2596,12 +2652,13 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
                         
                         tracing::info!("🚀 Auto-starting Claude Code for instance {} ({})", instance_id_owned, instance_name_owned);
                         
-                        // Spawn Claude Code instance with the real instance ID
+                        // Spawn Claude Code instance with the real instance ID and process handle
                         let spawn_result = crate::claude::send_to_claude_with_session(
                             coordination_message_owned,
                             tx.clone(),
                             None, // No session ID - let Claude generate one
-                            None,
+                            Some(process_handle), // Pass the process handle
+                            Some(instance_id_owned), // Target tab ID for session assignment
                         ).await;
                         
                         tracing::info!("🏁 Claude Code spawn result for {} ({}): {:?}", instance_name_owned, instance_id_owned, spawn_result.is_ok());
@@ -2636,6 +2693,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
         }
         
         // Spawn additional instances for each subtask (or up to requested count)
+        let starting_count = self.instances.len();
         for i in 0..instances_to_spawn {
             if self.instances.len() >= self.max_instances {
                 break;
@@ -2643,7 +2701,7 @@ IMPORTANT: Work efficiently and coordinate via TaskMaster!"#,
             
             let subtask = subtasks.get(i % subtasks.len()).unwrap_or(&"General coordination task");
             
-            let instance_name = format!("Veda-{}", self.instances.len() + 1);
+            let instance_name = format!("Veda-{}", starting_count + 1 + i);
             let mut new_instance = ClaudeInstance::new(instance_name);
             new_instance.working_directory = working_dir.to_string();
             
@@ -2702,7 +2760,10 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
             let instance_id = new_instance.id;
             let instance_name_copy = new_instance.name.clone();
             self.instances.push(new_instance);
-            // Session ID will be assigned when user first sends a message
+            
+            // Create and store process handle for the spawned instance
+            let process_handle = Arc::new(tokio::sync::Mutex::new(None));
+            self.instances.last_mut().unwrap().process_handle = Some(process_handle.clone());
             
             // Switch to the new instance briefly to show it was created
             if i == 0 {
@@ -2740,19 +2801,14 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                 
                 tracing::info!("Auto-starting Claude Code instance {} ({}) with task", instance_name_copy2, instance_id_copy);
                 
-                // Spawn Claude Code instance with the task instruction
-                // First set the instance-specific environment variable
-                std::env::set_var("VEDA_TARGET_INSTANCE_ID", instance_id_copy.to_string());
-                
+                // Spawn Claude Code instance with the task instruction and process handle
                 let spawn_result = crate::claude::send_to_claude_with_session(
                     task_instruction.clone(),
                     tx.clone(),
                     None, // No existing session for new instance
-                    None, // No process handle storage needed for new instance
+                    Some(process_handle), // Pass the process handle
+                    Some(instance_id_copy), // Target tab ID for session assignment
                 ).await;
-                
-                // Clean up the environment variable
-                std::env::remove_var("VEDA_TARGET_INSTANCE_ID");
                 
                 match spawn_result {
                     Ok(()) => {
@@ -2835,12 +2891,16 @@ IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
                 let tx = self.message_tx.clone();
                 let main_session_id = main_instance.session_id.clone();
                 
+                // Create and store process handle before spawning
+                let process_handle = Arc::new(tokio::sync::Mutex::new(None));
+                self.instances[0].process_handle = Some(process_handle.clone());
+                
                 tokio::spawn(async move {
                     // Wait a moment for the spawning messages to complete
                     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                     
                     tracing::info!("Auto-starting main instance with coordination task");
-                    if let Err(e) = send_to_claude_with_session(main_task_instruction, tx, main_session_id, None).await {
+                    if let Err(e) = send_to_claude_with_session(main_task_instruction, tx, main_session_id, Some(process_handle), None).await {
                         tracing::error!("Failed to auto-start main instance: {}", e);
                     }
                 });
@@ -3082,9 +3142,25 @@ async fn perform_gemma_analysis(prompt: &str) -> Result<String> {
                         }
                     }
                 } else {
-                    tracing::warn!("Ollama API error: status {}", response.status());
+                    let status = response.status();
+                    tracing::warn!("Ollama API error: status {}", status);
+                    
+                    // Handle 404 as a specific case for missing model
+                    if status == reqwest::StatusCode::NOT_FOUND {
+                        return Err(anyhow::anyhow!(
+                            "❌ SPAWN FAILED: Missing Ollama model 'gemma3:12b'\n\n\
+                            To use Veda's multi-instance spawning feature, you need to install the gemma3:12b model:\n\
+                            \n\
+                            Run this command in your terminal:\n\
+                            ollama pull gemma3:12b\n\
+                            \n\
+                            This model is used for intelligent task breakdown and coordination between Claude instances.\n\
+                            Without it, spawning additional instances will not work."
+                        ));
+                    }
+                    
                     if retry_count >= max_retries {
-                        return Err(anyhow::anyhow!("Ollama API error after {} retries", max_retries));
+                        return Err(anyhow::anyhow!("Ollama API error after {} retries: status {}", max_retries, status));
                     }
                 }
             }
@@ -3145,14 +3221,17 @@ async fn main() -> Result<()> {
     
     // Start the shared registry server (only one instance across all Veda processes)
     // If it's already running, this will fail silently which is expected
-    tokio::spawn(async {
-        if let Err(e) = crate::shared_ipc::start_shared_ipc_server().await {
+    let app_tx_for_registry = app.message_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::shared_ipc::start_shared_ipc_server(Some(app_tx_for_registry)).await {
             // Only log if it's not "address already in use" which is expected
             if !e.to_string().contains("Address already in use") {
                 tracing::warn!("Could not start shared registry server: {}", e);
             }
         }
     });
+    
+    // Note: No need to connect as client since registry server runs in same process
     
     // Check for instance name from environment (for spawned instances)
     if let Ok(instance_name) = std::env::var("VEDA_INSTANCE_NAME") {

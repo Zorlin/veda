@@ -200,7 +200,7 @@ pub async fn create_tool_call_response(request_id: &Value, tool_name: &str, tool
 
 async fn send_to_veda(session_id: &str, message: &Value) -> Result<String, Box<dyn std::error::Error>> {
     // Use shared socket that all Veda instances can connect to
-    let socket_path = "/tmp/veda-shared.sock";
+    let socket_path = "/tmp/veda-shared-registry.sock";
     let mut stream = UnixStream::connect(&socket_path).await?;
     
     // Send message
