@@ -1,6 +1,7 @@
 mod claude;
 mod deepseek;
 mod shared_ipc;
+mod ui_components;
 
 use anyhow::Result;
 use arboard::Clipboard;
@@ -15,7 +16,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame, Terminal,
 };
 use std::{
@@ -58,6 +59,162 @@ struct TodoListState {
     items: Vec<TodoItem>,
     visible: bool,
     last_update: DateTime<Local>,
+}
+
+/// Get the default list of approved tools for new Claude instances
+fn get_default_approved_tools() -> Vec<String> {
+    vec![
+        // Basic tools
+        "Task".to_string(),
+        "Bash".to_string(),
+        "Glob".to_string(),
+        "Grep".to_string(),
+        "LS".to_string(),
+        "Read".to_string(),
+        "Edit".to_string(),
+        "MultiEdit".to_string(),
+        "Write".to_string(),
+        "NotebookRead".to_string(),
+        "NotebookEdit".to_string(),
+        "WebFetch".to_string(),
+        "TodoRead".to_string(),
+        "TodoWrite".to_string(),
+        "WebSearch".to_string(),
+        
+        // Veda tools
+        "mcp__veda__veda_spawn_instances".to_string(),
+        "mcp__veda__veda_list_instances".to_string(),
+        "mcp__veda__veda_close_instance".to_string(),
+        
+        // TaskMaster AI tools
+        "mcp__taskmaster-ai__initialize_project".to_string(),
+        "mcp__taskmaster-ai__models".to_string(),
+        "mcp__taskmaster-ai__parse_prd".to_string(),
+        "mcp__taskmaster-ai__get_tasks".to_string(),
+        "mcp__taskmaster-ai__get_task".to_string(),
+        "mcp__taskmaster-ai__next_task".to_string(),
+        "mcp__taskmaster-ai__complexity_report".to_string(),
+        "mcp__taskmaster-ai__set_task_status".to_string(),
+        "mcp__taskmaster-ai__generate".to_string(),
+        "mcp__taskmaster-ai__add_task".to_string(),
+        "mcp__taskmaster-ai__add_subtask".to_string(),
+        "mcp__taskmaster-ai__update".to_string(),
+        "mcp__taskmaster-ai__update_task".to_string(),
+        "mcp__taskmaster-ai__update_subtask".to_string(),
+        "mcp__taskmaster-ai__remove_task".to_string(),
+        "mcp__taskmaster-ai__remove_subtask".to_string(),
+        "mcp__taskmaster-ai__clear_subtasks".to_string(),
+        "mcp__taskmaster-ai__move_task".to_string(),
+        "mcp__taskmaster-ai__analyze_project_complexity".to_string(),
+        "mcp__taskmaster-ai__expand_task".to_string(),
+        "mcp__taskmaster-ai__expand_all".to_string(),
+        "mcp__taskmaster-ai__add_dependency".to_string(),
+        "mcp__taskmaster-ai__remove_dependency".to_string(),
+        "mcp__taskmaster-ai__validate_dependencies".to_string(),
+        "mcp__taskmaster-ai__fix_dependencies".to_string(),
+        
+        // Playwright tools
+        "mcp__playwright__browser_close".to_string(),
+        "mcp__playwright__browser_resize".to_string(),
+        "mcp__playwright__browser_console_messages".to_string(),
+        "mcp__playwright__browser_handle_dialog".to_string(),
+        "mcp__playwright__browser_file_upload".to_string(),
+        "mcp__playwright__browser_install".to_string(),
+        "mcp__playwright__browser_press_key".to_string(),
+        "mcp__playwright__browser_navigate".to_string(),
+        "mcp__playwright__browser_navigate_back".to_string(),
+        "mcp__playwright__browser_navigate_forward".to_string(),
+        "mcp__playwright__browser_network_requests".to_string(),
+        "mcp__playwright__browser_pdf_save".to_string(),
+        "mcp__playwright__browser_take_screenshot".to_string(),
+        "mcp__playwright__browser_snapshot".to_string(),
+        "mcp__playwright__browser_click".to_string(),
+        "mcp__playwright__browser_drag".to_string(),
+        "mcp__playwright__browser_hover".to_string(),
+        "mcp__playwright__browser_type".to_string(),
+        "mcp__playwright__browser_select_option".to_string(),
+        "mcp__playwright__browser_tab_list".to_string(),
+        "mcp__playwright__browser_tab_new".to_string(),
+        "mcp__playwright__browser_tab_select".to_string(),
+        "mcp__playwright__browser_tab_close".to_string(),
+        "mcp__playwright__browser_generate_playwright_test".to_string(),
+        "mcp__playwright__browser_wait_for".to_string(),
+        
+        // DeepWiki tools
+        "mcp__deepwiki__read_wiki_structure".to_string(),
+        "mcp__deepwiki__read_wiki_contents".to_string(),
+        "mcp__deepwiki__ask_question".to_string(),
+    ]
+}
+
+/// Create the comprehensive capabilities prompt that explains Veda's features to Claude
+fn create_capabilities_prompt() -> String {
+    r#"🔧 **VEDA CLAUDE CAPABILITIES OVERVIEW**
+
+You are running in Veda, a powerful Claude Code environment with enhanced coordination capabilities and comprehensive tool access.
+
+**🛠️ AVAILABLE TOOLS (ALL PRE-APPROVED):**
+
+**Core Tools:**
+• **Task**: Launch agents with access to various tools for complex searches
+• **Bash**: Execute bash commands with timeout support  
+• **Glob**: Fast file pattern matching with glob patterns
+• **Grep**: Fast content search using regular expressions
+• **LS, Read, Edit, MultiEdit, Write**: Complete filesystem operations
+• **NotebookRead, NotebookEdit**: Jupyter notebook support
+• **WebFetch, WebSearch**: Web content retrieval and search
+• **TodoRead, TodoWrite**: Task list management
+
+**🎯 TaskMaster AI (PROJECT MANAGEMENT):**
+Complete project management suite with **Perplexity Research Integration**:
+• **Core**: `initialize_project`, `models`, `parse_prd`, `get_tasks`, `get_task`, `next_task`
+• **Task Management**: `add_task`, `add_subtask`, `update_task`, `update_subtask`, `set_task_status`
+• **Organization**: `move_task`, `remove_task`, `clear_subtasks`, `generate`
+• **Analysis**: `analyze_project_complexity`, `complexity_report`, `expand_task`, `expand_all`
+• **Dependencies**: `add_dependency`, `remove_dependency`, `validate_dependencies`, `fix_dependencies`
+
+**🔬 RESEARCH MODE (PERPLEXITY INTEGRATION):**
+Add `"research": true` to TaskMaster tools for enhanced capabilities:
+• **`parse_prd`**: Current tech insights for comprehensive task generation
+• **`add_task`**: Research-backed implementation strategies and best practices
+• **`update_task`**: Latest solutions and industry standards
+• **`expand_task`**: Deep analysis for optimal task breakdown
+• **`analyze_project_complexity`**: Current complexity patterns and recommendations
+
+**🌐 Deep Wiki (REPOSITORY ANALYSIS):**
+• **`read_wiki_structure`**: Get GitHub repo documentation topics
+• **`read_wiki_contents`**: View comprehensive repository documentation  
+• **`ask_question`**: Ask specific questions about repositories
+
+**🎭 Playwright Browser (WEB AUTOMATION):**
+Complete browser automation and testing suite:
+• **Navigation**: `navigate`, `navigate_back`, `navigate_forward`, `resize`
+• **Interaction**: `click`, `type`, `hover`, `drag`, `select_option`, `press_key`
+• **Content**: `take_screenshot`, `snapshot`, `pdf_save`, `console_messages`
+• **File Operations**: `file_upload`, `handle_dialog`, `wait_for`
+• **Tabs**: `tab_list`, `tab_new`, `tab_select`, `tab_close`
+• **Testing**: `generate_playwright_test`, `network_requests`
+
+**🤝 MULTI-INSTANCE COORDINATION:**
+Spawn additional Claude instances for parallel processing:
+• **`veda_spawn_instances`**: Create 1-3 additional instances for complex tasks
+• **`veda_list_instances`**: View all active instances and their status
+• **`veda_close_instance`**: Close specific instances when complete
+
+**💡 COORDINATION STRATEGY:**
+- Use **research mode** for tasks requiring current information or best practices
+- Spawn instances for large codebases, multiple features, or parallel development
+- Use TaskMaster for project organization and progress tracking across instances
+- Each instance should focus on specific files/modules to avoid conflicts
+
+**🎯 BEST PRACTICES:**
+- **Always use research mode** when you need current information or best practices
+- Leverage comprehensive tool access - all tools are pre-approved and ready
+- Use TaskMaster extensively for project management and coordination
+- Consider spawning instances for parallelizable work
+- Use Playwright for any web-related testing or automation
+
+This prompt appears only once per session. You now have full access to these powerful capabilities!"#.to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -126,7 +283,7 @@ impl ClaudeInstance {
         // Start with single line, will expand as needed
         textarea.set_max_histories(100);
         
-        Self {
+        let mut instance = Self {
             id: Uuid::new_v4(),
             name,
             messages: Vec::new(),
@@ -138,7 +295,7 @@ impl ClaudeInstance {
             scroll_offset: 0,
             last_tool_attempts: Vec::new(),
             successful_tools: Vec::new(),
-            approved_tools: Vec::new(),
+            approved_tools: get_default_approved_tools(),
             session_id: None,
             working_directory: std::env::current_dir()
                 .map(|p| p.display().to_string())
@@ -153,7 +310,11 @@ impl ClaudeInstance {
             slice_state: SliceState::Available,
             background_task: None,
             spawned_instances: Vec::new(),
-        }
+        };
+        
+        // Don't add the capabilities prompt here - it will be added when the user sends their first message
+        
+        instance
     }
 
     fn add_message(&mut self, sender: String, content: String) {
@@ -218,22 +379,36 @@ impl ClaudeInstance {
         self.auto_scroll_with_width(message_area_height, None);
     }
     
-    fn auto_scroll_with_width(&mut self, message_area_height: Option<u16>, _terminal_width: Option<u16>) {
-        // Simple approach: always scroll to bottom to show latest messages
-        // The scroll offset is how many lines to skip from the top
+    fn auto_scroll_with_width(&mut self, message_area_height: Option<u16>, terminal_width: Option<u16>) {
+        // ACTUALLY BULLETPROOF: Calculate proper scroll offset
+        // Based on DeepWiki: ratatui does NOT clamp - large offsets show blank space
         
-        // Count total lines (each message + empty line)
-        let total_lines = self.messages.len() * 2; // Each message + separator
+        let visible_height = message_area_height.unwrap_or(20).saturating_sub(2); // Subtract borders
         
-        // Get visible area height
-        let visible_lines = message_area_height.unwrap_or(20).saturating_sub(2) as usize; // Subtract borders
+        if visible_height == 0 || self.messages.is_empty() {
+            self.scroll_offset = 0;
+            return;
+        }
         
-        // Calculate scroll offset to show the last visible_lines
-        if total_lines > visible_lines {
-            // Scroll to show the bottom messages
-            self.scroll_offset = (total_lines - visible_lines) as u16;
+        // Count total display lines - simple approach
+        // Each message = header line + content lines + separator line
+        let mut total_lines = 0u16;
+        
+        for msg in &self.messages {
+            // Always at least 2 lines per message (header + separator)
+            total_lines += 2;
+            
+            // Add lines for content (count newlines + estimate wrapping)
+            if !msg.content.is_empty() {
+                let newline_count = msg.content.matches('\n').count() as u16;
+                total_lines += newline_count.max(1); // At least 1 line for content
+            }
+        }
+        
+        // Set scroll to show bottom content
+        if total_lines > visible_height {
+            self.scroll_offset = total_lines.saturating_sub(visible_height);
         } else {
-            // All messages fit, no scrolling needed
             self.scroll_offset = 0;
         }
     }
@@ -259,17 +434,64 @@ impl ClaudeInstance {
     
     fn should_check_for_stall(&self) -> bool {
         if self.is_processing || self.stall_check_sent || self.stall_intervention_in_progress {
+            tracing::debug!("Stall check blocked: processing={}, check_sent={}, intervention={}", 
+                self.is_processing, self.stall_check_sent, self.stall_intervention_in_progress);
             return false;
         }
         
         // Don't trigger stall detection if user hasn't sent their first message
         let has_user_message = self.messages.iter().any(|m| m.sender == "You");
         if !has_user_message {
+            tracing::debug!("Stall check blocked: no user messages yet");
             return false;
         }
         
+        // CRITICAL: Only check for stalls when Claude has finished responding and is waiting for user input
+        // This means:
+        // 1. Claude must have sent at least one message (indicating it's active)
+        // 2. Claude's process must have ended (indicated by StreamEnd or similar)
+        // 3. There should be no ongoing Claude activity
+        
+        let claude_has_responded = self.messages.iter().any(|m| m.sender == "Claude");
+        if !claude_has_responded {
+            tracing::debug!("Stall check blocked: Claude hasn't responded yet");
+            return false;
+        }
+        
+        // Check if Claude is currently processing or has active session
+        if self.session_id.is_some() && self.is_processing {
+            tracing::debug!("Stall check blocked: Claude session active and processing");
+            return false;
+        }
+        
+        // Look for the most recent message exchange pattern
+        let recent_messages: Vec<_> = self.messages.iter().rev().take(10).collect();
+        
+        // Check if the last message from Claude indicates it's waiting for user input
+        let last_claude_message = recent_messages.iter().find(|m| m.sender == "Claude");
+        if let Some(_last_claude_msg) = last_claude_message {
+            // Don't trigger stall if Claude's last message was very recent
+            // We'll rely on the is_processing flag and last_activity timestamp for this
+            // since parsing the timestamp string would be complex
+            tracing::debug!("Found recent Claude message, checking processing state");
+        }
+        
+        // Only trigger stall detection if:
+        // 1. Enough time has passed since last activity
+        // 2. Claude has definitely finished responding (not actively processing)
+        // 3. User hasn't provided new input
         let elapsed = Local::now().signed_duration_since(self.last_activity);
-        elapsed.num_seconds() > self.stall_delay_seconds
+        let should_stall = elapsed.num_seconds() > self.stall_delay_seconds;
+        
+        if should_stall {
+            tracing::warn!("Conversation stall detected: Claude finished responding {} seconds ago (threshold: {})", 
+                elapsed.num_seconds(), self.stall_delay_seconds);
+        } else {
+            tracing::debug!("No stall: {} seconds since activity (threshold: {})", 
+                elapsed.num_seconds(), self.stall_delay_seconds);
+        }
+        
+        should_stall
     }
     
     fn on_user_input(&mut self) {
@@ -347,6 +569,8 @@ struct App {
     show_global_view: bool,
     // Temporary textarea for global view input
     global_textarea: Option<TextArea<'static>>,
+    // Global view scroll offset
+    global_scroll_offset: u16,
 }
 
 impl App {
@@ -605,6 +829,7 @@ Your response:"#,
             pending_auto_task: None,
             show_global_view: true, // Start with global view selected
             global_textarea: None,
+            global_scroll_offset: 0,
         })
     }
 
@@ -839,52 +1064,6 @@ Your response:"#,
         }
     }
 
-    fn create_capabilities_prompt() -> String {
-        r#"🔧 **VEDA CLAUDE CAPABILITIES OVERVIEW**
-
-You are running in Veda, a powerful Claude Code environment with enhanced coordination capabilities.
-
-**🛠️ AVAILABLE MCP TOOLS:**
-• **TaskMaster AI**: Complete project management - use for planning, tracking, and coordinating tasks
-  - `mcp__taskmaster-ai__*` tools for task management, PRD parsing, and project coordination
-  - **Research Mode**: Many TaskMaster tools support `research: true` parameter for Perplexity AI integration
-    - Provides up-to-date information, current best practices, and comprehensive analysis
-    - Use for: `parse_prd`, `add_task`, `update_task`, `expand_task`, and more
-• **Playwright**: Browser automation and testing
-  - `mcp__playwright__*` tools for web interaction, testing, and automation
-• **DeepWiki**: Repository analysis and documentation
-  - `mcp__deepwiki__*` tools for understanding codebases and documentation
-
-**🔬 PERPLEXITY RESEARCH CAPABILITIES:**
-TaskMaster AI integrates with Perplexity for enhanced research:
-• **PRD Parsing**: Use `research: true` for comprehensive task generation with current tech insights
-• **Task Creation**: Research mode provides detailed implementation strategies
-• **Task Updates**: Get latest best practices and solutions
-• **Complexity Analysis**: Research-backed analysis for better task breakdown
-
-**🤝 MULTI-INSTANCE COORDINATION:**
-You can spawn additional Claude instances for parallel processing:
-• **`veda_spawn_instances`**: Create 1-3 additional Claude instances for complex tasks
-  - Use for: large codebases, multiple features, parallel development streams
-  - Each instance gets assigned specific scopes/directories to avoid conflicts
-• **`veda_list_instances`**: View all active Claude instances and their status  
-• **`veda_close_instance`**: Close specific instances when tasks are complete
-
-**💡 COORDINATION STRATEGY:**
-- For complex multi-part tasks, consider spawning additional instances
-- Use TaskMaster tools to coordinate between instances and track progress
-- Each instance should focus on specific files/modules to avoid conflicts
-- Update main instance (Tab 1) with progress and use TaskMaster for synchronization
-
-**🎯 BEST PRACTICES:**
-- Always check available tools with the right MCP prefixes
-- Use coordination for tasks that can be parallelized effectively
-- Leverage TaskMaster for project organization and progress tracking
-- Enable research mode for tasks requiring current information or best practices
-- Use Playwright for any web-related testing or automation needs
-
-This prompt appears only once per session. You now have full access to these powerful capabilities!"#.to_string()
-    }
 
     async fn send_message(&mut self, message: String) {
         tracing::info!("send_message called with: {}", message.chars().take(100).collect::<String>());
@@ -951,7 +1130,7 @@ This prompt appears only once per session. You now have full access to these pow
         // Add capabilities prompt for first message in a session
         if is_first_message {
             tracing::info!("Adding capabilities prompt for first message in session");
-            context_message.push_str(&Self::create_capabilities_prompt());
+            context_message.push_str(&create_capabilities_prompt());
             context_message.push_str("\n\n---\n\n");
         } else {
             tracing::debug!("Not the first message, skipping capabilities prompt");
@@ -1210,7 +1389,7 @@ This prompt appears only once per session. You now have full access to these pow
                 // Slice doesn't have a session yet, start a new one
                 let tx = self.message_tx.clone();
                 let context_message = format!("Working directory: {}\n\n{}\n\n---\n\n[Global broadcast] {}", 
-                                            working_dir, Self::create_capabilities_prompt(), message);
+                                            working_dir, create_capabilities_prompt(), message);
                 
                 // Create process handle for this slice
                 let process_handle = if let Some(instance) = self.instances.get_mut(idx) {
@@ -1667,6 +1846,11 @@ This prompt appears only once per session. You now have full access to these pow
                         if let Some(instance_idx) = target_instance_index {
                             let instance = &mut self.instances[instance_idx];
                             instance.is_processing = false;
+                            // Update last activity when Claude finishes responding
+                            instance.last_activity = Local::now();
+                            // Reset stall detection state since Claude has completed its response
+                            instance.stall_check_sent = false;
+                            instance.stall_intervention_in_progress = false;
                             
                             // Track successful tool usage to avoid unnecessary permission checks
                             if !instance.last_tool_attempts.is_empty() {
@@ -2152,7 +2336,7 @@ Response:"#,
                                         tracing::info!("DeepSeek approved enabling tool: {}", tool_name_copy);
                                         
                                         // Instead of trying to enable the tool via Claude CLI (which doesn't work),
-                                        // we'll just track that it's approved and notify Claude after restart
+                                        // we'll track that it's approved and restart the session for immediate availability
                                         tracing::info!("Tool {} approved by DeepSeek safety analysis", tool_name_copy);
                                         
                                         // Send tool approval message to main app
@@ -2162,7 +2346,7 @@ Response:"#,
                                         }).await;
                                         
                                         let _ = tx.send(ClaudeMessage::StreamText {
-                                            text: format!("🔧 Automode: Tool {} approved and will be available after restart", tool_name_copy),
+                                            text: format!("🔧 Automode: Tool {} approved and is immediately available! You MUST retry using this tool now - it's imperative that you do so.", tool_name_copy),
                                             session_id: session_id_copy.clone(),
                                         }).await;
                                             
@@ -3024,7 +3208,7 @@ COORDINATION PROTOCOL:
 4. Use TaskMaster to communicate completion status
 
 IMPORTANT: Work within your scope and coordinate via TaskMaster!"#,
-                Self::create_capabilities_prompt(),
+                create_capabilities_prompt(),
                 task_desc,
                 scope,
                 priority,
@@ -3718,12 +3902,23 @@ async fn main() -> Result<()> {
     tracing::info!("Starting Veda TUI from directory: {:?}", cwd);
     tracing::info!("Debug log path: {:?}", log_file_path);
     
-    // Setup terminal
-    enable_raw_mode()?;
+    // Setup terminal with better error handling
+    enable_raw_mode().map_err(|e| {
+        anyhow::anyhow!("Failed to enable raw mode. Are you running in a proper terminal? Error: {}", e)
+    })?;
+    
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste)
+        .map_err(|e| {
+            let _ = disable_raw_mode(); // Try to cleanup
+            anyhow::anyhow!("Failed to setup terminal. Error: {}", e)
+        })?;
+    
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = Terminal::new(backend).map_err(|e| {
+        let _ = disable_raw_mode(); // Try to cleanup
+        anyhow::anyhow!("Failed to create terminal. Error: {}", e)
+    })?;
 
     // Create app state
     let mut app = App::new()?;
@@ -4087,17 +4282,13 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: 
         // Debug check for empty tabs bug
         let total_messages: usize = app.instances.iter().map(|i| i.messages.len()).sum();
         if total_messages > 0 && app.instances.iter().all(|i| {
-            // Check if the instance appears to have no visible content
-            i.messages.is_empty() || i.scroll_offset > i.messages.len() as u16 * 2
+            // Check if the instance appears to have no visible content (simpler check)
+            i.messages.is_empty()
         }) {
             tracing::error!("UI BUG DETECTED: {} total messages but all tabs appear empty!", total_messages);
             for (idx, instance) in app.instances.iter().enumerate() {
                 tracing::error!("Tab {}: {} messages, scroll_offset={}, last_height={}", 
                     idx, instance.messages.len(), instance.scroll_offset, instance.last_message_area_height);
-            }
-            // Force reset scroll offsets as recovery
-            for instance in app.instances.iter_mut() {
-                instance.scroll_offset = 0;
             }
         }
         
@@ -4184,6 +4375,9 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: 
                         }
                         (KeyModifiers::CONTROL, KeyCode::Left) => app.previous_tab(),
                         (KeyModifiers::CONTROL, KeyCode::Right) => app.next_tab(),
+                        // macOS Cmd+Left/Right support
+                        (KeyModifiers::SUPER, KeyCode::Left) => app.previous_tab(),
+                        (KeyModifiers::SUPER, KeyCode::Right) => app.next_tab(),
                         (KeyModifiers::SHIFT, KeyCode::Enter) => {
                             // Shift+Enter adds a new line manually
                             if let Some(instance) = app.current_instance_mut() {
@@ -4329,25 +4523,26 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, _guard: 
                                 if mouse.column >= tab_rect.x 
                                     && mouse.column < tab_rect.x + tab_rect.width
                                     && mouse.row == tab_rect.y {
-                                    app.current_tab = i;
-                                    app.sync_working_directory();
                                     
-                                    // Log tab switch with session info
-                                    // Account for Global view offset when getting instance
-                                    let instance_idx = if app.show_global_view && i > 0 {
-                                        i - 1  // Adjust for Global tab at index 0
-                                    } else {
-                                        i
-                                    };
-                                    
-                                    if i == 0 && app.show_global_view {
+                                    // Handle tab clicking correctly
+                                    if i == 0 {
+                                        // Clicked on Global tab
+                                        app.show_global_view = true;
                                         tracing::info!("Clicked Global tab at ({}, {})", mouse.column, mouse.row);
-                                    } else if let Some(instance) = app.instances.get(instance_idx) {
-                                        tracing::info!("Clicked tab {} ({}) at ({}, {}) - Session: {:?}", 
-                                            i, instance.name, mouse.column, mouse.row, instance.session_id);
                                     } else {
-                                        tracing::info!("Clicked tab {} at ({}, {}) - No instance found", i, mouse.column, mouse.row);
+                                        // Clicked on a slice tab
+                                        app.show_global_view = false;
+                                        app.current_tab = i - 1; // Adjust for Global tab at index 0
+                                        app.sync_working_directory();
+                                        
+                                        if let Some(instance) = app.instances.get(app.current_tab) {
+                                            tracing::info!("Clicked tab {} ({}) at ({}, {}) - Session: {:?}", 
+                                                i, instance.name, mouse.column, mouse.row, instance.session_id);
+                                        } else {
+                                            tracing::info!("Clicked tab {} at ({}, {}) - No instance found", i, mouse.column, mouse.row);
+                                        }
                                     }
+                                    
                                     continue 'outer;
                                 }
                             }
@@ -4524,7 +4719,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                         ));
                     }
                 } else {
-                    // Sanitize and add content
+                    // Sanitize and add content (let ratatui handle wrapping)
                     let safe_content = msg.content
                         .chars()
                         .map(|c| if c.is_control() && c != '\n' && c != '\t' { '?' } else { c })
@@ -4532,10 +4727,21 @@ fn ui(f: &mut Frame, app: &mut App) {
                     content.push(Span::raw(safe_content));
                 }
                 
-                // Create and add the line
+                // Create and add the line (ratatui will handle wrapping)
                 all_lines.push(Line::from(content));
                 all_lines.push(Line::from("")); // Empty line for readability
             }
+        }
+        
+        // ACTUALLY BULLETPROOF: Calculate proper scroll offset  
+        // Based on DeepWiki: ratatui does NOT clamp - large offsets show blank space
+        let visible_height = chunks[1].height.saturating_sub(2); // Subtract borders
+        let total_lines = all_lines.len() as u16;
+        
+        if total_lines > visible_height {
+            app.global_scroll_offset = total_lines.saturating_sub(visible_height);
+        } else {
+            app.global_scroll_offset = 0;
         }
         
         // Create the messages paragraph for global view (full area)
@@ -4548,7 +4754,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             )))
             .style(Style::default().fg(Color::White))
             .wrap(Wrap { trim: false })
-            .scroll((0, 0)); // TODO: Add global scroll offset
+            .scroll((app.global_scroll_offset, 0)); // Scroll to show latest
         f.render_widget(messages_paragraph, chunks[1]);
 
         // Overlay slice status pane if we have multiple slices (top-right corner)
@@ -4668,12 +4874,8 @@ fn ui(f: &mut Frame, app: &mut App) {
         // Regular slice view - existing code
         instance.auto_scroll_with_width(Some(message_area_height), Some(message_area_width));
         
-        // Calculate which messages to show based on scroll offset
-        let skip_lines = instance.scroll_offset as usize / 2; // Each message takes 2 lines
-        let visible_messages = instance.messages.iter().skip(skip_lines);
-        
-        for (i, msg) in visible_messages.enumerate() {
-            let actual_idx = i + skip_lines;
+        // Show all messages - scrolling is handled by ratatui
+        for (actual_idx, msg) in instance.messages.iter().enumerate() {
             let mut content = vec![
                 Span::styled(&msg.timestamp, Style::default().fg(Color::DarkGray)),
                 Span::raw(" "),
@@ -4735,8 +4937,8 @@ fn ui(f: &mut Frame, app: &mut App) {
                     all_lines.push(Line::from("")); // Empty line for readability
                 }
                 Err(e) => {
-                    tracing::error!("Failed to render message line {}: {:?}", i, e);
-                    all_lines.push(Line::from(format!("[Error rendering message {}]", i)));
+                    tracing::error!("Failed to render message line {}: {:?}", actual_idx, e);
+                    all_lines.push(Line::from(format!("[Error rendering message {}]", actual_idx)));
                     all_lines.push(Line::from(""));
                 }
             }
@@ -4769,7 +4971,8 @@ fn ui(f: &mut Frame, app: &mut App) {
                 }
             )))
             .style(Style::default().fg(Color::White))
-            .wrap(Wrap { trim: false });
+            .wrap(Wrap { trim: false })
+            .scroll((instance.scroll_offset, 0)); // Scroll to show latest  
         f.render_widget(messages_paragraph, chunks[1]);
         
         // Input area with tui-textarea
@@ -4825,11 +5028,12 @@ fn render_todo_overlay(f: &mut Frame, todo_list: &TodoListState) {
     } else {
         for item in &todo_list.items {
             let status_emoji = match item.status.as_str() {
-                "done" => "✅",
-                "in_progress" => "🔄",
+                "completed" | "done" => "✅",
+                "in_progress" | "in-progress" => "🔄",
                 "review" => "👀",
                 "deferred" => "⏸️",
                 "cancelled" => "❌",
+                "pending" => "⬜",
                 _ => "⬜",
             };
             

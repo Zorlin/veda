@@ -35,7 +35,7 @@ pub fn get_socket_path() -> String {
 }
 
 /// Shared state for tracking instances across multiple Veda processes
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct SharedInstanceRegistry {
     /// Map of Session ID -> number of child instances
     session_instances: Arc<RwLock<HashMap<String, u32>>>,

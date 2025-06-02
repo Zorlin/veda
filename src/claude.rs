@@ -203,14 +203,52 @@ pub async fn send_to_claude_with_session(
         cmd.arg("--resume").arg(session);
     }
     
+    // Add comprehensive allowed tools list
+    let allowed_tools = vec![
+        // Core Tools
+        "Task", "Bash", "Glob", "Grep", "LS", "Read", "Edit", "MultiEdit", "Write", 
+        "NotebookRead", "NotebookEdit", "WebFetch", "TodoRead", "TodoWrite", "WebSearch",
+        
+        // MCP Tools - Task Master AI
+        "mcp__taskmaster-ai__initialize_project", "mcp__taskmaster-ai__models", "mcp__taskmaster-ai__parse_prd",
+        "mcp__taskmaster-ai__get_tasks", "mcp__taskmaster-ai__get_task", "mcp__taskmaster-ai__next_task",
+        "mcp__taskmaster-ai__complexity_report", "mcp__taskmaster-ai__set_task_status", "mcp__taskmaster-ai__generate",
+        "mcp__taskmaster-ai__add_task", "mcp__taskmaster-ai__add_subtask", "mcp__taskmaster-ai__update",
+        "mcp__taskmaster-ai__update_task", "mcp__taskmaster-ai__update_subtask", "mcp__taskmaster-ai__remove_task",
+        "mcp__taskmaster-ai__remove_subtask", "mcp__taskmaster-ai__clear_subtasks", "mcp__taskmaster-ai__move_task",
+        "mcp__taskmaster-ai__analyze_project_complexity", "mcp__taskmaster-ai__expand_task", "mcp__taskmaster-ai__expand_all",
+        "mcp__taskmaster-ai__add_dependency", "mcp__taskmaster-ai__remove_dependency", "mcp__taskmaster-ai__validate_dependencies",
+        "mcp__taskmaster-ai__fix_dependencies",
+        
+        // MCP Tools - Deep Wiki
+        "mcp__deepwiki__read_wiki_structure", "mcp__deepwiki__read_wiki_contents", "mcp__deepwiki__ask_question",
+        
+        // MCP Tools - Playwright Browser
+        "mcp__playwright__browser_close", "mcp__playwright__browser_resize", "mcp__playwright__browser_console_messages",
+        "mcp__playwright__browser_handle_dialog", "mcp__playwright__browser_file_upload", "mcp__playwright__browser_install",
+        "mcp__playwright__browser_press_key", "mcp__playwright__browser_navigate", "mcp__playwright__browser_navigate_back",
+        "mcp__playwright__browser_navigate_forward", "mcp__playwright__browser_network_requests", "mcp__playwright__browser_pdf_save",
+        "mcp__playwright__browser_take_screenshot", "mcp__playwright__browser_snapshot", "mcp__playwright__browser_click",
+        "mcp__playwright__browser_drag", "mcp__playwright__browser_hover", "mcp__playwright__browser_type",
+        "mcp__playwright__browser_select_option", "mcp__playwright__browser_tab_list", "mcp__playwright__browser_tab_new",
+        "mcp__playwright__browser_tab_select", "mcp__playwright__browser_tab_close", "mcp__playwright__browser_generate_playwright_test",
+        "mcp__playwright__browser_wait_for",
+    ];
+    
     cmd.arg("-p")
         .arg(&message)
         .arg("--output-format")
         .arg("stream-json")
         .arg("--verbose")
         .arg("--mcp-config")
-        .arg(".mcp.json")
-        .stdout(Stdio::piped())
+        .arg(".mcp.json");
+    
+    // Add all allowed tools
+    for tool in allowed_tools {
+        cmd.arg("--allowedTools").arg(tool);
+    }
+    
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped());
         
     let mut cmd = cmd.spawn()
@@ -308,6 +346,23 @@ pub async fn send_to_claude_with_session(
                                             "veda_close_instance" => {
                                                 let _ = tx_stdout.send(ClaudeMessage::VedaCloseInstance {
                                                     session_id: session_id.clone(),
+                                                }).await;
+                                            }
+                                            "TodoWrite" => {
+                                                // Extract todo data from input and send as StreamText for parsing
+                                                if let Some(todos_value) = input.as_object()
+                                                    .and_then(|obj| obj.get("todos")) {
+                                                    let todos_json = serde_json::to_string(todos_value).unwrap_or_default();
+                                                    tracing::info!("Intercepted TodoWrite with data: {}", todos_json);
+                                                    let _ = tx_stdout.send(ClaudeMessage::StreamText {
+                                                        text: todos_json,
+                                                        session_id: Some(session_id.clone()),
+                                                    }).await;
+                                                }
+                                                // Also send the regular tool use message
+                                                let _ = tx_stdout.send(ClaudeMessage::ToolUse {
+                                                    tool_name: name,
+                                                    session_id: Some(session_id.clone()),
                                                 }).await;
                                             }
                                             _ => {

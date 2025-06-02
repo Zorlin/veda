@@ -4,6 +4,7 @@ use serde_json::json;
 use reqwest;
 use tokio::sync::mpsc;
 use futures_util::StreamExt;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize)]
 #[allow(dead_code)]
@@ -37,6 +38,68 @@ pub enum DeepSeekMessage {
     Text { text: String, is_thinking: bool },
     End,
     Error { error: String },
+}
+
+/// Aggressive Ollama request with retry logic and half-exponential backoff
+async fn make_ollama_request_with_retry(
+    url: &str,
+    request_body: &serde_json::Value,
+    _stream: bool,
+) -> Result<reqwest::Response> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90)) // Very long timeout of 90s
+        .build()?;
+    
+    let mut delay = Duration::from_secs(3); // Start with 3s delay
+    let max_delay = Duration::from_secs(30); // Cap delay at 30s
+    let max_retries = 30; // Allow many retries within 90s window
+    
+    for attempt in 1..=max_retries {
+        tracing::info!("Ollama request attempt {}/{} to {}", attempt, max_retries, url);
+        
+        let response_result = client
+            .post(url)
+            .json(request_body)
+            .send()
+            .await;
+        
+        match response_result {
+            Ok(response) => {
+                if response.status().is_success() {
+                    tracing::info!("Ollama request succeeded on attempt {}", attempt);
+                    return Ok(response);
+                } else {
+                    let status = response.status();
+                    let error_text = response.text().await.unwrap_or_default();
+                    tracing::warn!("Ollama request attempt {} failed with status {}: {}", 
+                        attempt, status, error_text);
+                    
+                    if attempt == max_retries {
+                        return Err(anyhow::anyhow!("Ollama request failed after {} attempts. Last error: {}", 
+                            max_retries, error_text));
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Ollama request attempt {} failed with error: {}", attempt, e);
+                
+                if attempt == max_retries {
+                    return Err(anyhow::anyhow!("Ollama request failed after {} attempts. Last error: {}", 
+                        max_retries, e));
+                }
+            }
+        }
+        
+        // Half-exponential backoff: delay *= 1.5
+        tracing::info!("Retrying Ollama request in {:?}", delay);
+        tokio::time::sleep(delay).await;
+        delay = std::cmp::min(
+            Duration::from_millis((delay.as_millis() as f64 * 1.5) as u64),
+            max_delay
+        );
+    }
+    
+    Err(anyhow::anyhow!("Ollama request failed after {} attempts", max_retries))
 }
 
 /// Analyze Claude's message to determine if it's asking a question or needs documentation/project management
@@ -122,18 +185,14 @@ Your response (one line only):"#,
         "stream": false
     });
     
-    let client = reqwest::Client::new();
-    let response = client
-        .post("http://localhost:11434/api/generate")
-        .json(&request_body)
-        .send()
-        .await?;
-    
-    if !response.status().is_success() {
-        let error_text = response.text().await?;
-        tracing::error!("Ollama API error: {}", error_text);
-        return Ok(None);
-    }
+    let response = make_ollama_request_with_retry(
+        "http://localhost:11434/api/generate",
+        &request_body,
+        false
+    ).await.map_err(|e| {
+        tracing::error!("Ollama request failed after all retries: {}", e);
+        e
+    })?;
     
     let ollama_response: OllamaResponse = response.json().await?;
     let response_text = ollama_response.response.trim();
@@ -242,20 +301,16 @@ MESSAGE_TO_CLAUDE_WITH_VERDICT:"#,
         "stream": true
     });
     
-    // Make HTTP request to Ollama API
-    let client = reqwest::Client::new();
-    let response = client
-        .post("http://localhost:11434/api/generate")
-        .json(&request_body)
-        .send()
-        .await?;
-    
-    if !response.status().is_success() {
-        let error_text = response.text().await?;
-        tracing::error!("Ollama API error: {}", error_text);
-        let _ = tx.send(DeepSeekMessage::Error { error: error_text.clone() }).await;
-        return Err(anyhow::anyhow!("Ollama API error: {}", error_text));
-    }
+    // Make HTTP request to Ollama API with aggressive retry
+    let response = make_ollama_request_with_retry(
+        "http://localhost:11434/api/generate",
+        &request_body,
+        true
+    ).await.map_err(|e| {
+        tracing::error!("Ollama stall response request failed after all retries: {}", e);
+        let _ = tx.try_send(DeepSeekMessage::Error { error: e.to_string() });
+        e
+    })?;
     
     // Start streaming
     let _ = tx.send(DeepSeekMessage::Start { is_thinking: false }).await;
@@ -640,20 +695,16 @@ Important instructions:
         "stream": true
     });
     
-    // Make HTTP request to Ollama API
-    let client = reqwest::Client::new();
-    let response = client
-        .post("http://localhost:11434/api/generate")
-        .json(&request_body)
-        .send()
-        .await?;
-    
-    if !response.status().is_success() {
-        let error_text = response.text().await?;
-        tracing::error!("Ollama API error: {}", error_text);
-        let _ = tx.send(DeepSeekMessage::Error { error: error_text.clone() }).await;
-        return Err(anyhow::anyhow!("Ollama API error: {}", error_text));
-    }
+    // Make HTTP request to Ollama API with aggressive retry
+    let response = make_ollama_request_with_retry(
+        "http://localhost:11434/api/generate",
+        &request_body,
+        true
+    ).await.map_err(|e| {
+        tracing::error!("Ollama streaming response request failed after all retries: {}", e);
+        let _ = tx.try_send(DeepSeekMessage::Error { error: e.to_string() });
+        e
+    })?;
     
     // Start streaming
     let _ = tx.send(DeepSeekMessage::Start { is_thinking: false }).await;
@@ -783,19 +834,15 @@ Important instructions:
         "stream": false
     });
     
-    // Make HTTP request to Ollama API
-    let client = reqwest::Client::new();
-    let response = client
-        .post("http://localhost:11434/api/generate")
-        .json(&request_body)
-        .send()
-        .await?;
-    
-    if !response.status().is_success() {
-        let error_text = response.text().await?;
-        tracing::error!("Ollama API error: {}", error_text);
-        return Err(anyhow::anyhow!("Ollama API error: {}", error_text));
-    }
+    // Make HTTP request to Ollama API with aggressive retry
+    let response = make_ollama_request_with_retry(
+        "http://localhost:11434/api/generate",
+        &request_body,
+        false
+    ).await.map_err(|e| {
+        tracing::error!("Ollama non-streaming response request failed after all retries: {}", e);
+        e
+    })?;
     
     let ollama_response: OllamaResponse = response.json().await?;
     

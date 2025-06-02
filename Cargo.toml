@@ -14,6 +14,7 @@ path = "src/main.rs"
 # TUI framework
 ratatui = "0.29"
 crossterm = "0.28"
+iocraft = "0.7.9"
 
 # Async runtime
 tokio = { version = "1.36", features = ["full"] }
